@@ -69,7 +69,7 @@ PYTHONPATH=amrsim-participants python -m amrsim batch \
 
 ```bash
 uv run ruff check       # Быстрый линтинг Python
-uv run pytest -v        # 239 автоматических тестов (алгоритмы, сервер, оценка)
+uv run pytest -v        # 242 автоматических теста (алгоритмы, сервер, оценка)
 ```
 
 ## АРМ Оператора (Критерий О3 — 15 баллов)
@@ -87,7 +87,7 @@ python arm/server.py --port 8000
 cd arm/frontend
 npm install
 npm run lint    # Проверка типов TypeScript (tsc --noEmit)
-npm test        # 88 тестов Vitest
+npm test        # 89 тестов Vitest
 npm run build   # Сборка SPA в arm/frontend/dist
 ```
 
@@ -110,7 +110,7 @@ arm/                   # Рабочее место оператора (крит�
   README.md            # Инструкция запуска АРМ
   frontend/            # React + Vite + Tailwind + Canvas 2D + KaTeX
 scenarios/             # Открытые (01..04) и кастомные сценарии (s1..s5, критерий О4)
-tests/                 # 239 модульных тестов: алгоритмы, сервер, метрики (критерий Т5)
+tests/                 # 242 модульных теста: алгоритмы, сервер, метрики (критерий Т5)
 results/               # Отчёты score: seed_packet (4x7), свои сценарии и логи, моменты (О2, О4)
 APPROACH.md            # Корневой файл обоснования подхода (критерии Т3, О1)
 presentation.pdf       # Презентация к защите до 12 слайдов (критерий О5)

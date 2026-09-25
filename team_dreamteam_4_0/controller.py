@@ -364,7 +364,13 @@ class Controller:
             combined_note = safety_note or route_note or ""
 
         # Статус определяется по измеренной одометрии, пока платформа движется
-        final_status = "moving" if abs(v_odom) > 0.04 else status
+        # При экстренном торможении (estop) сохраняется статус estop для включения тормоза 2.5 м/с2
+        if status == "estop":
+            final_status = "estop"
+        elif abs(v_odom) > 0.04:
+            final_status = "moving"
+        else:
+            final_status = status
 
         return {
             "v": float(v_safe),

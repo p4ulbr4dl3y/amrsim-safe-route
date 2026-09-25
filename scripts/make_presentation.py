@@ -1271,7 +1271,7 @@ def slide_11_limits(c, ctx):
                       "Что не получилось, где данные неполные и какая у этого цена")
 
     grid_step, grid_inlier = extract_approach(
-        ctx["approach"], r"шаг сетки ([\d.]+) м при допуске инлайнера ([\d.]+) м")
+        ctx["approach"], r"шаг сетки ([\d.]+) м согласован с допуском инлайнера ([\d.]+) м")
     lost_seed7 = moment_by_key(section_for(ctx["moments"], "s4b_shadow_lane_lost", 7),
                                "lane_lost_status")
     lost_seed1_section = section_for(ctx["moments"], "s4b_shadow_lane_lost", 1)
@@ -1286,7 +1286,7 @@ def slide_11_limits(c, ctx):
     agg_03 = ctx["agg"]["03_fog_snow"]
 
     items = [
-        ("Промах сетки поиска позы: ", "шаг сетки %s м при допуске инлайнера %s м. Смещение между узлами не набирает инлайнеров, и платформа остается стоять. Это главный незакрытый дефект." % (grid_step, grid_inlier)),
+        ("Сетка поиска позы при потере: ", "шаг сетки %s м согласован с допуском инлайнера %s м (дефект устранен: при стоянии гипотезы набирают соответствия). Поиск работает только стоя." % (grid_step, grid_inlier)),
         ("Потеря ориентации на seed 7: ", "в s4b seed 7 потери нет (момент найден: %s, note «%s»). Поэтому потеря показана на контрольном прогоне seed 1, где note lost есть на t = %s, status=lost на t = %s..%s, восстановление на t = %s." % (
             lost_seed7["found"], lost_seed7["note"], moment_by_key(lost_seed1_section, "lane_lost_nt")["t"],
             moment_by_key(lost_seed1_section, "lane_lost_status")["t"],
@@ -1320,7 +1320,7 @@ def slide_12_repro(c, ctx):
         ["Открытые прогоны", "counted 28 из 28", "4 сценария x 7 seed"],
     ]
     y_after_table = draw_table(c, MARGIN, top - 4.0, [120.0, 150.0, 220.0], rows,
-                               size=8.6, leading=10.6, aligns=["l", "l", "l"])
+                                size=8.6, leading=10.6, aligns=["l", "l", "l"])
 
     commands = [
         ("Установка: ", "uv sync (или pip install -r requirements.txt, только numpy)."),
@@ -1336,10 +1336,10 @@ def slide_12_repro(c, ctx):
     c.setFont(FONT_BOLD, 10)
     c.drawString(MARGIN, y - 4.0, "Выводы и что дальше")
     conclusions = [
-        "Закрыты Т1-Т5 и О1-О4: 02_gnss_shadow берется на всех seed, 01, 03, 04 проходят без столкновений и наездов, pose честная, изоляция чистая.",
-        "Первый приоритет - промах сетки поиска позы на 0.5 м: нужен шаг не грубее допуска инлайнера, иначе lost может не восстановиться.",
+        "Закрыты Т2-Т5 и О1-О4: 02_gnss_shadow берется на всех seed, 01, 03, 04 проходят без столкновений и наездов, pose честная, изоляция чистая.",
+        "Первый приоритет - официальный прогон на скрытом наборе организаторов (Т1) для подтверждения живучести на закрытых тестах.",
         "Второй приоритет - вернуть efficiency на 03_fog_snow, не срезая зазоры безопасности.",
-        "Далее - прогнать контроллер на скрытом наборе того же формата и подтвердить поведение в lost на нескольких seed.",
+        "Далее - зафиксировать воспроизводимость АРМ и логи телеметрии на всех seed.",
     ]
     draw_bullets(c, MARGIN, y - 18.0, conclusions, size=8.8, leading=11.0,
                  max_width=CONTENT_W)

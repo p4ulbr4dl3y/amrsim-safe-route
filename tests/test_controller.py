@@ -408,6 +408,17 @@ class TestControllerUnits(unittest.TestCase):
         res = ctrl.step(obs)
         self.assertEqual(res["note"], "offset dy=0.3")
 
+    def test_estop_status_preserved_while_moving(self):
+        """Статус estop сохраняется даже при ненулевой скорости одометрии."""
+        ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+        ctrl.safety.evaluate = lambda **kwargs: (0.0, 0.0, "estop", "estop close_gap")
+
+        obs = make_obs(ctrl)
+        obs["odom"]["dx"] = 0.08  # v_odom = dx / dt = 0.8 м/с (> 0.04 м/с)
+        res = ctrl.step(obs)
+        self.assertEqual(res["status"], "estop")
+        self.assertEqual(res["v"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
