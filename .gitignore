@@ -49,3 +49,8 @@ out/
 
 # тиковые логи batch (31 МБ, воспроизводятся командой из README) в git не кладём
 results/table_runs/logs/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

@@ -69,11 +69,30 @@ PYTHONPATH=amrsim-participants .venv/bin/python -m amrsim batch \
 ## Тесты
 
 ```bash
-.venv/bin/python -m unittest discover -s tests
+uv run pytest tests/
 ```
 
-`tests/` контроллер не импортирует; тесты написаны на stdlib и numpy и проверяют
-поведение модулей (локализация, маршрут, безопасность, восприятие).
+`tests/` контроллер не импортирует; тесты проверяют алгоритмы (локализация, маршрут, безопасность, восприятие) и SDUI сервер.
+
+## АРМ Оператора (Frontend & SDUI Server)
+
+Веб-станция оператора с Server-Driven UI, 2D Canvas картой и Replay Studio.
+
+1. Запуск SDUI бэкенда:
+```bash
+uv run python3 scripts/server.py --port 8000
+```
+
+2. Запуск фронтенда оператора:
+```bash
+cd frontend && npm install && npm run dev
+```
+
+3. Тесты и сборка фронтенда:
+```bash
+cd frontend && npm test -- --run
+cd frontend && npm run build
+```
 
 ## Состав репозитория
 
@@ -89,7 +108,11 @@ team/
   requirements.txt  # одна строка: numpy
   scenarios/        # свои проверки О4 (s1_pallet_2m, s2_container_block, s3_wall_removed,
                     #   s4_shadow_start_charger, s5_fog_inattentive)
-tests/              # unittest: test_geom, test_localize, test_perceive, test_route, test_safety
+frontend/           # АРМ Оператора: React + Vite + Tailwind + Canvas 2D + KaTeX
+scripts/
+  server.py         # SDUI API сервер для АРМ Оператора
+  eval.py           # оценка и сводка бенчмарков
+tests/              # модульные тесты: контроллер, алгоритмы, SDUI сервер
 results/            # отчёты score: baseline_*.json и team_*.json по сценариям 01-04
 amrsim-participants/  # SDK симулятора amr-sim 0.2 (вне команды, только для запуска)
 out/                # выход прогонов: --report, --log, таблицы batch (в .gitignore)
