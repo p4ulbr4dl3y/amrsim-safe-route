@@ -498,5 +498,144 @@ class TestSafety(unittest.TestCase):
         self.assertEqual(w_safe, 0.0)
 
 
+    # --- D2: human limits are scoped to is_human = is_pedestrian or is_unknown ---
+
+    def _eval(self, tracks, v_cand=1.39, v_odom=0.3, w_cand=0.0, gov=None, ranges=None, **kw):
+        """Run one SafetyGovernor.evaluate with a clear 20 m lidar unless overridden."""
+        gov = gov if gov is not None else SafetyGovernor(v_top=1.39, dt=0.1)
+        return gov.evaluate(
+            v_cand=v_cand,
+            w_cand=w_cand,
+            v_odom=v_odom,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=tracks,
+            ranges=np.full(360, 20.0) if ranges is None else ranges,
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+            **kw,
+        )
+
+    def _track(self, ox, oy, label, dyn):
+        tr = Track(track_id=1, ox=ox, oy=oy)
+        tr.pts = np.array([[ox, oy]], dtype=float)
+        tr.class_label = label
+        tr.dyn = dyn
+        return tr
+
+    def test_object_side_gap_two_meters_does_not_limit_speed(self):
+        # (a) Confirmed static object to the side with a 2.0 m honest gap: it is outside the
+        # swept corridor and further than the braking path, so it must not limit v at all.
+        obj = self._track(0.6, 2.837, "static_object", False)  # hypot = 2.9 -> gap 2.0
+        self.assertAlmostEqual(calculate_clearance(obj.pts, is_pedestrian=False), 2.0, places=3)
+        v_safe, _, _, note = self._eval([obj])
+        self.assertAlmostEqual(v_safe, 1.39)
+        self.assertNotIn("slow_person", note)
+        self.assertNotIn("stop_person", note)
+        self.assertNotIn("stop_object", note)
+
+    def test_object_in_swept_corridor_stops(self):
+        # (b) Confirmed static object inside the swept corridor: v = 0 and rotation is zeroed.
+        obj = self._track(1.2, 0.0, "static_object", False)
+        v_safe, w_safe, _, note = self._eval([obj], v_cand=1.39, v_odom=0.3, w_cand=0.4)
+        self.assertEqual(v_safe, 0.0)
+        self.assertEqual(w_safe, 0.0)
+        self.assertIn("stop_object", note)
+
+    def test_human_gap_three_meters_caps_speed(self):
+        # (c) Person with a 3.0 m clearance (< 3.3 m) -> v <= 0.22, not a full stop.
+        human = self._track(4.2, 0.0, "pedestrian", True)  # 4.2 - 0.9 - 0.3 = 3.0
+        v_safe, _, _, note = self._eval([human], v_cand=1.39, v_odom=0.1)
+        self.assertLessEqual(v_safe, 0.22)
+        self.assertGreater(v_safe, 0.0)
+        self.assertIn("slow_person", note)
+
+    def test_human_gap_below_stop_gap_stops(self):
+        # (d) Person with a 0.7 m clearance (< 0.8 m) -> v = 0.
+        human = self._track(1.9, 0.0, "pedestrian", True)  # 1.9 - 1.2 = 0.7
+        v_safe, _, _, note = self._eval([human], v_cand=1.39, v_odom=0.3)
+        self.assertEqual(v_safe, 0.0)
+        self.assertIn("stop_person", note)
+
+    def test_human_limits_not_applied_to_static_object(self):
+        # A confirmed static object at the same geometry where a person would be capped at
+        # 0.22 m/s must stay unrestricted: the 3.0 m human gap rule does not apply to objects.
+        obj = self._track(3.7, 0.0, "static_object", False)  # honest gap 2.8 m
+        v_obj, _, _, note_obj = self._eval([obj], v_cand=1.39, v_odom=0.3)
+        self.assertGreater(v_obj, 0.22)
+        self.assertAlmostEqual(v_obj, 1.39)
+        self.assertNotIn("slow_person", note_obj)
+        self.assertNotIn("stop_person", note_obj)
+
+        human = self._track(3.7, 0.0, "pedestrian", True)  # clearance 2.5 m -> human cap
+        v_hum, _, _, note_hum = self._eval([human], v_cand=1.39, v_odom=0.3)
+        self.assertLessEqual(v_hum, 0.22)
+        self.assertIn("slow_person", note_hum)
+
+    def test_human_limits_not_applied_to_wall(self):
+        # An unmapped wall with the same clearance as a person is an obstacle only through the
+        # corridor/braking rule, never through the 3.3 m/0.22 m/s human rule.
+        wall = self._track(3.7, 0.0, "wall_extra", False)  # honest gap 2.8 m
+        self.assertTrue(wall.is_wall)
+        v_wall, _, _, note_wall = self._eval([wall], v_cand=1.39, v_odom=0.3)
+        self.assertAlmostEqual(v_wall, 1.39)
+        self.assertNotIn("slow_person", note_wall)
+        self.assertNotIn("stop_person", note_wall)
+
+        # The same wall inside the corridor is still a hard stop with the object note.
+        wall_close = self._track(1.5, 0.0, "wall_extra", False)
+        v_close, w_close, _, note_close = self._eval(
+            [wall_close], v_cand=1.39, v_odom=0.3, w_cand=0.4
+        )
+        self.assertEqual(v_close, 0.0)
+        self.assertEqual(w_close, 0.0)
+        self.assertIn("stop_object", note_close)
+        self.assertNotIn("stop_person", note_close)
+
+    def test_object_front_honest_gap_below_stop_gap_stops(self):
+        # plan/03:56: a confirmed object straight ahead in the swept frontal band whose honest
+        # gap (no 0.3 m pedestrian radius) is below 0.8 m must stop the platform even from rest
+        # and even though the braking-reach corridor test does not reach it yet.
+        obj = self._track(1.6, 0.4, "static_object", False)  # hypot 1.649 -> gap 0.749
+        self.assertLess(calculate_clearance(obj.pts, is_pedestrian=False), 0.8)
+        v_safe, w_safe, _, note = self._eval(
+            [obj], v_cand=1.39, v_odom=0.0, w_cand=0.3
+        )
+        self.assertEqual(v_safe, 0.0)
+        self.assertEqual(w_safe, 0.0)
+        self.assertIn("stop_object", note)
+
+        # Just above the threshold the object stays permissive (gap 0.824 m > 0.8 m).
+        obj_ok = self._track(1.65, 0.5, "static_object", False)
+        v_ok, _, _, _ = self._eval([obj_ok], v_cand=1.39, v_odom=0.0)
+        self.assertGreater(v_ok, 0.0)
+
+    def test_object_does_not_hold_person_latch(self):
+        # The person-stop latch is human-only: once the person is gone, a static object ahead
+        # must not keep the human hold alive beyond the short dropout guard.
+        human = self._track(1.9, 0.0, "pedestrian", True)  # clearance 0.7 m -> latch
+        gov = SafetyGovernor(v_top=1.39, dt=0.1)
+        v_first, _, _, note_first = self._eval([human], v_odom=0.0, gov=gov)
+        self.assertEqual(v_first, 0.0)
+        self.assertIn("stop_person", note_first)
+
+        obj = self._track(3.7, 0.0, "static_object", False)  # honest gap 2.8 m, not in corridor
+        v_last, note_last = None, None
+        for _ in range(12):
+            v_last, _, _, note_last = self._eval([obj], v_odom=0.0, gov=gov)
+        self.assertGreater(v_last, 0.22)
+        self.assertNotIn("stop_person", note_last)
+        self.assertNotIn("slow_person", note_last)
+
+    def test_sigma_cross_optional_and_reported(self):
+        # sigma_cross is an optional keyword (default 0.0) reported in the lost note; controller
+        # passes the lateral pose sigma for 'lost s_lat='.
+        _, _, _, note = self._eval([], v_odom=0.0, is_lost=True)
+        self.assertIn("lost s_lat=0.0", note)
+        _, _, _, note_sig = self._eval([], v_odom=0.0, is_lost=True, sigma_cross=0.4)
+        self.assertIn("lost s_lat=0.4", note_sig)
+
+
 if __name__ == "__main__":
     unittest.main()
