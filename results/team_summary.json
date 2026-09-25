@@ -1,6 +1,6 @@
 {
   "seed": 7,
-  "controller": "team/controller.py",
+  "controller": "team_dreamteam_4_0/controller.py",
   "total_score": 397.08,
   "avg_score": 99.27,
   "scenarios": {
@@ -16,8 +16,8 @@
       "rules": 10.0,
       "pose": 10.0,
       "collisions": 0.0,
-      "step_mean_ms": 1.113,
-      "step_max_ms": 22.855,
+      "step_mean_ms": 1.159,
+      "step_max_ms": 25.424,
       "counted": true,
       "fatal": false
     },
@@ -33,8 +33,8 @@
       "rules": 10.0,
       "pose": 10.0,
       "collisions": 0.0,
-      "step_mean_ms": 1.194,
-      "step_max_ms": 22.87,
+      "step_mean_ms": 1.278,
+      "step_max_ms": 24.376,
       "counted": true,
       "fatal": false
     },
@@ -50,8 +50,8 @@
       "rules": 10.0,
       "pose": 10.0,
       "collisions": 0.0,
-      "step_mean_ms": 1.0,
-      "step_max_ms": 23.179,
+      "step_mean_ms": 1.077,
+      "step_max_ms": 24.248,
       "counted": true,
       "fatal": false
     },
@@ -67,8 +67,8 @@
       "rules": 10.0,
       "pose": 10.0,
       "collisions": 0.0,
-      "step_mean_ms": 1.282,
-      "step_max_ms": 23.054,
+      "step_mean_ms": 1.306,
+      "step_max_ms": 24.335,
       "counted": true,
       "fatal": false
     }
