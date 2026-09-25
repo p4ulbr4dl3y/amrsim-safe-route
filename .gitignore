@@ -41,7 +41,6 @@ htmlcov/
 *.swp
 *.swo
 .serena/
-.agents/
 
 # Reports and outputs
 out/
