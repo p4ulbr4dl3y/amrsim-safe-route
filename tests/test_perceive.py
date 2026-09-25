@@ -233,6 +233,56 @@ class TestPerception(unittest.TestCase):
         # Position predicted forward by vx * dt = 1.0 * 0.1 = 0.1m
         self.assertAlmostEqual(coasted_tr.ox, 5.1, delta=0.05)
 
+    def test_get_extra_obstacles_world_frame(self):
+        # Tracks live in the odometry frame; the route layer needs world coordinates.
+        pose = (10.0, 20.0, math.pi / 2)
+        odom = (1.0, 2.0, 0.0)
+        rel_angles = np.radians(np.arange(360))
+        ranges = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
+        self.perc.step(
+            ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom,
+            map_segs=self.map_segs,
+        )
+
+        # Unmapped wall 3.0m ahead in the odom frame (+Y odom) -> +X world at heading pi/2
+        tr = Track(track_id=1, ox=odom[0], oy=odom[1] + 3.0)
+        tr.class_label = "wall_extra"
+        tr.dyn = False
+        tr.length = 2.0
+        self.perc.tracks = [tr]
+
+        obs = self.perc.get_extra_obstacles()
+        self.assertEqual(len(obs), 1)
+        self.assertAlmostEqual(obs[0][0], 7.0, delta=0.05)
+        self.assertAlmostEqual(obs[0][1], 20.0, delta=0.05)
+        self.assertGreaterEqual(obs[0][2], 0.4)
+        self.assertLessEqual(obs[0][2], 1.0)
+
+    def test_get_extra_obstacles_empty_before_first_step(self):
+        self.assertEqual(Perception(dt=0.1).get_extra_obstacles(), [])
+
+    def test_map_extra_note_does_not_stick(self):
+        pose = (10.0, 40.0, math.pi / 2)
+        odom = (0.0, 0.0, 0.0)
+        rel_angles = np.radians(np.arange(360))
+        ranges = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
+
+        tr = Track(track_id=1, ox=5.0, oy=0.0)
+        tr.class_label = "wall_extra"
+        tr.dyn = False
+        tr.length = 2.0
+        self.perc.tracks = [tr]
+        self.perc.step(ranges=ranges, rel_angles=rel_angles, pose=pose,
+                       odom_pose=odom, map_segs=self.map_segs)
+        self.assertEqual(self.perc.note, "map_extra")
+
+        # Cause disappears -> note decays instead of sticking forever
+        self.perc.tracks = []
+        for _ in range(25):
+            self.perc.step(ranges=ranges, rel_angles=rel_angles, pose=pose,
+                           odom_pose=odom, map_segs=self.map_segs)
+        self.assertEqual(self.perc.note, "")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,12 @@ DECEL_ESTOP = 2.5        # Emergency deceleration (m/s^2)
 DT = 0.1                 # Simulation step (s)
 V_MAX_DEFAULT = 1.39     # Maximum vehicle speed (m/s)
 
+SLOW_PERSON_GAP = 3.3    # Current clearance below which a human caps v at <= 0.22 m/s
+SLOW_PERSON_V = 0.22     # Speed cap next to a person/unknown (plan/03:55)
+STOP_GAP = 0.8           # Current or predicted clearance below which v = 0
+ESTOP_GAP = 1.2          # Confirmed cluster distance enabling emergency braking
+ESTOP_SAFE_GAP = 1.5     # False estop penalty threshold (scoring THRESH["estop_gap"])
+
 
 def calculate_clearance(
     pts: np.ndarray,
@@ -61,8 +67,8 @@ def predict_ttc_clearance(
       track: obstacle Track instance
       v_platform: forward speed of platform (m/s)
       oth: AMR heading in pure odometry frame (rad)
-      horizon_s: prediction horizon (default 2.0 s)
-      dt_step: time step for prediction (default 0.2 s)
+      horizon_s: prediction horizon (default 2.0)
+      dt_step: time step for prediction (default 0.2)
       
     Returns:
       (min_predicted_clearance, time_to_min_clearance)
@@ -115,7 +121,7 @@ def determine_status(
     - Status MUST be 'moving' whenever |v_odom| >= 0.05 to prevent status_mismatch (-2).
     - Status 'arrived' when dock condition is met.
     - Status 'waiting' when stopped (|v_odom| < 0.05) due to obstacle, person or pause.
-    - Status 'lost' when pose is lost.
+    - Status 'lost' when pose is lost AND the platform has already stopped (plan/02:145).
     - Status 'estop' when emergency stop is triggered.
     - If allow_slowed=True and robot is moving under reduced speed limit, returns 'slowed'.
     """
@@ -144,24 +150,48 @@ def determine_status(
 class SafetyGovernor:
     """Safety governor enforcing clearance, speed limits, corridor braking, and notes.
     
-    Limits speed according to:
-    1. Predicted clearance to pedestrian/unknown < 0.8 m -> v = 0.
-    2. Current clearance to pedestrian/unknown < 0.8 m -> v = 0.
-    3. Current clearance to pedestrian/unknown < 3.3 m -> v <= 0.22 (margin for safety -2/s).
+    Limits speed according to plan/03 (hardest limit wins):
+    1. Predicted clearance to pedestrian/unknown over 2 s < 0.8 m -> v = 0.
+    2. Current clearance to pedestrian/unknown < 0.8 m -> v = 0, held until the predicted
+       clearance exceeds 3.3 m (no "wait and go" timeout for dynamic/unknown tracks).
+    3. Current clearance to pedestrian/unknown < 3.3 m -> v <= 0.22 (scoring penalty starts at
+       3.0 m / 0.28 m/s, so this leaves margin).
     4. Three adjacent lidar returns in corridor |y| < 1.0 m inside braking distance -> v = 0.
-    5. Fog + unexplained cluster ahead < 5.0 m -> v <= 0.35.
-    6. Fog and clear -> v <= 0.90 (respecting short-leg deadline).
-    7. Clear -> speed limit zone with 0.05 margin and braking 3.0 m before zone boundary.
+    5. Unmapped wall (is_wall/map_extra) and static object in the corridor -> treated as an
+       obstacle in the clearance and in the corridor test, never ignored.
+    6. Fog + unexplained cluster ahead < 5.0 m -> v <= 0.35; fog and clear -> v <= 0.90.
+    7. Pose loss (is_lost) -> v = 0; status becomes 'lost' only after the platform has stopped.
+    8. estop (2.5 m/s^2) only when a confirmed cluster is closer than 1.2 m, the gap closes and
+       the normal 1.2 m/s^2 brake cannot stop in time. Never above 1.5 m (false estop = -1).
     """
+    
+    NOTE_ORDER = (
+        "blocked_wheels",
+        "stop_person",
+        "stop_object",
+        "stop_corridor",
+        "slow_person",
+        "lost",
+        "map",
+        "fog",
+        "zone",
+        "dock",
+    )
 
     def __init__(self, v_top: float = V_MAX_DEFAULT, dt: float = DT):
         self.v_top = float(v_top)
         self.dt = float(dt)
 
-        # Hysteresis counter for person near stop (prevents stop release during fog dropout)
-        self._person_hold_ticks: int = 0
+        # Person-stop latch: after stopping for a person/unknown track, hold v = 0 until the
+        # predicted clearance to every human track exceeds 3.3 m. A "waited 8 s then went"
+        # timeout for dynamic/unknown tracks is explicitly forbidden (plan/03:73).
+        self._person_hold: bool = False
+        self._person_note: str = ""
+        self._last_human_pred: float = math.inf
+        self._lost_human_ticks: int = 0
         self._arrived_ticks: int = 0
-        self._near_wait: int = 0
+        # Previous minimum estimated clearance, used to confirm a closing gap for estop.
+        self._prev_min_cl: Optional[float] = None
 
     def get_zone_limit(
         self,
@@ -176,6 +206,13 @@ class SafetyGovernor:
                 # 0.05 margin to prevent overspeed violation
                 lim = min(lim, v_max - 0.05)
         return max(0.1, lim)
+
+    def _compose_note(self, notes: Dict[str, str]) -> str:
+        """Join active reasons into one stable <= 200 char string, no flicker."""
+        parts = [notes[k] for k in self.NOTE_ORDER if k in notes]
+        if not parts:
+            return ""
+        return " ".join(parts)[:200]
 
     def evaluate(
         self,
@@ -195,6 +232,7 @@ class SafetyGovernor:
         blocked_wheels: bool = False,
         perception_note: str = "",
         remaining_dist: float = 99.0,
+        sigma_cross: float = 0.0,
     ) -> Tuple[float, float, str, str]:
         """Evaluate safety limits and determine safe command (v, w), status, and note.
         
@@ -205,15 +243,17 @@ class SafetyGovernor:
           w_odom: current angular velocity from odometry (rad/s)
           pose: world pose (x, y, th)
           odom_pose: pure odometry pose (ox, oy, oth)
-          tracks: active tracks from perception
+          tracks: active tracks from perception (including unmapped walls, is_wall=True)
           ranges: lidar beam ranges (360,)
           rel_angles: relative beam angles in robot frame (360,)
           zones: speed limit zones [(polygon, v_max), ...]
           is_fog: whether fog condition is active
           is_arrived: whether dock target reached
-          is_lost: whether localizer lost
+          is_lost: whether localizer lost (v forced to 0)
           blocked_wheels: whether wheel slip/wall contact detected
-          perception_note: existing note from perception (e.g. map_missing)
+          perception_note: existing note from perception (e.g. map_missing/map_extra)
+          remaining_dist: remaining distance to dock, metres
+          sigma_cross: lateral pose sigma, reported in the `lost s_lat=` note
           
         Returns:
           (v_safe, w_safe, status, note)
@@ -224,14 +264,17 @@ class SafetyGovernor:
 
         v_lim = self.v_top
         stop_reason: Optional[str] = None
-        note_str: str = perception_note or ""
+        notes: Dict[str, str] = {}
         is_estop: bool = False
-        min_overall_clearance = math.inf
 
-        # 1. Blocked wheels / wall collision condition
+        # Perception note (map_missing / map_extra) stays visible for the whole cause.
+        if perception_note:
+            notes["map"] = perception_note
+
+        # 1. Blocked wheels / wall contact condition (plan/03:122-131)
         if blocked_wheels:
             stop_reason = "blocked_wheels"
-            note_str = "blocked_wheels"
+            notes["blocked_wheels"] = "blocked_wheels"
             v_lim = 0.0
 
         # 2. Zone speed limits: current position and lookahead 3.0 m ahead
@@ -241,8 +284,8 @@ class SafetyGovernor:
         zone_ahead = self.get_zone_limit(x + 3.0 * cos_th, y + 3.0 * sin_th, zones)
         zone_effective = min(zone_curr, zone_ahead)
         v_lim = min(v_lim, zone_effective)
-        if zone_effective < self.v_top and not note_str:
-            note_str = f"zone v={zone_effective:.2f}"
+        if zone_effective < self.v_top:
+            notes["zone"] = f"zone v={zone_effective:.2f}"
 
         # 3. Fog limits
         if is_fog:
@@ -259,23 +302,28 @@ class SafetyGovernor:
 
             if has_cluster_ahead:
                 v_lim = min(v_lim, 0.35)
-                if not note_str:
-                    note_str = "fog_cluster"
+                notes["fog"] = "fog_cluster"
             else:
                 # Fog and clear ahead: up to 0.9 m/s to satisfy short-leg deadline
                 v_lim = min(v_lim, 0.90)
-                if not note_str:
-                    note_str = "fog_clear"
+                notes["fog"] = "fog_clear"
 
-        # 4. Track clearances and predictive TTC
+        # 4. Track clearances and predictive TTC. Unmapped walls (is_wall=True, map_extra)
+        #    MUST count as obstacles here, not be skipped.
         d_stop_corridor = R_PLATFORM + (v_now * v_now) / (2.0 * DECEL_NORMAL) + 0.6
+        brake_dist = R_PLATFORM + (v_now * v_now) / (2.0 * DECEL_NORMAL)
+
+        min_overall_clearance = math.inf
+        human_pred_min = math.inf
+        person_stop = False
+        person_slow = False
+        person_slow_cl = math.inf
+        front_hit = False          # a cluster is directly ahead inside the corridor
+        front_brake_hit = False    # a cluster is directly ahead inside the braking path
 
         for tr in tracks:
             pts = tr.pts
             if pts is None or len(pts) == 0:
-                continue
-
-            if tr.is_wall:
                 continue
 
             is_human = tr.is_pedestrian or tr.is_unknown
@@ -283,39 +331,71 @@ class SafetyGovernor:
             if cl < min_overall_clearance:
                 min_overall_clearance = cl
 
-            # Check static object in direct driving corridor
-            if not is_human:
+            ahead = (pts[:, 0] > 0.0) & (np.abs(pts[:, 1]) < R_PLATFORM + 0.35)
+            if (ahead & (pts[:, 0] < d_stop_corridor)).any():
+                front_hit = True
+            if (ahead & (pts[:, 0] < brake_dist)).any():
+                front_brake_hit = True
+
+            if is_human:
+                ped_ahead = (pts[:, 0] > 0.0) & (pts[:, 0] < 4.5) & (np.abs(pts[:, 1]) < 1.8)
+
+                # A. Current or predicted (2 s horizon) clearance < 0.8 m -> stop
+                pred_cl, _ = predict_ttc_clearance(
+                    tr, v_platform=v_now, oth=oth, horizon_s=2.0, dt_step=0.2
+                )
+                if pred_cl < human_pred_min:
+                    human_pred_min = pred_cl
+
+                if cl < STOP_GAP or pred_cl < STOP_GAP:
+                    stop_reason = "stop_person"
+                    notes["stop_person"] = f"stop_person d={max(0.0, min(cl, pred_cl)):.1f}"
+                    v_lim = 0.0
+                    person_stop = True
+                # B. Person ahead in corridor within 4.5 m, or current clearance < 3.3 m
+                elif ped_ahead.any() or cl < SLOW_PERSON_GAP:
+                    person_slow = True
+                    if cl < person_slow_cl:
+                        person_slow_cl = cl
+            else:
+                # Static object or unmapped wall in the driving corridor: stop.
                 if remaining_dist > 0.35:
-                    in_corridor = (pts[:, 0] > 0.0) & (pts[:, 0] < d_stop_corridor) & (np.abs(pts[:, 1]) < R_PLATFORM + 0.35)
+                    in_corridor = ahead & (pts[:, 0] < d_stop_corridor)
                     if in_corridor.any():
                         stop_reason = stop_reason or "stop_object"
-                        if not note_str or "fog" in note_str or "zone" in note_str:
-                            note_str = "stop_object"
+                        notes["stop_object"] = "stop_object"
                         v_lim = 0.0
-                continue
 
-            # Pedestrian or unknown track
-            ped_ahead = (pts[:, 0] > 0.0) & (pts[:, 0] < 4.5) & (np.abs(pts[:, 1]) < 1.8)
+        if person_slow and not person_stop:
+            v_lim = min(v_lim, SLOW_PERSON_V)
+            notes["slow_person"] = f"slow_person d={max(0.0, person_slow_cl):.1f}"
 
-            # A. Current clearance < 0.8 m -> stop
-            if cl < 0.8:
-                stop_reason = "stop_person"
-                note_str = f"stop_person d={max(0.0, cl):.1f}"
-                v_lim = 0.0
-            # B. Predictive TTC on 2.0 s horizon
+        # 5. Person-stop latch (replaces the forbidden timeout). While held, v stays 0 until
+        #    the predicted clearance to every human track is greater than 3.3 m. A brief guard
+        #    keeps the brake applied through fog dropout (plan/03:20), never resumes motion.
+        saw_human = math.isfinite(human_pred_min)
+        if saw_human:
+            self._last_human_pred = human_pred_min
+            self._lost_human_ticks = 0
+
+        if person_stop and not self._person_hold:
+            self._person_hold = True
+            self._person_note = notes.get("stop_person", "stop_person")
+
+        if self._person_hold:
+            if not saw_human:
+                self._lost_human_ticks += 1
+                if self._lost_human_ticks <= 10:
+                    human_pred_min = self._last_human_pred
+            if human_pred_min > SLOW_PERSON_GAP:
+                self._person_hold = False
+                self._person_note = ""
             else:
-                pred_cl, _ = predict_ttc_clearance(tr, v_platform=v_now, oth=oth, horizon_s=2.0, dt_step=0.2)
-                if pred_cl < 0.8:
-                    stop_reason = "stop_person"
-                    note_str = f"stop_person d={max(0.0, pred_cl):.1f}"
-                    v_lim = 0.0
-                # C. Person ahead in corridor within 4.5 m, or clearance < 2.7 m -> speed <= 0.25 m/s
-                elif ped_ahead.any() or cl < 2.7:
-                    v_lim = min(v_lim, 0.25)
-                    if not note_str or note_str in ("fog", "fog_clear") or "zone" in note_str:
-                        note_str = f"slow_person d={cl:.1f}"
+                stop_reason = stop_reason or "stop_person"
+                v_lim = 0.0
+                notes["stop_person"] = self._person_note or notes.get("stop_person", "stop_person")
 
-        # 5. Lidar raw swept footprint corridor check (|y| < 1.0 m inside braking reach)
+        # 6. Lidar raw swept footprint corridor check (|y| < 1.0 m inside braking reach)
         if remaining_dist > 0.35:
             r = np.asarray(ranges, dtype=float)
             rel = np.asarray(rel_angles, dtype=float)
@@ -330,53 +410,56 @@ class SafetyGovernor:
                     if three_hit.any():
                         stop_reason = stop_reason or "too_close"
                         v_lim = 0.0
-                        if not note_str or "fog" in note_str or "zone" in note_str:
-                            note_str = "stop_corridor"
+                        notes["stop_corridor"] = "stop_corridor"
 
-        # 6. Person near hold hysteresis (1.0 s hold to prevent dropout flicker in fog)
-        if stop_reason == "stop_person":
-            self._person_hold_ticks = 10
-        elif stop_reason is None and self._person_hold_ticks > 0:
-            self._person_hold_ticks -= 1
-            stop_reason = "stop_person"
+        # 7. estop: emergency 2.5 m/s^2 brake only when a confirmed cluster is closer than
+        #    1.2 m, the gap is closing and the normal 1.2 m/s^2 brake cannot stop in time.
+        #    False estop at gap >= 1.5 m costs -1, so stay strictly inside 1.2 m.
+        closing = True
+        if self._prev_min_cl is not None and math.isfinite(self._prev_min_cl):
+            closing = min_overall_clearance < self._prev_min_cl - 0.005
+        stopping_normal = (v_now * v_now) / (2.0 * DECEL_NORMAL) + v_now * self.dt
+        if (math.isfinite(min_overall_clearance)
+                and min_overall_clearance < ESTOP_GAP
+                and min_overall_clearance < stopping_normal
+                and front_hit
+                and v_now > 0.05
+                and closing):
+            is_estop = True
             v_lim = 0.0
+            if stop_reason is None:
+                stop_reason = "estop"
+        self._prev_min_cl = min_overall_clearance if math.isfinite(min_overall_clearance) else None
 
-        if stop_reason == "stop_person":
-            self._near_wait += 1
-            if self._near_wait > 80:
-                # Someone standing beside path for 8s: proceed slowly at <= 0.25 m/s
-                stop_reason = None
-                v_lim = min(v_lim, 0.25)
-                note_str = "slow_person pass"
-        else:
-            self._near_wait = 0
-
-        # 7. Arbitrate forward velocity v
-        if stop_reason is not None and remaining_dist > 0.35:
+        # 8. Arbitrate forward velocity v
+        if is_lost:
+            # Pose unknown: stop and integrate only confirmed scan-to-scan motion (plan/02:145).
+            v_safe = 0.0
+            notes["lost"] = f"lost s_lat={sigma_cross:.1f}"
+        elif stop_reason is not None and remaining_dist > 0.35:
             v_safe = 0.0
         else:
             v_safe = max(0.0, min(v_cand, v_lim))
 
-        # 8. Arbitrate angular velocity w
-        # If obstacle is directly in front within braking distance, zero out w
+        # 9. Arbitrate angular velocity w. Rotating on spot beside a person is allowed, but a
+        #    cluster directly ahead inside the braking path forbids rotation (plan/03:76).
         corridor_blocked = (stop_reason in ("too_close", "stop_object", "blocked_wheels")) and (remaining_dist > 0.35)
-        if corridor_blocked:
+        if is_estop or corridor_blocked or front_brake_hit:
             w_safe = 0.0
         else:
-            # Rotating on spot beside pedestrian is allowed and safe
             w_safe = w_cand
 
-        # 9. Arrival hold handling (hold for 12 ticks, target is 10)
+        # 10. Arrival hold handling (hold for 12 ticks, target is 10)
         if is_arrived:
             self._arrived_ticks += 1
             v_safe = 0.0
             w_safe = 0.0
-            if not note_str:
-                note_str = "dock"
+            if not notes:
+                notes["dock"] = "dock"
         else:
             self._arrived_ticks = 0
 
-        # 10. Status determination
+        # 11. Status determination
         is_slowed = (v_safe <= 0.35 and v_safe > 0.0)
         is_stopped_flag = (stop_reason is not None) or (v_safe == 0.0 and w_safe == 0.0)
 
@@ -388,8 +471,8 @@ class SafetyGovernor:
             is_lost=is_lost,
             is_stopped=is_stopped_flag,
             is_slowed=is_slowed,
-            is_estop=False,
+            is_estop=is_estop,
             allow_slowed=False,  # strictly 'moving' when moving to prevent status_mismatch
         )
 
-        return v_safe, w_safe, status, note_str[:200]
+        return v_safe, w_safe, status, self._compose_note(notes)

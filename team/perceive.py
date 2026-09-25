@@ -155,6 +155,11 @@ class Perception:
         self.removed_segment_ids: Set[int] = set()
         self._missing_wall_votes: Dict[int, int] = {}
         self.note: str = ""
+        # Ticks the current map note stays valid without a fresh confirmation
+        self._note_hold: int = 0
+        # Last pose pair; lets get_extra_obstacles() map odom-frame tracks to world
+        self._last_pose: Optional[Tuple[float, float, float]] = None
+        self._last_odom_pose: Optional[Tuple[float, float, float]] = None
 
     def reset(self) -> None:
         """Reset internal tracking state."""
@@ -163,6 +168,9 @@ class Perception:
         self.removed_segment_ids.clear()
         self._missing_wall_votes.clear()
         self.note = ""
+        self._note_hold = 0
+        self._last_pose = None
+        self._last_odom_pose = None
 
     def step(
         self,
@@ -194,6 +202,8 @@ class Perception:
         """
         x, y, th = pose
         ox, oy, oth = odom_pose
+        self._last_pose = (float(x), float(y), float(th))
+        self._last_odom_pose = (float(ox), float(oy), float(oth))
         r = np.asarray(ranges, dtype=float)
         rel = np.asarray(rel_angles, dtype=float)
         n = len(r)
@@ -504,6 +514,8 @@ class Perception:
         if len(map_segs) == 0:
             return
 
+        detected_note: Optional[str] = None
+
         # Sensed missing walls: finite rays longer than map by > 1.2m when scan match is reliable
         if scan_inliers >= 40:
             overshoot = (exp_ranges < 15.0) & np.isfinite(ranges) & (ranges < 19.5) & (ranges > exp_ranges + 1.2)
@@ -526,20 +538,48 @@ class Perception:
                         self._missing_wall_votes[s_idx] = self._missing_wall_votes.get(s_idx, 0) + 1
                         if self._missing_wall_votes[s_idx] >= 20:
                             self.removed_segment_ids.add(s_idx)
-                            self.note = "map_missing"
+                            detected_note = "map_missing"
 
         # Check for confirmed extra walls
-        has_extra_wall = any(tr.is_wall for tr in self.tracks)
-        if has_extra_wall and not self.note:
-            self.note = "map_extra"
+        if detected_note is None and any(tr.is_wall for tr in self.tracks):
+            detected_note = "map_extra"
+
+        # Notes are re-confirmed every tick and decay once the cause disappears,
+        # so they cannot stick and hide active route notes (audit gap 15).
+        if detected_note is not None:
+            self.note = detected_note
+            self._note_hold = 20
+        elif self._note_hold > 0:
+            self._note_hold -= 1
+            if self._note_hold == 0:
+                self.note = ""
 
     def get_extra_obstacles(self) -> List[Tuple[float, float, float]]:
-        """Return extra obstacles for route planner / collision avoidance: list of (x, y, radius)."""
-        obs = []
+        """Return unmapped/extra obstacles for the route planner: list of (x, y, radius).
+
+        Tracks are maintained in the pure odometry frame; they are transformed back
+        into world coordinates using the pose pair of the most recent step().
+        """
+        obs: List[Tuple[float, float, float]] = []
+        if self._last_pose is None or self._last_odom_pose is None:
+            return obs
+
+        x, y, th = self._last_pose
+        ox, oy, oth = self._last_odom_pose
+        cos_o, sin_o = math.cos(oth), math.sin(oth)
+        cos_w, sin_w = math.cos(th), math.sin(th)
+
         for tr in self.tracks:
-            if tr.is_wall or tr.is_static_object:
-                # Estimate radius from length
-                r_eff = max(0.4, tr.length / 2.0)
-                # World position of track
-                obs.append((tr.ox, tr.oy, r_eff))
+            if not (tr.is_wall or tr.is_static_object):
+                continue
+            # Odom frame -> robot frame -> world frame
+            dx_o = tr.ox - ox
+            dy_o = tr.oy - oy
+            rx = cos_o * dx_o + sin_o * dy_o
+            ry = -sin_o * dx_o + cos_o * dy_o
+            wx = x + cos_w * rx - sin_w * ry
+            wy = y + sin_w * rx + cos_w * ry
+            # Estimate radius from cluster length (bounded, same as controller layer)
+            r_eff = max(0.4, 0.5 * min(2.0, tr.length))
+            obs.append((float(wx), float(wy), float(r_eff)))
         return obs

@@ -71,7 +71,8 @@ class TestSafety(unittest.TestCase):
             rel_angles=np.radians(np.arange(360)),
             zones=[],
         )
-        self.assertLessEqual(v_safe, 0.25)
+        # plan/03:55: current clearance < 3.3 m -> v <= 0.22 (scoring penalty starts at 3.0 m)
+        self.assertLessEqual(v_safe, 0.22)
         self.assertGreater(v_safe, 0.0)
         self.assertEqual(status, "moving")
         self.assertIn("slow_person", note)
@@ -234,6 +235,267 @@ class TestSafety(unittest.TestCase):
         )
         # Rotation on spot must NOT be zeroed out
         self.assertAlmostEqual(w_safe, 0.5)
+
+    def test_slow_person_side_gap_3_3(self):
+        # plan/03:55: clearance < 3.3 m caps v at 0.22 even when the person is outside the
+        # old |y| < 1.8 corridor (previously neither branch triggered -> full speed).
+        tr = Track(track_id=1, ox=3.5, oy=2.0)
+        tr.pts = np.array([[3.5, 2.0]])  # dist hypot(3.5, 2.0) = 4.03 -> clearance 2.83 m
+        tr.class_label = "pedestrian"
+        tr.dyn = True
+
+        v_safe, _, status, note = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.1,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+        )
+        self.assertLessEqual(v_safe, 0.22)
+        self.assertGreater(v_safe, 0.0)
+        self.assertIn("slow_person", note)
+
+    def test_person_stop_has_no_timeout(self):
+        # plan/03:72-73: after stopping for a person, v stays 0 until the predicted clearance
+        # exceeds 3.3 m. The forbidden "waited 8 s then crawled" behaviour must not appear.
+        tr = Track(track_id=1, ox=1.9, oy=0.0)
+        tr.pts = np.array([[1.9, 0.0]])  # clearance 0.7 m
+        tr.class_label = "pedestrian"
+        tr.dyn = True
+
+        notes = set()
+        for _ in range(150):  # 15 s: well past the old 8 s timeout
+            v_safe, _, _, note = self.gov.evaluate(
+                v_cand=1.39,
+                w_cand=0.0,
+                v_odom=0.0,
+                w_odom=0.0,
+                pose=(0.0, 0.0, 0.0),
+                odom_pose=(0.0, 0.0, 0.0),
+                tracks=[tr],
+                ranges=np.full(360, 20.0),
+                rel_angles=np.radians(np.arange(360)),
+                zones=[],
+            )
+            self.assertEqual(v_safe, 0.0)
+            self.assertIn("stop_person", note)
+            notes.add(note)
+        # One and the same note for the whole cause (no flicker).
+        self.assertEqual(len(notes), 1)
+
+        # Person walks away: predicted clearance 3.8 m > 3.3 m releases the hold.
+        tr.pts = np.array([[5.0, 0.0]])
+        v_go, _, _, note_go = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.0,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+        )
+        self.assertGreater(v_go, 0.0)
+        self.assertNotIn("stop_person", note_go)
+
+    def test_lost_zeroes_speed_and_status_after_stop(self):
+        # plan/02:145: while lost, v = 0; status 'lost' only once |v_odom| <= 0.04, else 'moving'.
+        v_move, _, st_move, note_move = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+            is_lost=True,
+            sigma_cross=1.1,
+        )
+        self.assertEqual(v_move, 0.0)
+        self.assertEqual(st_move, "moving")
+        self.assertIn("lost s_lat=1.1", note_move)
+
+        v_stop, _, st_stop, note_stop = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.0,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+            is_lost=True,
+            sigma_cross=1.1,
+        )
+        self.assertEqual(v_stop, 0.0)
+        self.assertEqual(st_stop, "lost")
+        self.assertIn("lost s_lat=1.1", note_stop)
+
+    def test_estop_only_when_normal_brake_fails(self):
+        # plan/03:78-84: estop only for a confirmed cluster closer than 1.2 m while closing
+        # and when the normal 1.2 m/s^2 brake can no longer stop in time.
+        tr = Track(track_id=1, ox=2.0, oy=0.0)
+        tr.pts = np.array([[2.0, 0.0]])  # clearance 0.8 m < 1.2 m
+        tr.class_label = "pedestrian"
+        tr.dyn = True
+
+        v_estop, w_estop, st_estop, _ = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.3,
+            v_odom=1.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+        )
+        self.assertEqual(v_estop, 0.0)
+        self.assertEqual(w_estop, 0.0)
+        self.assertEqual(st_estop, "estop")
+
+        # False estop at gap >= 1.5 m is penalised: never trigger it here.
+        tr_far = Track(track_id=1, ox=2.8, oy=0.0)
+        tr_far.pts = np.array([[2.8, 0.0]])  # clearance 1.6 m
+        tr_far.class_label = "pedestrian"
+        tr_far.dyn = True
+        gov_far = SafetyGovernor(v_top=1.39, dt=0.1)
+        _, _, st_far, _ = gov_far.evaluate(
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=1.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr_far],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+        )
+        self.assertNotEqual(st_far, "estop")
+
+    def test_wall_outside_map_counts_as_obstacle(self):
+        # plan/03:26,39: an unmapped wall (is_wall=True, map_extra) is an obstacle: it must
+        # enter the clearance/stop logic, never be skipped.
+        wall = Track(track_id=1, ox=1.5, oy=0.0)
+        wall.pts = np.array([[1.5, 0.0]])
+        wall.class_label = "wall_extra"
+        wall.dyn = False
+        self.assertTrue(wall.is_wall)
+
+        v_safe, w_safe, _, _ = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.4,
+            v_odom=1.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[wall],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+        )
+        self.assertEqual(v_safe, 0.0)
+        self.assertEqual(w_safe, 0.0)
+
+        # A wall beside the path (outside the front corridor) must not force a stop/estop.
+        wall_side = Track(track_id=1, ox=1.5, oy=1.5)
+        wall_side.pts = np.array([[1.5, 1.5]])
+        wall_side.class_label = "wall_extra"
+        wall_side.dyn = False
+        gov_side = SafetyGovernor(v_top=1.39, dt=0.1)
+        v_side, _, st_side, _ = gov_side.evaluate(
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=1.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[wall_side],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+        )
+        self.assertGreater(v_side, 0.0)
+        self.assertNotEqual(st_side, "estop")
+
+    def test_slow_person_visible_next_to_perception_note(self):
+        # plan/03:102-120: the reason must be written explicitly; slow_person must not be
+        # hidden by a map_missing/map_extra note.
+        tr = Track(track_id=1, ox=3.7, oy=0.0)
+        tr.pts = np.array([[3.7, 0.0]])  # clearance 2.5 m
+        tr.class_label = "pedestrian"
+        tr.dyn = True
+
+        _, _, _, note = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.1,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+            perception_note="map_extra",
+        )
+        self.assertIn("slow_person", note)
+        self.assertIn("map_extra", note)
+
+    def test_blocked_wheels_and_zone_notes(self):
+        zone_poly = [[50.0, 0.0], [100.0, 0.0], [100.0, 50.0], [50.0, 50.0]]
+        v_safe, _, status, note = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.0,
+            w_odom=0.0,
+            pose=(60.0, 20.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[(zone_poly, 0.8)],
+            blocked_wheels=True,
+        )
+        self.assertEqual(v_safe, 0.0)
+        self.assertEqual(status, "waiting")
+        self.assertIn("blocked_wheels", note)
+        self.assertIn("zone v=0.75", note)
+
+    def test_w_zeroed_when_cluster_inside_braking_path(self):
+        # plan/03:76: if a cluster ahead is closer than the braking path, w is zeroed too.
+        tr = Track(track_id=1, ox=1.0, oy=0.0)
+        tr.pts = np.array([[1.0, 0.0]])
+        tr.class_label = "pedestrian"
+        tr.dyn = True
+
+        _, w_safe, _, _ = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.5,
+            v_odom=1.39,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+        )
+        self.assertEqual(w_safe, 0.0)
 
 
 if __name__ == "__main__":
