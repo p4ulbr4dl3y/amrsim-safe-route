@@ -310,10 +310,16 @@ class Controller:
         rem_dist = float(route_cmd.get("remaining_dist", 99.0))
         route_note = route_cmd.get("note") or ""
 
-        # Lost-orientation speed cap (plan/02:135+): the frozen SafetyGovernor
-        # signature has no lost argument, so clamp the candidate here.
-        if self.localizer.is_lost:
-            v_cand = min(v_cand, float(getattr(self.localizer, "lost_speed_limit", 1.39)))
+        # Lost-orientation speed cap (plan/02:133-147): the frozen SafetyGovernor
+        # signature has no lost argument, so clamp the candidate here. The clamp runs on
+        # every tick, not only under `is_lost`: `lost_speed_limit` already carries all
+        # four tiers -- 0.4 (wide cross/heading sigma), 0.6 (wide along sigma, keep
+        # driving and catch the angle), 0.0 (lost), 1.39 (healthy, so this is a no-op in
+        # the nominal case). Gating it on `is_lost` made the 0.4/0.6 tiers dead code,
+        # because the lost branch always exports 0.0 anyway.
+        lost_cap = float(getattr(self.localizer, "lost_speed_limit", 1.39))
+        if lost_cap < v_cand:
+            v_cand = lost_cap
 
         # Check arrival threshold at terminal dock (plan/02:121-127)
         if mission is not None and len(self.route.active_path) >= 2:

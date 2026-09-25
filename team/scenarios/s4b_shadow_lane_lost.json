@@ -1,7 +1,7 @@
 {
  "schema": "amr-1.0",
- "name": "s4_shadow_start_charger",
- "description": "Own scenario 4 (plan/04:82, plan/05 step 12): the platform starts already inside the T-building GNSS shadow at (145, 94.5) on the south road, so it never receives a satellite fix while it works, and it has one leg east and then south into the charger pocket (190.0, 85.5). The leg exercises shadow-only dead reckoning, wall scan matching along the T/S facades, the pocket-corner scan match that pins the along-track offset, and the dock snap. Expected: mission delivered, pose block 10/10, max_hold_dist < 0.2 m.",
+ "name": "s4b_shadow_lane_lost",
+ "description": "Own scenario 4b (plan/05 step 12, lost-pose audit). A covered service lane runs north-south at x 187.5..192.5 through a gateway in the T building and carries its own GNSS shadow (SH_LANE) from the north yard down to the charger pocket; the lane walls are parallel to the travel direction, so the along-lane position is barely observable. The platform starts at (190, 130) inside that shadow and drives the 44 m leg into the charger (190, 85.5). On seeds whose odometry scale error is large enough the low-inlier counter trips at the pocket mouth: the platform reports lost, stops, and the +/-3 m / 0.5 m, +/-8 deg / 2 deg, 60-ray grid search re-acquires the pose before docking. Known controller limitation: the grid steps 0.5 m while the inlier tolerance is 0.25 m, so an offset that lands near a half step can keep the platform stopped; the audit report lists the seeds that do and do not recover.",
  "dt": 0.1,
  "duration_s": 300.0,
  "hidden": false,
@@ -142,6 +142,24 @@
     [
      187.5,
      92
+    ]
+   ],
+   [
+    [
+     187.5,
+     97
+    ],
+    [
+     192.5,
+     97
+    ],
+    [
+     192.5,
+     147.5
+    ],
+    [
+     187.5,
+     147.5
     ]
    ]
   ],
@@ -294,18 +312,18 @@
     ]
    },
    {
-    "id": "T",
+    "id": "T_w",
     "polygon": [
      [
       80,
       100
      ],
      [
-      200,
+      187.5,
       100
      ],
      [
-      200,
+      187.5,
       120
      ],
      [
@@ -581,6 +599,69 @@
       99.9
      ]
     ]
+   },
+   {
+    "id": "T_e",
+    "polygon": [
+     [
+      192.5,
+      100
+     ],
+     [
+      200,
+      100
+     ],
+     [
+      200,
+      120
+     ],
+     [
+      192.5,
+      120
+     ]
+    ]
+   },
+   {
+    "id": "LANE_W",
+    "polygon": [
+     [
+      180,
+      120
+     ],
+     [
+      187.5,
+      120
+     ],
+     [
+      187.5,
+      147.5
+     ],
+     [
+      180,
+      147.5
+     ]
+    ]
+   },
+   {
+    "id": "LANE_E",
+    "polygon": [
+     [
+      192.5,
+      120
+     ],
+     [
+      200,
+      120
+     ],
+     [
+      200,
+      147.5
+     ],
+     [
+      192.5,
+      147.5
+     ]
+    ]
    }
   ],
   "points": {
@@ -609,9 +690,9 @@
     "tol": 0.2
    },
    "yard_s": {
-    "x": 145.0,
-    "y": 94.5,
-    "heading": 0.0,
+    "x": 190.0,
+    "y": 130.0,
+    "heading": -1.5707963267948966,
     "tol": 0.2
    }
   },
@@ -749,6 +830,28 @@
       163
      ]
     ]
+   },
+   {
+    "id": "SH_LANE",
+    "type": "gnss_shadow",
+    "polygon": [
+     [
+      186,
+      100
+     ],
+     [
+      194,
+      100
+     ],
+     [
+      194,
+      140
+     ],
+     [
+      186,
+      140
+     ]
+    ]
    }
   ],
   "gates": [
@@ -793,9 +896,9 @@
  },
  "map_patches": [],
  "start": {
-  "x": 145.0,
-  "y": 94.5,
-  "theta": 0.0
+  "x": 190.0,
+  "y": 130.0,
+  "theta": -1.5707963267948966
  },
  "missions": [
   {
@@ -803,23 +906,11 @@
    "from": "yard_s",
    "to": "charger",
    "deadline_s": 200.0,
-   "reference_length_m": 54.0,
+   "reference_length_m": 44.5,
    "reference_path": [
     [
-     145.0,
-     94.5
-    ],
-    [
-     187.0,
-     94.5
-    ],
-    [
      190.0,
-     94.5
-    ],
-    [
-     190.0,
-     92.0
+     130.0
     ],
     [
      190.0,
