@@ -89,7 +89,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
-  // Fetch scenarios list
+  // Загрузка списка сценариев
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -100,14 +100,14 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     };
   }, []);
 
-  // Update scenario from queryParams if changed
+  // Обновление сценария из параметров URL при изменении
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
     }
   }, [queryParams?.scenario]);
 
-  // Fetch episodes when scenario changes
+  // Загрузка эпизодов при смене сценария
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -126,7 +126,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     };
   }, [scenario]);
 
-  // CSV Export handler
+  // Экспорт в формате CSV
   const handleExportCSV = () => {
     if (episodesData && episodesData.episodes && episodesData.episodes.length > 0) {
       const headers = "Episode ID,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation";
@@ -158,7 +158,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     document.body.removeChild(link);
   };
 
-  // JSON Export handler
+  // Экспорт в формате JSON
   const handleExportJSON = () => {
     if (!episodesData) return;
     const jsonStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(episodesData, null, 2));
@@ -178,10 +178,10 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     ruleViolationsCount: 0,
   };
 
-  // Dynamic episode types for filter dropdown
+  // Типы эпизодов для фильтрации
   const uniqueTypes = Array.from(new Set(episodes.map((e) => e.type)));
 
-  // Filtering
+  // Фильтрация
   const filteredEpisodes = episodes.filter((ep) => {
     if (typeFilter !== 'all' && ep.type !== typeFilter) return false;
     if (costFilter === 'high' && ep.cost > -0.5) return false;

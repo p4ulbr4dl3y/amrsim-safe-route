@@ -15,39 +15,32 @@ except ImportError:
     from geom import raycast, seg_dist, wrap_angle
 
 
-# Track classification thresholds (plan/03:28-30).
-# A track that shifts >= 0.6 m over the ~1 s history window is a human forever.
+# Пороги классификации треков.
+# Трек со смещением >= 0.6 м за окно ~1 с считается человеком навсегда.
+# При меньшем смещении за полное окно трек не имеет глобального движения.
 PEDESTRIAN_SHIFT_M = 0.6
-# Below this shift over the full window the track has no world motion.
+# Ниже этого смещения за окно трек считается неподвижным в мире
 STATIC_SHIFT_M = 0.25
-# Commit an object only while the platform is slow/stopped: the plan used a
-# near-stop gate (|v| < 0.02), which is unreachable for an object that itself
-# forces a 0.22 m/s crawl (safety human limits). 0.35 m/s keeps that case.
+# Фиксация объекта только при медленном движении платформы или остановке:
+# порог 0.35 м/с сохраняет работу при скорости 0.22 м/с.
 STATIC_OBJECT_V_GATE = 0.35
-# 1.5 s of history at dt = 0.1 s before a still cluster can become an object
-# (plan/03:29, task I.4c): snow does not repeat in one world point from tick to
-# tick, so a commitment needs a long stable world track, not one lucky frame.
+# Окно истории 1.5 с при dt = 0.1 с для фиксации неподвижного кластера как объекта:
+# снег не повторяется в одной точке, объекту требуется стабильный трек.
 STATIC_HISTORY_TICKS = 15
-# A cluster in front of the platform inside the swept corridor is a human until it
-# has been stable for >= 2.0 s: safety must use human limits there, the route plans
-# the side offset around a real object (plan/03:28-30, plan/04:32-41).
+# Кластер перед платформой внутри коридора считается человеком,
+# пока не пробудет стабильным в мире >= 2.0 с.
 FRONTAL_STATIC_HISTORY_TICKS = 20
 FRONTAL_CORRIDOR_FWD_M = 5.0
 FRONTAL_CORRIDOR_LAT_M = 1.6
-# "Compact" cluster: a pallet/box, not a wall or a long fence.
+# Компактный кластер: коробка или палета, не стена и не длинный забор
 COMPACT_CLUSTER_LENGTH_M = 1.0
-# Upper bound on a pedestrian contour (plan/03:26-28). A human footprint is 0.3-0.6 m
-# long, so a cluster longer than this can never be a person: a large *static* planar
-# body (an unmapped container, a wall the map does not know) has a centroid that
-# wanders whenever the visible share of its outline changes -- the body itself stands
-# still. The shift->human latch below must therefore only fire on a compact contour,
-# otherwise a container parked across the aisle latches as a pedestrian forever and
-# safety holds an eternal `stop_person` (own scenario s2_container_block, seed 7:
-# track id=1, length 2.7-4.2 m, centroid jump 0.69 m in a single tick).
+# Верхняя граница контура пешехода. След человека имеет длину 0.3-0.6 м,
+# поэтому более длинный кластер не может быть человеком. Крупное статическое тело
+# смещает центроид при изменении видимой части контура, оставаясь на месте.
+# Фиксация человека применяется только к компактным контурам.
 PEDESTRIAN_CONTOUR_MAX_M = 1.2
-# Platform body radius (m). Duplicated from safety to avoid a circular import.
-# A candidate point closer than R_PLATFORM - 0.05 sits inside the hull and is a
-# phantom: it can never be confirmed into the active obstacle set (plan/03:18).
+# Радиус корпуса платформы (м). Кандидат ближе R_PLATFORM - 0.05
+# находится внутри корпуса и является фантомным откликом.
 PLATFORM_RADIUS_M = 0.9
 PLATFORM_BODY_MARGIN_M = 0.05
 
@@ -94,19 +87,19 @@ class Track:
     __slots__ = (
         "track_id",
         "ox",
-        "oy",  # Centroid in pure odometry frame (m)
-        "hist",  # History of (ox, oy) coordinates
-        "seen",  # History of detection hits (1) and misses (0)
-        "dyn",  # True (pedestrian), False (static/wall), None (unknown)
-        "class_label",  # "pedestrian", "wall_extra", "static_object", "unknown"
-        "still_ticks",  # Consecutive ticks without motion while robot still
+        "oy",  # Центроид в чистом базисе одометрии (м)
+        "hist",  # История координат (ox, oy)
+        "seen",  # История попаданий (1) и пропусков (0) детектора
+        "dyn",  # True (пешеход), False (статический объект или стена), None (неизвестно)
+        "class_label",  # Классы: pedestrian, wall_extra, static_object, unknown
+        "still_ticks",  # Число тактов без движения при стоящем роботе
         "vx_odom",
-        "vy_odom",  # Estimated velocity in odometry frame (m/s)
-        "pts",  # Current points in robot frame (N, 2)
-        "length",  # Cluster length along principal axis (m)
-        "thickness",  # Cluster thickness 80th percentile across axis (m)
-        "coast_ticks",  # Ticks since last sensor detection
-        "confirmed",  # Latched: two adjacent detection hits seen at least once
+        "vy_odom",  # Оценка скорости в базисе одометрии (м/с)
+        "pts",  # Текущие точки в базисе робота (N, 2)
+        "length",  # Длина кластера вдоль главной оси (м)
+        "thickness",  # Толщина кластера по 80-му перцентилю (м)
+        "coast_ticks",  # Число тактов с последнего обнаружения сенсором
+        "confirmed",  # Флаг фиксации: два последовательных детектирования хотя бы один раз
     )
 
     def __init__(self, track_id: int, ox: float, oy: float, pts: Optional[np.ndarray] = None):
@@ -224,7 +217,7 @@ def is_wall_continuation(pts: np.ndarray, wall_point_clouds: List[np.ndarray]) -
     for w_pts in wall_point_clouds:
         if len(w_pts) < 3:
             continue
-        # Distance between cluster points and wall points
+        # Расстояние между точками кластера и точками стены
         dists = np.hypot(pts[:, None, 0] - w_pts[None, :, 0], pts[:, None, 1] - w_pts[None, :, 1])
         if float(dists.min()) > 0.6:
             continue
@@ -257,13 +250,13 @@ class Perception:
         self.tracks: List[Track] = []
         self._next_track_id: int = 1
 
-        # Map discrepancy tracking
+        # Отслеживание расхождений карты
         self.removed_segment_ids: Set[int] = set()
         self._missing_wall_votes: Dict[int, int] = {}
         self.note: str = ""
-        # Ticks the current map note stays valid without a fresh confirmation
+        # Число тактов действия примечания карты без повторного подтверждения
         self._note_hold: int = 0
-        # Last pose pair; lets get_extra_obstacles() map odom-frame tracks to world
+        # Последняя пара поз для перевода треков одометрии в глобальные координаты
         self._last_pose: Optional[Tuple[float, float, float]] = None
         self._last_odom_pose: Optional[Tuple[float, float, float]] = None
 
@@ -322,8 +315,8 @@ class Perception:
         if n == 0 or map_segs is None:
             return []
 
-        # 1. Expected ranges from map walls
-        # Filter active segments (exclude removed segments)
+        # 1. Ожидаемые расстояния до стен карты
+        # Фильтрация активных отрезков (исключая удаленные)
         active_segs = map_segs
         if self.removed_segment_ids:
             mask = np.ones(len(map_segs), dtype=bool)
@@ -334,11 +327,11 @@ class Perception:
 
         exp = raycast(x, y, th + rel, active_segs)
 
-        # 2. Candidate unexplained beams: shorter than map by margin
+        # 2. Кандидаты в необъясненные лучи: короче карты с запасом
         margin = 0.35 + min(1.5, max(0.0, sigma_pose))
         bad = np.isfinite(r) & (r < exp - margin)
 
-        # Filter out beams whose end points fall within 0.4m of mapped wall
+        # Исключение лучей, чьи концы попадают в пределы 0.4 м от стены карты
         if bad.any():
             bad_idx = np.flatnonzero(bad)
             beam_world_angles = th + rel[bad_idx]
@@ -348,10 +341,10 @@ class Perception:
             near_wall = seg_dist(wx, wy, active_segs) < wall_margin
             bad[bad_idx[near_wall]] = False
 
-        # 3. Snow filter: isolated single short returns (0.3-3.0m) discarded
+        # 3. Фильтр снега: изолированные одиночные короткие отклики (0.3-3.0 м) отбрасываются
         if bad.any():
             bad_idx = np.flatnonzero(bad)
-            # Check Cartesian distance to immediate neighbours in angular sweep
+            # Проверка декартова расстояния до ближайших соседей по углу
             cos_rel = np.cos(rel)
             sin_rel = np.sin(rel)
             px_all = r * cos_rel
@@ -367,12 +360,12 @@ class Perception:
                     math.hypot(px_all[k] - px_all[next_k], py_all[k] - py_all[next_k]) < 0.6
                 )
                 if not (has_prev or has_next):
-                    # Lone ray: snow artifact
+                    # Одиночный луч: артефакт снегопада
                     bad[k] = False
 
-        # 4. Assemble clusters
+        # 4. Сборка кластеров
         finite = np.isfinite(r)
-        breaks = finite & ~bad  # Ray explained by map ends the object
+        breaks = finite & ~bad  # Луч, объясненный стеной карты, завершает текущий объект
         clusters: List[List[int]] = []
 
         if bad.any():
@@ -393,7 +386,7 @@ class Perception:
                         run.append(k)
                         skipped = 0
                         continue
-                    # Check gap in Cartesian plane
+                    # Проверка разрыва в декартовой плоскости
                     gap = math.hypot(
                         r[k] * math.cos(rel[k]) - r[run[-1]] * math.cos(rel[run[-1]]),
                         r[k] * math.sin(rel[k]) - r[run[-1]] * math.sin(rel[run[-1]]),
@@ -403,10 +396,10 @@ class Perception:
                         skipped = 0
                         continue
 
-                # Up to 2 dropped / NaN beams do not break the cluster (fog resilience)
+                # До 2 пропущенных лучей не разрывают кластер для устойчивости в тумане
                 if run and skipped < 2:
                     nxt = [(start + j + d) % n for d in (1, 2)]
-                    # Check if next beam resumes cluster within 0.6m
+                    # Проверка возобновления кластера следующим лучом в пределах 0.6 м
                     can_resume = not finite[k] or any(
                         bad[q]
                         and (
@@ -430,7 +423,7 @@ class Perception:
             if len(run) >= 2:
                 clusters.append(run)
 
-        # 5. Extract cluster points and transform centroids into pure odometry frame
+        # 5. Извлечение точек кластеров и перевод центроидов в чистый базис одометрии
         cos_oth = math.cos(oth)
         sin_oth = math.sin(oth)
         cos_rel = np.cos(rel)
@@ -448,7 +441,7 @@ class Perception:
             mean_px = float(px.mean())
             mean_py = float(py.mean())
 
-            # Transform centroid to pure odometry frame (ox, oy, oth)
+            # Перевод центроида в чистый базис одометрии (ox, oy, oth)
             cluster_ox = ox + cos_oth * mean_px - sin_oth * mean_py
             cluster_oy = oy + sin_oth * mean_px + cos_oth * mean_py
 
@@ -468,7 +461,7 @@ class Perception:
                 }
             )
 
-        # Second pass: check wall continuations
+        # Второй проход: проверка продолжений стен
         for c_dict in detected_clusters:
             if not c_dict["is_wall"]:
                 if is_wall_continuation(c_dict["pts"], confirmed_wall_pts):
@@ -478,7 +471,7 @@ class Perception:
             else:
                 c_dict["is_wall_piece"] = False
 
-        # 6. Associate detections with existing tracks in pure odometry frame
+        # 6. Ассоциация детекций с существующими треками в чистом базисе одометрии
         assoc_thresh = 1.5 if is_fog else 1.0
         used_tracks: Set[int] = set()
         matched_cluster_indices: Set[int] = set()
@@ -501,7 +494,7 @@ class Perception:
                 used_tracks.add(best_idx)
                 matched_cluster_indices.add(c_idx)
 
-                # Velocity update in odometry frame
+                # Обновление оценки скорости в базисе одометрии
                 dx = c_ox - tr.ox
                 dy = c_oy - tr.oy
                 inst_vx = dx / self.dt
@@ -518,11 +511,8 @@ class Perception:
                 tr.seen.append(1)
                 tr.coast_ticks = 0
 
-                # Geometry classification. A track with human motion history is never
-                # demoted to a wall: a real wall does not move in the clean odometry
-                # frame, while a person whose momentary footprint looks like a thin
-                # wall piece does (plan/03:26-28). Otherwise the latched human class
-                # would be overwritten and the person would stop limiting speed.
+                # Классификация геометрии. Трек с историей движения человека никогда не понижается
+                # до стены: стена неподвижна в одометрии, а силуэт человека может временно казаться тонким.
                 if (
                     (c_dict["is_wall"] or c_dict["is_wall_piece"])
                     and tr.dyn is not True
@@ -531,7 +521,7 @@ class Perception:
                     tr.class_label = "wall_extra"
                     tr.dyn = False
             else:
-                # New track
+                # Новый трек
                 tr = Track(self._next_track_id, c_ox, c_oy, c_dict["pts"])
                 self._next_track_id += 1
                 tr.length = c_dict["length"]
@@ -541,7 +531,7 @@ class Perception:
                     tr.class_label = "wall_extra"
                     tr.dyn = False
                 else:
-                    # Inherit pedestrian class if adjacent to a known dynamic track
+                    # Наследование класса пешехода при соседстве с известным динамическим треком
                     if any(
                         other.is_pedestrian
                         and math.hypot(other.ox - c_ox, other.oy - c_oy) < assoc_thresh
@@ -554,25 +544,25 @@ class Perception:
                 used_tracks.add(len(self.tracks) - 1)
                 matched_cluster_indices.add(c_idx)
 
-        # 7. Unmatched tracks: Coasting / prediction for dynamic tracks
+        # 7. Несопоставленные треки: экстраполяция движения для динамических треков
         slow_platform = abs(v_odom) < STATIC_OBJECT_V_GATE
         for t_idx, tr in enumerate(self.tracks):
             if t_idx not in used_tracks:
                 tr.seen.append(0)
                 tr.coast_ticks += 1
 
-                # If track was pedestrian and lost within 1.0s (10 ticks), predict motion
+                # Если трек был пешеходом и потерян менее 1.0 с назад (10 тактов), прогнозировать движение
                 if tr.is_pedestrian and tr.coast_ticks <= 10:
                     tr.ox += tr.vx_odom * self.dt
                     tr.oy += tr.vy_odom * self.dt
                     tr.hist.append((tr.ox, tr.oy))
 
-                    # Predict robot-frame points
+                    # Прогноз точек в базисе робота
                     rel_ox = tr.ox - ox
                     rel_oy = tr.oy - oy
                     rx = cos_oth * rel_ox + sin_oth * rel_oy
                     ry = -sin_oth * rel_ox + cos_oth * rel_oy
-                    # Synthesize approximate cluster footprint around predicted position
+                    # Синтез примерного контура кластера вокруг прогнозируемой позиции
                     tr.pts = np.array(
                         [
                             [rx - 0.15, ry],
@@ -589,31 +579,17 @@ class Perception:
                     ry = -sin_oth * rel_ox + cos_oth * rel_oy
                     tr.pts = np.array([[rx, ry]])
 
-        # 8. Track classification and history evaluation
-        #    (a) A track that ever shifted >= 0.6 m over the ~1 s window is a
-        #        pedestrian forever (plan/03:28): it must never be rewritten as a
-        #        static object and must never enter the obstacle map.
-        #    (b) A compact cluster with no world motion, no motion history and a
-        #        long stable stay in the world, while the platform is slow/stopped,
-        #        is a static object for the obstacle layer (plan/03:29). The plan's
-        #        near-stop gate |v_odom| < 0.02 is unreachable when the object
-        #        itself forces the 0.22 m/s human-limit crawl, so the gate is 0.35.
-        #    (c) A cluster in front of the platform inside the swept corridor stays
-        #        a human until it has been stable for >= 2.0 s: safety keeps human
-        #        limits there and the route plans the side offset around a genuine
-        #        object (plan/03:28-30, plan/04:32-41).
+        # 8. Классификация треков и анализ истории:
+        # - трек со смещением >= 0.6 м за ~1 с навсегда остается пешеходом;
+        # - компактный стабильный кластер без движения становится статическим объектом;
+        # - кластер перед платформой в коридоре остается человеком до стабильности >= 2.0 с.
         for tr in self.tracks:
             tr.hist = tr.hist[-11:]
             tr.seen = tr.seen[-11:]
             tr.refresh_confirmed()
 
-            # World motion outranks the geometry label: a real wall does not move in
-            # the clean odometry frame, so a "wall piece" that shifted >= 0.6 m over
-            # the window is a person misread from a momentary footprint and must not
-            # stay in the obstacle layer (plan/03:26-28). The rule is deliberately
-            # limited to a *compact* contour: a large static body (container, unmapped
-            # wall) sweeps its visible centroid when the visible part of the outline
-            # changes, which is not world motion (PEDESTRIAN_CONTOUR_MAX_M).
+            # Движение в мире важнее геометрической метки: реальная стена неподвижна в базисе одометрии,
+            # смещение >= 0.6 м указывает на человека. Правило ограничено компактными контурами.
             shift = 0.0
             if len(tr.hist) >= 5:
                 shift = track_world_shift(tr)
@@ -626,21 +602,15 @@ class Perception:
             if tr.is_wall:
                 continue
 
-            # Latched pedestrian: keep the human class, never becomes an object. This
-            # outranks the large-cluster rule below, so a person whose contour grows
-            # (a merged footprint, a partial view) is not demoted into the obstacle
-            # layer and never rewrites the route (plan/03:28, own s2 container keeps
-            # the wave-3 rescue of the compact body on 04 seed 42).
+            # Зафиксированный пешеход: сохраняет класс человека и не становится препятствием карты.
+            # Правило приоритетнее длинных кластеров при частичной видимости.
             if tr.dyn is True:
                 tr.class_label = "pedestrian"
                 tr.still_ticks = 0
                 continue
 
-            # A long cluster that is not a mapped wall is a *body* in the world, not an
-            # unknown human (plan/03:38): it belongs in the obstacle layer as
-            # `wall_extra` so the route can plan the bypass. Leaving it `unknown` makes
-            # safety treat it as a person and hold an eternal stop, which is exactly the
-            # s2 deadlock (robot frozen at (186.5, 93.1) for 90 s).
+            # Длинный кластер, отсутствующий на карте, является физическим объектом (wall_extra),
+            # а не человеком. Это позволяет планировщику построить объезд и избежать тупика.
             if tr.length > PEDESTRIAN_CONTOUR_MAX_M:
                 tr.class_label = "wall_extra"
                 tr.dyn = False
@@ -669,19 +639,19 @@ class Perception:
             if tr.dyn is None:
                 tr.class_label = "unknown"
 
-        # 9. Pruning stale tracks
-        # Keep track if seen recently, or if pedestrian coasting <= 10 ticks
+        # 9. Удаление устаревших треков.
+        # Трек сохраняется при недавнем наблюдении или экстраполяции пешехода <= 10 тактов.
         self.tracks = [
             tr
             for tr in self.tracks
             if (sum(tr.seen[-6:]) > 0) or (tr.is_pedestrian and tr.coast_ticks <= 10)
         ]
 
-        # 10. Check map discrepancies: missing walls and extra walls
+        # 10. Проверка расхождений карты: отсутствующие и лишние стены
         self._check_map_discrepancies(r, exp, x, y, th, map_segs, scan_inliers)
 
-        # Return only confirmed tracks: a lone/paired snow return cannot confirm
-        # and a confirmed track survives coasting (plan/03:18, plan/03:20).
+        # Возврат только подтвержденных треков: снежные отклики отсекаются,
+        # а подтвержденный трек сохраняется при экстраполяции.
         return self.active_tracks
 
     def _check_map_discrepancies(
@@ -700,7 +670,7 @@ class Perception:
 
         detected_note: Optional[str] = None
 
-        # Sensed missing walls: finite rays longer than map by > 1.2m when scan match is reliable
+        # Обнаруженные отсутствующие стены: конечные лучи длиннее карты более чем на 1.2 м
         if scan_inliers >= 40:
             overshoot = (
                 (exp_ranges < 15.0)
@@ -710,7 +680,7 @@ class Perception:
             )
             if overshoot.any():
                 over_indices = np.flatnonzero(overshoot)
-                # Count rays penetrating each segment in the current tick
+                # Подсчет числа лучей, пересекающих каждый отрезок в текущем такте
                 tick_votes: Dict[int, int] = {}
                 for idx in over_indices:
                     for s_idx, seg in enumerate(map_segs):
@@ -722,19 +692,19 @@ class Perception:
                             tick_votes[s_idx] = tick_votes.get(s_idx, 0) + 1
 
                 for s_idx, count in tick_votes.items():
-                    # Require at least 5 simultaneous penetrating rays to register a vote
+                    # Не менее 5 одновременных пересекающих лучей для фиксации события
                     if count >= 5:
                         self._missing_wall_votes[s_idx] = self._missing_wall_votes.get(s_idx, 0) + 1
                         if self._missing_wall_votes[s_idx] >= 20:
                             self.removed_segment_ids.add(s_idx)
                             detected_note = "map_missing"
 
-        # Check for confirmed extra walls
+        # Проверка подтвержденных лишних стен
         if detected_note is None and any(tr.is_wall for tr in self.tracks):
             detected_note = "map_extra"
 
-        # Notes are re-confirmed every tick and decay once the cause disappears,
-        # so they cannot stick and hide active route notes (audit gap 15).
+        # Заметки перепроверяются каждый такт и сбрасываются при исчезновении причины,
+        # не перекрывая активные уведомления маршрута.
         if detected_note is not None:
             self.note = detected_note
             self._note_hold = 20
@@ -765,14 +735,14 @@ class Perception:
                 continue
             if not tr.refresh_confirmed():
                 continue
-            # Odom frame -> robot frame -> world frame
+            # Перевод координат: одометрия -> робот -> глобальный мир
             dx_o = tr.ox - ox
             dy_o = tr.oy - oy
             rx = cos_o * dx_o + sin_o * dy_o
             ry = -sin_o * dx_o + cos_o * dy_o
             wx = x + cos_w * rx - sin_w * ry
             wy = y + sin_w * rx + cos_w * ry
-            # Estimate radius from cluster length (bounded, same as controller layer)
+            # Оценка радиуса по длине кластера с ограничениями
             r_eff = max(0.4, 0.5 * min(2.0, tr.length))
             obs.append((float(wx), float(wy), float(r_eff)))
         return obs

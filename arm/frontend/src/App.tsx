@@ -12,12 +12,12 @@ export const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<RouteName>('dashboard');
   const [queryParams, setQueryParams] = useState<Record<string, any>>({});
 
-  // Parse window.location.hash on mount and on hashchange
+  // Разбор window.location.hash при монтировании и изменении хэша
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '');
       if (!hash) {
-        // Root / redirects to /dashboard as per frontend.md rule
+        // Перенаправление корневого пути / на /dashboard
         window.location.hash = '#/dashboard';
         setCurrentRoute('dashboard');
         setQueryParams({});
@@ -35,7 +35,7 @@ export const App: React.FC = () => {
         setCurrentRoute('dashboard');
       }
 
-      // Parse query string
+      // Разбор строки параметров запроса
       const params: Record<string, any> = {};
       if (queryString) {
         const searchParams = new URLSearchParams(queryString);
@@ -51,7 +51,7 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Programmatic navigation handler
+  // Обработчик программной навигации
   const handleNavigate = (route: RouteName, params?: Record<string, any>) => {
     let hash = `#/${route}`;
     if (params && Object.keys(params).length > 0) {

@@ -20,7 +20,7 @@ export const Latex: React.FC<LatexProps> = ({
   const html = useMemo(() => {
     if (!content) return '';
 
-    // If explicit math prop was passed, render directly
+    // Прямой рендеринг при явной передаче свойства math
     if (math !== undefined) {
       try {
         return katex.renderToString(math, {
@@ -32,7 +32,7 @@ export const Latex: React.FC<LatexProps> = ({
       }
     }
 
-    // Split text by $$...$$ and $...$
+    // Разделение текста по блочным $$...$$ и строчным $...$ формулам
     const regex = /(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$)/g;
     const parts = content.split(regex);
 

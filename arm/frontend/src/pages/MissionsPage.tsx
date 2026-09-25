@@ -18,7 +18,7 @@ export const MissionsPage: React.FC<MissionsPageProps> = ({ onNavigate, queryPar
   const [data, setData] = useState<MissionsViewModel | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch scenarios list
+  // Загрузка списка сценариев
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -29,14 +29,14 @@ export const MissionsPage: React.FC<MissionsPageProps> = ({ onNavigate, queryPar
     };
   }, []);
 
-  // Update scenario from queryParams if changed
+  // Обновление сценария из параметров URL при изменении
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
     }
   }, [queryParams?.scenario]);
 
-  // Fetch missions for scenario
+  // Загрузка миссий для сценария
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -51,7 +51,7 @@ export const MissionsPage: React.FC<MissionsPageProps> = ({ onNavigate, queryPar
     };
   }, [scenario]);
 
-  // If id is provided in queryParams, scroll to that card
+  // Прокрутка к карточке при передаче id в параметрах URL
   useEffect(() => {
     if (queryParams?.id) {
       const el = document.getElementById(`mission-${queryParams.id}`);

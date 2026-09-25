@@ -28,7 +28,7 @@ RESULTS_DIR = ROOT_DIR / "results"
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# In-memory caches to speed up requests
+# Кэш в оперативной памяти для ускорения запросов
 _TICKS_CACHE: dict[str, dict] = {}
 _REPORT_CACHE: dict[str, dict] = {}
 
@@ -155,7 +155,7 @@ def format_time(seconds: float) -> str:
 def get_scenario_file(scenario_id: str) -> Path | None:
     norm_id = normalize_scenario_id(scenario_id)
 
-    # Check direct file path if provided
+    # Проверка прямого пути к файлу при наличии
     raw_p = Path(scenario_id)
     if raw_p.is_file() and raw_p.exists():
         return raw_p
@@ -163,13 +163,13 @@ def get_scenario_file(scenario_id: str) -> Path | None:
     if rel_p.is_file() and rel_p.exists():
         return rel_p
 
-    # If backend/ was requested, map to team/ if present
+    # Перенаправление backend/ в team/ при наличии
     if str(scenario_id).startswith("backend/"):
         mapped = ROOT_DIR / ("team/" + str(scenario_id)[len("backend/") :])
         if mapped.is_file() and mapped.exists():
             return mapped
 
-    # Search in standard, team, and backend scenario directories
+    # Поиск в каталогах стандартных, командных сценариев и сценариев бэкенда
     for base in [SCENARIOS_DIR, TEAM_SCENARIOS_DIR, BACKEND_SCENARIOS_DIR]:
         if not base.exists():
             continue
@@ -218,7 +218,7 @@ def get_scenario_log_path(scenario_id: str) -> Path | None:
         OUT_DIR / f"team_{norm_id}.jsonl",
         OUT_DIR / "table_runs" / "logs" / f"team__{norm_id}__s7.jsonl",
         ROOT_DIR / "amrsim-participants" / "samples" / f"{norm_id}.jsonl",
-        # Fallback to sample 01_clear.jsonl or 04_busy_yard.jsonl if specific tick log not yet generated
+        # Использование образцов 01_clear.jsonl или 04_busy_yard.jsonl, если лог тактов еще не сформирован
         ROOT_DIR / "amrsim-participants" / "samples" / "04_busy_yard.jsonl",
     ]
     for p in candidates:
@@ -282,7 +282,7 @@ def run_simulation(
 
     proc = subprocess.run(cmd, cwd=str(ROOT_DIR), env=env, capture_output=True, text=True)
 
-    # Invalidate cache for this scenario
+    # Сброс кэша для данного сценария
     _REPORT_CACHE.pop(norm_id, None)
     _TICKS_CACHE.pop(norm_id, None)
 
@@ -375,7 +375,7 @@ def parse_ticks_log(scenario_id: str, max_samples: int = 1200) -> dict:
 
     duration = raw_ticks[-1].get("t", 0.0)
 
-    # Process all ticks: compute pe_error and ensure lidar rays
+    # Обработка всех тактов: вычисление ошибки оценки позы pe_error и проверка лучей лидара
     step = max(1, len(raw_ticks) // max_samples)
     sampled = []
 
@@ -399,7 +399,7 @@ def parse_ticks_log(scenario_id: str, max_samples: int = 1200) -> dict:
         )
 
         if i % step == 0 or has_event or i == len(raw_ticks) - 1:
-            # Generate sample lidar rays if needed
+            # Генерация лучей лидара при необходимости
             lidar = [
                 {
                     "angle": th + (a - 4) * 0.15,
@@ -439,7 +439,7 @@ def compute_step_distribution(n: int, mean_ms: float, max_ms: float) -> list[dic
 
 
 # ==============================================================================
-# Server-Driven UI (SDUI) View Model Builders
+# Построители моделей представления интерфейса SDUI
 # ==============================================================================
 
 
@@ -464,11 +464,11 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
     episodes = score_data.get("episodes", [])
     warnings_count = len(episodes)
 
-    # Calculate average localization error from raw ticks
+    # Расчет средней ошибки локализации по сырым тактам
     pe_errors = [t.get("pe_error", 0.0) for t in raw_ticks if t.get("pe")]
     mean_loc_error = round(sum(pe_errors) / max(1, len(pe_errors)), 2) if pe_errors else 0.15
 
-    # Speed history (40 points across the run)
+    # История скорости: 40 точек по всей длительности прогона
     speed_history = []
     speed_timestamps = []
     if raw_ticks:
@@ -483,9 +483,9 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
         speed_history = [0.0] * 40
         speed_timestamps = [format_time(i * 5) for i in range(40)]
 
-    # Recent events constructed from missions and episodes
+    # Недавние события, сформированные из миссий и эпизодов
     recent_events = []
-    # Add delivered missions as success events
+    # Добавление выполненных миссий как успешных событий
     for m in report.get("missions", []) if report else []:
         t_arr = m.get("t_arrival") if m.get("t_arrival") is not None else m.get("t_end", 0.0)
         m_id = m.get("id", "m1")
@@ -504,7 +504,7 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
             }
         )
 
-    # Add episodes as warnings/info
+    # Добавление штрафных эпизодов как предупреждений или информационных сообщений
     for idx, ep in enumerate(episodes):
         ep_type = ep.get("type", "incident")
         cost = ep.get("cost", 0.0)
@@ -519,7 +519,7 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
             }
         )
 
-    # Add controller state/info event
+    # Добавление события состояния контроллера
     recent_events.append(
         {
             "id": "e-sys-start",
@@ -530,15 +530,15 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
         }
     )
 
-    # Sort recent events by time descending
+    # Сортировка недавних событий по убыванию времени
     recent_events.reverse()
 
-    # Controller performance metrics
+    # Метрики производительности контроллера
     step_time = report.get("step_time_ms", {}) if report else {}
     mean_delay = round(step_time.get("mean", 2.7), 2)
     max_delay = round(step_time.get("max", 35.0), 1)
 
-    # Preview and history ticks for mini-map
+    # Такты предпросмотра и истории для миникарты
     preview_idx = min(200, len(sampled_ticks) - 1) if sampled_ticks else 0
     preview_tick = sampled_ticks[preview_idx] if sampled_ticks else None
     history_ticks = sampled_ticks[: preview_idx + 1] if sampled_ticks else []
@@ -612,7 +612,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
     score = report.get("score", {}) if report else {}
     episodes_raw = score.get("episodes", [])
 
-    # Helper to find closest tick by timestamp
+    # Поиск ближайшего такта по временной метке
     def find_tick_at(t_val: float) -> dict | None:
         if not raw_ticks:
             return None
@@ -637,7 +637,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
         total_cost += cost
         ep_type = ep.get("type", "warning")
 
-        # Telemetry snapshot from closest tick
+        # Снимок телеметрии из ближайшего такта
         tk = find_tick_at(t_start)
         telemetry = None
         if tk:
@@ -671,9 +671,9 @@ def build_episodes_view_model(scenario_id: str) -> dict:
             }
         )
 
-    # If scenario had few or no penalty episodes, extract mission events and telemetry highlights
+    # При малом числе штрафных эпизодов извлечение событий миссий и ключевых точек телеметрии
     if len(episodes) < 4:
-        # 1. Mission Milestones (Departure, Delivery/Timeout)
+        # 1. Контрольные точки миссий: отправление, доставка или таймаут
         for m in report.get("missions", []) if report else []:
             m_id = m.get("id", "m1")
             from_pt = POINT_LABELS.get(m.get("from", ""), m.get("from", ""))
@@ -682,7 +682,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
             t_arr = m.get("t_arrival") if m.get("t_arrival") is not None else m.get("t_end", 0.0)
             delivered = m.get("delivered", True)
 
-            # Departure
+            # Отправление
             tk_st = find_tick_at(t_st)
             episodes.append(
                 {
@@ -712,7 +712,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                 }
             )
 
-            # Arrival
+            # Прибытие
             tk_arr = find_tick_at(t_arr)
             hold_dist = m.get("max_hold_dist")
             hold_str = (
@@ -749,7 +749,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                 }
             )
 
-    # 2. Extract notable events from raw ticks (GNSS shadow, obstacles, pedestrians, map extra, stops)
+    # 2. Извлечение ключевых событий из тактов: тень GNSS, препятствия, пешеходы, расхождения карты, остановки
     if len(episodes) < 6 and raw_ticks:
         added = 0
         for tk in raw_ticks:
@@ -758,7 +758,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
             nt = tk.get("nt", "") or ""
             t_curr = tk.get("t", 0.0)
 
-            # Avoid duplicates close in time
+            # Исключение близких по времени дубликатов
             if any(abs(e["t_start"] - t_curr) < 15.0 for e in episodes):
                 continue
 
@@ -866,7 +866,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
             if added >= 4:
                 break
 
-    # 3. If still fewer than 3 events, sample operational checkpoints along the trajectory
+    # 3. Если событий менее 3, выборка контрольных точек вдоль траектории
     if len(episodes) < 3 and raw_ticks:
         step_pts = max(1, len(raw_ticks) // 4)
         for i in range(step_pts, len(raw_ticks) - 1, step_pts):
@@ -898,7 +898,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                 }
             )
 
-    # If episodes list is still empty (e.g. simulation log not present or no events), add informative start/nominal event
+    # Если список эпизодов пуст, добавление стартового информационного события
     if not episodes:
         episodes.append(
             {
@@ -926,7 +926,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
             }
         )
 
-    # Sort all episodes chronologically
+    # Хронологическая сортировка всех эпизодов
     episodes.sort(key=lambda e: e.get("t_start", 0.0))
 
     fatal_count = 1 if score.get("fatal") else 0
@@ -1036,7 +1036,7 @@ def build_analytics_view_model(scenario_id: str) -> dict:
         achieved = blocks_raw.get(key, 0.0)
         max_val = max_raw.get(key, 20.0)
         if key == "collisions":
-            # Collisions: 0 is perfect
+            # Столкновения: 0 - идеальный результат
             percentage = 100.0 if achieved >= 0 else max(0.0, 100.0 + achieved * 10)
         else:
             percentage = round((achieved / max_val * 100.0), 1) if max_val > 0 else 100.0
@@ -1100,13 +1100,13 @@ def build_analytics_view_model(scenario_id: str) -> dict:
 
 
 # ==============================================================================
-# HTTP Server Handler
+# Обработчик HTTP-сервера
 # ==============================================================================
 
 
 class AMRServerHandler(SimpleHTTPRequestHandler):
     def end_headers(self):
-        # Full CORS support
+        # Полная поддержка CORS
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header(
@@ -1132,13 +1132,13 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
         params = parse_qs(parsed.query)
 
         # ----------------------------------------------------------------------
-        # 1. API: Scenarios list
+        # 1. API: список сценариев
         # ----------------------------------------------------------------------
         if path == "/api/scenarios":
             scenarios = []
             seen = set()
 
-            # Open standard scenarios
+            # Стандартные сценарии
             if SCENARIOS_DIR.exists():
                 for f in sorted(SCENARIOS_DIR.glob("*.json")):
                     sc_id = f.stem
@@ -1160,7 +1160,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                             }
                         )
 
-            # Team custom scenarios
+            # Пользовательские сценарии команды
             if TEAM_SCENARIOS_DIR.exists():
                 for f in sorted(TEAM_SCENARIOS_DIR.glob("*.json")):
                     sc_id = f.stem
@@ -1185,7 +1185,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
             return self.send_json(scenarios)
 
         # ----------------------------------------------------------------------
-        # 2. Server-Driven UI: Dashboard View Model
+        # 2. SDUI: модель представления дашборда
         # ----------------------------------------------------------------------
         if path == "/api/ui/dashboard":
             sc_id = params.get("scenario", ["04_busy_yard"])[0]
@@ -1196,7 +1196,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": str(e)}, status=500)
 
         # ----------------------------------------------------------------------
-        # 3. Server-Driven UI: Replay View Model
+        # 3. SDUI: модель представления плеера
         # ----------------------------------------------------------------------
         if path == "/api/ui/replay":
             sc_id = params.get("scenario", ["04_busy_yard"])[0]
@@ -1208,7 +1208,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": str(e)}, status=500)
 
         # ----------------------------------------------------------------------
-        # 4. Server-Driven UI: Episodes View Model
+        # 4. SDUI: модель представления эпизодов
         # ----------------------------------------------------------------------
         if path == "/api/ui/episodes":
             sc_id = params.get("scenario", ["04_busy_yard"])[0]
@@ -1219,7 +1219,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": str(e)}, status=500)
 
         # ----------------------------------------------------------------------
-        # 5. Server-Driven UI: Missions View Model
+        # 5. SDUI: модель представления миссий
         # ----------------------------------------------------------------------
         if path == "/api/ui/missions":
             sc_id = params.get("scenario", ["04_busy_yard"])[0]
@@ -1230,7 +1230,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": str(e)}, status=500)
 
         # ----------------------------------------------------------------------
-        # 6. Server-Driven UI: Analytics View Model
+        # 6. SDUI: модель представления аналитики
         # ----------------------------------------------------------------------
         if path == "/api/ui/analytics":
             sc_id = params.get("scenario", ["04_busy_yard"])[0]
@@ -1241,7 +1241,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": str(e)}, status=500)
 
         # ----------------------------------------------------------------------
-        # 7. Backward compatibility: /api/report & /api/ticks
+        # 7. Обратная совместимость: /api/report и /api/ticks
         # ----------------------------------------------------------------------
         if path == "/api/report":
             sc_id = params.get("scenario", ["04_busy_yard"])[0]
@@ -1256,7 +1256,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
             return self.send_json(res)
 
         # ----------------------------------------------------------------------
-        # 8. API: Export CSV
+        # 8. API: экспорт в CSV
         # ----------------------------------------------------------------------
         if path == "/api/export/csv":
             raw_id = params.get("scenario", ["04_busy_yard"])[0]
@@ -1308,14 +1308,14 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
             return
 
         # ----------------------------------------------------------------------
-        # 9. Static Frontend files
+        # 9. Статические файлы фронтенда
         # ----------------------------------------------------------------------
         if FRONTEND_DIST.exists():
-            # If path exists in dist, serve it
+            # Раздача файла, если путь существует в dist
             file_path = FRONTEND_DIST / path.lstrip("/")
             if file_path.is_file():
                 return super().do_GET()
-            # If it's a SPA route, serve index.html
+            # Для маршрутов SPA отдается index.html
             index_file = FRONTEND_DIST / "index.html"
             if index_file.exists():
                 with open(index_file, "rb") as f:
@@ -1334,7 +1334,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
         path = parsed.path
 
         # ----------------------------------------------------------------------
-        # API: Run Simulation
+        # API: запуск симуляции
         # ----------------------------------------------------------------------
         if path == "/api/run":
             length = int(self.headers.get("Content-Length", 0))
@@ -1362,7 +1362,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                     seed=seed,
                     cheat=cheat,
                 )
-                # Prepare logs array for Runner UI terminal
+                # Формирование массива логов для терминала страницы запуска
                 logs = [
                     f"$ python -m amrsim run {scenario}.json --controller {controller} --seed {seed}",
                     f"[INFO] Initializing simulation for scenario {scenario}...",
@@ -1391,15 +1391,15 @@ def main():
     )
     args = parser.parse_args()
 
-    # Set working directory for SimpleHTTPRequestHandler static serving
+    # Установка рабочего каталога для статических файлов SimpleHTTPRequestHandler
     if FRONTEND_DIST.exists():
         os.chdir(str(FRONTEND_DIST))
     else:
         os.chdir(str(ROOT_DIR))
 
     server = ThreadingHTTPServer((args.host, args.port), AMRServerHandler)
-    print(f"AMR SafeRoute SDUI API Server running on http://{args.host}:{args.port}")
-    print("Server-Driven UI Endpoints:")
+    print(f"Сервер API АРМ Безопасный маршрут (SDUI) запущен: http://{args.host}:{args.port}")
+    print("Конечные точки интерфейса:")
     print("  GET  /api/scenarios")
     print("  GET  /api/ui/dashboard?scenario=<id>")
     print("  GET  /api/ui/replay?scenario=<id>&seed=<seed>")
@@ -1411,7 +1411,7 @@ def main():
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down server...")
+        print("\nОстановка сервера...")
         server.server_close()
 
 

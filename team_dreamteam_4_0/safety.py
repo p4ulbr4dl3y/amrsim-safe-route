@@ -17,44 +17,33 @@ except ImportError:
     from perceive import Track
 
 
-# Platform and safety constants
-R_PLATFORM = 0.9  # Platform radius (m)
-R_PEDESTRIAN = 0.3  # Pedestrian radius (m)
-DECEL_NORMAL = 1.2  # Normal service deceleration (m/s^2)
-DT = 0.1  # Simulation step (s)
-V_MAX_DEFAULT = 1.39  # Maximum vehicle speed (m/s)
+# Константы платформы и безопасности
+R_PLATFORM = 0.9  # Радиус платформы (м)
+R_PEDESTRIAN = 0.3  # Радиус пешехода (м)
+DECEL_NORMAL = 1.2  # Штатное служебное замедление (м/с^2)
+DT = 0.1  # Шаг симуляции (с)
+V_MAX_DEFAULT = 1.39  # Максимальная скорость аппарата (м/с)
 
-SLOW_PERSON_GAP = 3.3  # Current clearance below which a human caps v at <= 0.22 m/s
-SLOW_PERSON_V = 0.22  # Speed cap next to a person/unknown (plan/03:55)
-# The scoring penalty starts at clearance < 3.0 m and |v| > 0.28 m/s, but a command of 0.22
-# does not become the true speed instantly: the platform decelerates at 1.2 m/s^2, so from
-# 0.95 m/s it needs ~0.6 s (6 ticks) to fall under 0.28. While it is still braking the gap
-# keeps closing, and a person walking towards the platform closes it faster still. Engaged at
-# the bare 3.3 m threshold the speed is therefore still ~0.35 m/s when the true gap crosses
-# 3.0 m: a one-tick `person_near_fast` episode (-0.2, measured on 01/03/04). The margin below
-# is added to the engagement gap for a person-like cluster so the speed is already <= 0.28 by
-# the time the gap reaches 3.0 m. It is a fraction of the ground covered while the service
-# brake releases the ramp (0.28 s per 1 m/s of current speed: ~0.27 m at 0.95 m/s, ~0.39 m at
-# cruise), calibrated as the smallest value that removes every observed episode. It is capped
-# so that a distant person can never throttle the platform; within the current 1.39 m/s limit
-# the cap is a guard only (it binds above ~1.43 m/s), so the calibrated behaviour below is
-# exactly K * v_now.
-SLOW_PERSON_MARGIN_K = 0.28  # s: extra gap per m/s of current speed (braking-ramp cover)
-SLOW_PERSON_MARGIN_MAX = 0.40  # m: hard cap on the anticipatory margin
-SLOW_PERSON_MIN_PTS = 4  # a person-like cluster: a lone snow return is never this wide
-# The 2 s clearance prediction answers "would this body enter the circle" (plan/03:47). Using
-# the already-limited v_odom understates the risk: once the slow cap has collapsed the speed to
-# 0.22 m/s the prediction looks safe, the stop never fires, and the platform may crawl for a
-# long time inside a stream of pedestrians instead of waiting for it to clear. Predict with the
-# speed the path follower actually asked for (never less than the current speed).
+SLOW_PERSON_GAP = 3.3  # Текущий зазор, ниже которого скорость возле человека ограничивается до <= 0.22 м/с
+SLOW_PERSON_V = 0.22  # Ограничение скорости рядом с человеком или неизвестным объектом
+# Штраф начисляется при зазоре < 3.0 м и |v| > 0.28 м/с, но команда 0.22 м/с
+# не приводит к мгновенной остановке: платформа тормозит с 1.2 м/с^2, поэтому
+# торможение должно начинаться заранее на дистанции 3.3 м.
+SLOW_PERSON_MARGIN_K = 0.28  # с: дополнительный запас на каждый м/с текущей скорости (покрытие торможения)
+SLOW_PERSON_MARGIN_MAX = 0.40  # м: жесткое ограничение упреждающего запаса
+SLOW_PERSON_MIN_PTS = 4  # Похожий на человека кластер: снежный отклик никогда не бывает такой ширины
+# Прогноз зазора на 2 с определяет попадание объекта в защитный круг. Использование
+# уже заниженной скорости v_odom занижает риск: если ограничение снизило скорость до 0.22 м/с,
+# прогноз кажется безопасным, остановка не срабатывает, и платформа ползет в потоке пешеходов.
+# Прогноз строится по скорости, запрошенной планировщиком.
 STOP_PREDICT_WITH_CANDIDATE = True
-STOP_PREDICT_MIN_SPEED = 0.5  # m/s: only while the platform is really rolling fast
-STOP_GAP = 0.8  # Current or predicted clearance below which v = 0
-# A static object whose honest gap (no 0.3 m pedestrian radius subtracted) falls
-# below this is close enough that a misclassification would matter: safety applies
-# the human limits to it anyway (task I.5).
+STOP_PREDICT_MIN_SPEED = 0.5  # м/с: только при быстром качении платформы
+STOP_GAP = 0.8  # Текущий или прогнозируемый зазор, ниже которого v = 0
+# Статический объект с честным зазором (без вычитания радиуса 0.3 м) ниже этого порога
+# находится достаточно близко, чтобы ошибка классификации стала критичной: модуль безопасности
+# применяет к нему ограничения для пешеходов.
 STATIC_OBJECT_NEAR_GAP = 1.5
-ESTOP_GAP = 1.2  # Confirmed cluster distance enabling emergency braking
+ESTOP_GAP = 1.2  # Дистанция подтвержденного кластера для экстренного торможения
 
 
 def calculate_clearance(
@@ -103,13 +92,13 @@ def predict_ttc_clearance(
     if pts is None or len(pts) == 0:
         return math.inf, horizon_s
 
-    # Track velocity in robot frame
+    # Скорость трека в базисе робота
     cos_oth = math.cos(oth)
     sin_oth = math.sin(oth)
     vx_r = cos_oth * track.vx_odom + sin_oth * track.vy_odom
     vy_r = -sin_oth * track.vx_odom + cos_oth * track.vy_odom
 
-    # Relative velocity of track with respect to moving robot platform
+    # Относительная скорость трека относительно движущейся платформы
     v_rel_x = vx_r - v_platform
     v_rel_y = vy_r
 
@@ -156,13 +145,13 @@ def determine_status(
     if is_estop:
         return "estop"
 
-    # Moving threshold from scoring: THRESH["moving_v"] = 0.05 m/s
+    # Порог движения из критериев оценки: moving_v = 0.05 м/с
     if abs(v_odom) >= 0.05 or abs(w_odom) >= 0.10:
         if allow_slowed and is_slowed:
             return "slowed"
         return "moving"
 
-    # Stationary state (|v_odom| < 0.05)
+    # Стационарное состояние (|v_odom| < 0.05)
     if is_lost:
         return "lost"
     if is_stopped:
@@ -213,14 +202,14 @@ class SafetyGovernor:
         self.v_top = float(v_top)
         self.dt = float(dt)
 
-        # Person-stop latch: after stopping for a person/unknown track, hold v = 0 until the
-        # predicted clearance to every human track exceeds 3.3 m. A "waited 8 s then went"
-        # timeout for dynamic/unknown tracks is explicitly forbidden (plan/03:73).
+        # Триггер остановки перед человеком: после остановки удерживать v = 0 до тех пор,
+        # пока прогнозируемый зазор до каждого пешехода не превысит 3.3 м.
+        # Фиксированный таймаут ожидания для динамических треков запрещен.
         self._person_hold: bool = False
         self._person_note: str = ""
         self._last_human_pred: float = math.inf
         self._lost_human_ticks: int = 0
-        # Previous minimum estimated clearance, used to confirm a closing gap for estop.
+        # Предыдущий минимальный зазор для подтверждения сближения при экстренном торможении
         self._prev_min_cl: Optional[float] = None
 
     def get_zone_limit(
@@ -233,7 +222,7 @@ class SafetyGovernor:
         lim = self.v_top
         for poly, v_max in zones:
             if inside_polygon(x, y, poly):
-                # 0.05 margin to prevent overspeed violation
+                # Запас 0.05 для предотвращения превышения скорости
                 lim = min(lim, v_max - 0.05)
         return max(0.1, lim)
 
@@ -297,17 +286,17 @@ class SafetyGovernor:
         notes: Dict[str, str] = {}
         is_estop: bool = False
 
-        # Perception note (map_missing / map_extra) stays visible for the whole cause.
+        # Примечание распознавания (map_missing / map_extra) сохраняется на время действия причины
         if perception_note:
             notes["map"] = perception_note
 
-        # 1. Blocked wheels / wall contact condition (plan/03:122-131)
+        # 1. Блокировка колес или контакт со стеной
         if blocked_wheels:
             stop_reason = "blocked_wheels"
             notes["blocked_wheels"] = "blocked_wheels"
             v_lim = 0.0
 
-        # 2. Zone speed limits: current position and lookahead 3.0 m ahead
+        # 2. Зональные ограничения скорости: текущая позиция и упреждение на 3.0 м вперед
         cos_th = math.cos(th)
         sin_th = math.sin(th)
         zone_curr = self.get_zone_limit(x, y, zones)
@@ -317,14 +306,14 @@ class SafetyGovernor:
         if zone_effective < self.v_top:
             notes["zone"] = f"zone v={zone_effective:.2f}"
 
-        # 3. Fog limits
+        # 3. Ограничения в тумане
         if is_fog:
-            # Check if unexplained cluster ahead closer than 5.0 m
+            # Проверка наличия необъясненного кластера впереди ближе 5.0 м
             has_cluster_ahead = False
             for tr in tracks:
                 if tr.pts is not None and len(tr.pts) > 0:
                     pts = tr.pts
-                    # Ahead of robot and closer than 5.0 m
+                    # Впереди робота и ближе 5.0 м
                     in_front = (pts[:, 0] > 0.0) & (pts[:, 0] < 5.0) & (np.abs(pts[:, 1]) < 2.0)
                     if in_front.any():
                         has_cluster_ahead = True
@@ -334,12 +323,12 @@ class SafetyGovernor:
                 v_lim = min(v_lim, 0.35)
                 notes["fog"] = "fog_cluster"
             else:
-                # Fog and clear ahead: up to 0.9 m/s to satisfy short-leg deadline
+                # Туман при чистом пути впереди: до 0.9 м/с для соблюдения дедлайна
                 v_lim = min(v_lim, 0.90)
                 notes["fog"] = "fog_clear"
 
-        # 4. Track clearances and predictive TTC. Unmapped walls (is_wall=True, map_extra)
-        #    MUST count as obstacles here, not be skipped.
+        # 4. Зазоры до треков и предиктивное время до столкновения TTC.
+        # Неразмеченные стены (is_wall=True, map_extra) обязательно учитываются как препятствия.
         d_stop_corridor = R_PLATFORM + (v_now * v_now) / (2.0 * DECEL_NORMAL) + 0.6
 
         min_overall_clearance = math.inf
@@ -347,11 +336,10 @@ class SafetyGovernor:
         person_stop = False
         person_slow = False
         person_slow_cl = math.inf
-        front_hit = False  # a cluster is directly ahead inside the corridor
-        # True-contact flag: the shortest *centre-to-point* distance over every cluster.
-        # The braking path is about translation, but the hull is a 0.9 m disc, so an
-        # in-place turn is safe while the nearest point stays outside the disc. This is
-        # what decides whether w may be kept while the corridor holds v = 0.
+        front_hit = False  # Кластер находится строго впереди в пределах коридора
+        # Флаг истинного контакта: минимальное расстояние от центра до точки по всем кластерам.
+        # Тормозной путь относится к поступательному движению, но корпус представляет собой диск 0.9 м,
+        # поэтому разворот на месте безопасен, пока ближайшая точка лежит вне диска.
         min_point_dist = math.inf
 
         for tr in tracks:
@@ -378,15 +366,11 @@ class SafetyGovernor:
                 slow_gap = SLOW_PERSON_GAP
                 if person_like:
                     slow_gap += min(SLOW_PERSON_MARGIN_K * v_now, SLOW_PERSON_MARGIN_MAX)
-                # While the platform is still rolling fast the prediction uses the speed the
-                # path follower asked for, not the already-limited v_odom. Predicting with a
-                # speed that our own slow cap has just collapsed would hide a genuinely closing
-                # person: the stop would never fire and the platform would crawl for a long
-                # time inside a stream of pedestrians instead of waiting for it to clear
-                # (measured on 03 seed 21). Once the platform is already slow (<= 0.5 m/s) the
-                # plan's own thresholds apply unchanged, so a 2.5 m gap stays a 0.22 m/s cap.
+                # При быстром движении прогноз использует скорость, запрошенную планировщиком,
+                # а не уже замедленную одометрию. Когда платформа уже замедлилась (<= 0.5 м/с),
+                # зазор 2.5 м удерживает скорость 0.22 м/с.
 
-                # A. Current or predicted (2 s horizon) clearance < 0.8 m -> stop
+                # A. Текущий или прогнозируемый (горизонт 2 с) зазор < 0.8 м -> остановка
                 v_pred = v_now
                 if STOP_PREDICT_WITH_CANDIDATE and v_now >= STOP_PREDICT_MIN_SPEED:
                     v_pred = max(v_now, abs(v_cand))
@@ -401,32 +385,20 @@ class SafetyGovernor:
                     notes["stop_person"] = f"stop_person d={max(0.0, min(cl, pred_cl)):.1f}"
                     v_lim = 0.0
                     person_stop = True
-                # B. Person ahead in corridor within 4.5 m, or clearance below the engagement
-                #    gap. The engagement gap is the plan's 3.3 m plus an anticipatory margin on
-                #    a person-like cluster: the platform cannot drop to 0.22 m/s instantly, and
-                #    without the margin the true 3.0 m / 0.28 m/s scoring line is crossed while
-                #    the brake is still releasing speed (one-tick `person_near_fast`). A lone or
-                #    paired snow return (few points) is not person-like and gets no margin, so
-                #    snow never throttles the platform (plan/03:18, plan/03:55).
+                # B. Человек впереди в коридоре ближе 4.5 м или зазор ниже порога реагирования.
+                # Порог реагирования составляет 3.3 м плюс упреждающий запас для человекоподобного кластера.
+                # Одиночные снежные отклики запаса не получают и движение не замедляют.
                 elif ped_ahead.any() or cl < slow_gap:
                     person_slow = True
                     if cl < person_slow_cl:
                         person_slow_cl = cl
             else:
-                # Confirmed static object (is_static_object) or unmapped wall (is_wall): the
-                # human limits above never apply here. Two stop conditions only (plan/03:56,
-                # plan/04:32-45):
-                #   a) the cluster really sits in the swept corridor inside the braking reach;
-                #   b) the honest gap (this branch already omits the 0.3 m pedestrian radius)
-                #      of a point in the swept frontal band is below STOP_GAP, so even from
-                #      rest the normal brake could no longer stop in time.
-                # Otherwise the object does not limit v: the route plans a side offset around
-                # it (plan/04:3, plan/04:29-30).
-                # Near-miss guard (task I.5): a *static object* whose honest gap is below
-                # STATIC_OBJECT_NEAR_GAP still gets the human limits (<= 0.22, and 0 below
-                # STOP_GAP). If the classifier confused a person with a pallet, the gap is
-                # what protects, not the label (plan/03:3, plan/03:47). The dock pallet on
-                # 04 keeps a ~1.9 m honest gap and is unaffected; walls are not covered.
+                # Подтвержденный статический объект или неразмеченная стена: человеческие лимиты не действуют.
+                # Ограничения остановки:
+                # - кластер находится в коридоре торможения;
+                # - честный зазор точки во фронтальной полосе ниже STOP_GAP.
+                # Защита от ошибок классификации: статический объект с зазором ниже STATIC_OBJECT_NEAR_GAP
+                # получает человеческие ограничения.
                 cl_honest = calculate_clearance(pts, is_pedestrian=False)
                 if tr.is_static_object and cl_honest < STATIC_OBJECT_NEAR_GAP:
                     pred_cl, _ = predict_ttc_clearance(
@@ -453,9 +425,8 @@ class SafetyGovernor:
             v_lim = min(v_lim, SLOW_PERSON_V)
             notes["slow_person"] = f"slow_person d={max(0.0, person_slow_cl):.1f}"
 
-        # 5. Person-stop latch (replaces the forbidden timeout). While held, v stays 0 until
-        #    the predicted clearance to every human track is greater than 3.3 m. A brief guard
-        #    keeps the brake applied through fog dropout (plan/03:20), never resumes motion.
+        # 5. Триггер остановки перед человеком. Скорость v остается равной 0, пока прогнозируемый
+        # зазор до каждого пешехода не станет больше 3.3 м.
         saw_human = math.isfinite(human_pred_min)
         if saw_human:
             self._last_human_pred = human_pred_min
@@ -478,7 +449,7 @@ class SafetyGovernor:
                 v_lim = 0.0
                 notes["stop_person"] = self._person_note or notes.get("stop_person", "stop_person")
 
-        # 6. Lidar raw swept footprint corridor check (|y| < 1.0 m inside braking reach)
+        # 6. Проверка сырого коридора лидара (|y| < 1.0 м в пределах дистанции торможения)
         if remaining_dist > 0.35:
             r = np.asarray(ranges, dtype=float)
             rel = np.asarray(rel_angles, dtype=float)
@@ -490,16 +461,16 @@ class SafetyGovernor:
                     corridor_hit = (
                         np.isfinite(r) & (px > 0.0) & (px < reach) & (np.abs(py) < R_PLATFORM + 0.1)
                     )
-                    # Three adjacent beams: real obstacle, not snowflake
+                    # Три соседних луча: реальное препятствие, не снежинка
                     three_hit = corridor_hit & np.roll(corridor_hit, 1) & np.roll(corridor_hit, -1)
                     if three_hit.any():
                         stop_reason = stop_reason or "too_close"
                         v_lim = 0.0
                         notes["stop_corridor"] = "stop_corridor"
 
-        # 7. estop: emergency 2.5 m/s^2 brake only when a confirmed cluster is closer than
-        #    1.2 m, the gap is closing and the normal 1.2 m/s^2 brake cannot stop in time.
-        #    False estop at gap >= 1.5 m costs -1, so stay strictly inside 1.2 m.
+        # 7. Экстренное торможение 2.5 м/с^2 только при сближении с подтвержденным кластером
+        # ближе 1.2 м, когда штатного торможения 1.2 м/с^2 недостаточно.
+        # Ложное экстренное торможение при зазоре >= 1.5 м штрафуется.
         closing = True
         if self._prev_min_cl is not None and math.isfinite(self._prev_min_cl):
             closing = min_overall_clearance < self._prev_min_cl - 0.005
@@ -518,9 +489,9 @@ class SafetyGovernor:
                 stop_reason = "estop"
         self._prev_min_cl = min_overall_clearance if math.isfinite(min_overall_clearance) else None
 
-        # 8. Arbitrate forward velocity v
+        # 8. Арбитраж линейной скорости v
         if is_lost:
-            # Pose unknown: stop and integrate only confirmed scan-to-scan motion (plan/02:145).
+            # Поза неизвестна: остановка и учет только подтвержденного движения между сканами
             v_safe = 0.0
             notes["lost"] = f"lost s_lat={sigma_cross:.1f}"
         elif stop_reason is not None and remaining_dist > 0.35:
@@ -528,34 +499,29 @@ class SafetyGovernor:
         else:
             v_safe = max(0.0, min(v_cand, v_lim))
 
-        # 9. Arbitrate angular velocity w. Rotating on the spot beside a body is allowed
-        #    (plan/03:71, plan/03:76): the hull is a 0.9 m disc, so an in-place turn cannot
-        #    bring it closer to a cluster it is not already touching. A wall or an object
-        #    in the swept corridor therefore keeps v = 0 but must NOT freeze w: the route
-        #    has already planned the A* bypass around it, and zeroing w pins the platform
-        #    in front of the body forever -- the route command to steer away is discarded
-        #    and the mission times out (own s2_container_block seed 7: frozen at
-        #    (190.8, 93.0) from t=154 to 252 while route asked v=1.39 w=-0.49). Only a
-        #    real hull contact (a cluster point inside the disc), an emergency stop or a
-        #    wheel jam rules rotation out.
+        # 9. Арбитраж угловой скорости w. Разворот на месте рядом с препятствием разрешен:
+        # корпус представляет собой диск 0.9 м, разворот на месте не приближает робота к объекту.
+        # Стена или объект в коридоре обнуляют линейную скорость v, но не блокируют угловую w,
+        # позволяя планировщику выполнить объезд. Блокировка w происходит только при физическом
+        # контакте с корпусом, экстренной остановке или блокировке колес.
         hull_contact = math.isfinite(min_point_dist) and min_point_dist < R_PLATFORM + 0.05
         if is_estop or blocked_wheels or hull_contact:
             w_safe = 0.0
         else:
             w_safe = w_cand
 
-        # 10. Arrival hold: hold the dock command at zero speed
+        # 10. Удержание прибытия: удержание нулевой скорости в доке
         if is_arrived:
             v_safe = 0.0
             w_safe = 0.0
             if not notes:
                 notes["dock"] = "dock"
 
-        # 11. Status determination
+        # 11. Определение статуса
         is_slowed = v_safe <= 0.35 and v_safe > 0.0
         is_stopped_flag = (stop_reason is not None) or (v_safe == 0.0 and w_safe == 0.0)
 
-        # Simulator status: strictly 'moving' whenever |v_odom| >= 0.05
+        # Статус симулятора: строго moving при |v_odom| >= 0.05
         status = determine_status(
             v_odom=v_odom,
             w_odom=w_odom,
@@ -564,7 +530,7 @@ class SafetyGovernor:
             is_stopped=is_stopped_flag,
             is_slowed=is_slowed,
             is_estop=is_estop,
-            allow_slowed=False,  # strictly 'moving' when moving to prevent status_mismatch
+            allow_slowed=False,  # Строго moving при движении во избежание status_mismatch
         )
 
         return v_safe, w_safe, status, self._compose_note(notes)

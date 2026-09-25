@@ -28,7 +28,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
   const [showFormulas, setShowFormulas] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Load scenarios on mount
+  // Загрузка сценариев при монтировании
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -39,14 +39,14 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     };
   }, []);
 
-  // Update scenario from queryParams if changed
+  // Обновление сценария из параметров URL при изменении
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
     }
   }, [queryParams?.scenario]);
 
-  // Load analytics when scenario changes
+  // Загрузка аналитики при смене сценария
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -61,7 +61,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     };
   }, [scenario]);
 
-  // CSV Export handler
+  // Экспорт в формате CSV
   const handleExportCSV = () => {
     const url = apiClient.getExportCsvUrl(scenario);
     const link = document.createElement('a');
@@ -72,7 +72,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     document.body.removeChild(link);
   };
 
-  // JSON Export handler
+  // Экспорт в формате JSON
   const handleExportJSON = () => {
     if (!data) return;
     const jsonStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(data, null, 2));
@@ -99,14 +99,14 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     stderr_tail: [],
   };
 
-  // Radar points computation (6-axis hexagon)
+  // Расчет точек лепестковой диаграммы (6-осевой шестиугольник)
   const radarPoints = radarValues.map((val, i) => {
     const angle = (Math.PI / 3) * i - Math.PI / 2;
     const r = 85 * Math.max(0.1, Math.min(1.0, val));
     return `${(120 + r * Math.cos(angle)).toFixed(1)},${(120 + r * Math.sin(angle)).toFixed(1)}`;
   }).join(' ');
 
-  // Compute max count in histogram for scaling
+  // Расчет максимального значения гистограммы для масштабирования
   const maxBinCount = Math.max(1, ...compute.step_distribution.map((d) => d.count));
 
   return (

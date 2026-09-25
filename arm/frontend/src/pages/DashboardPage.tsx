@@ -15,7 +15,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const [data, setData] = useState<DashboardViewModel | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch scenarios on mount
+  // Загрузка сценариев при монтировании
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -28,7 +28,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
     };
   }, []);
 
-  // Fetch dashboard data when scenario changes
+  // Загрузка данных дашборда при смене сценария
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -43,12 +43,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
     };
   }, [selectedScenario]);
 
-  // Loading fallback placeholder if data not yet loaded
+  // Заглушка ожидания загрузки данных
   const d = data || apiClient.fetchDashboard('04_busy_yard');
   const totalScore = data?.totalScore ?? 98.18;
   const scorePct = Math.max(0, Math.min(100, totalScore));
 
-  // Compute speed curve points dynamically for SVG
+  // Расчет точек кривой скорости для SVG
   const speedHistory = data?.speedHistory || [];
   const speedTimestamps = data?.speedTimestamps || [];
   let speedPath = 'M 30,95 L 580,95';

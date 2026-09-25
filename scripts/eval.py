@@ -257,65 +257,65 @@ def check_regressions(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate AMR Controller")
+    parser = argparse.ArgumentParser(description="Оценка контроллера AMR")
     parser.add_argument(
         "--controller",
         default="amrsim-participants/baseline/controller.py",
-        help="Path to controller script or folder",
+        help="Путь к скрипту или каталогу контроллера",
     )
     parser.add_argument(
         "--seed",
         type=int,
         default=7,
-        help="Evaluation random seed (default: 7)",
+        help="Случайное зерно генератора (по умолчанию: 7)",
     )
     parser.add_argument(
         "--scenarios",
         nargs="*",
         default=DEFAULT_SCENARIOS,
-        help="Scenario paths or names to run",
+        help="Пути или имена сценариев для запуска",
     )
     parser.add_argument(
         "--report-dir",
         type=str,
         default="results",
-        help="Directory to save run reports (default: results)",
+        help="Каталог для сохранения отчетов симуляции (по умолчанию: results)",
     )
     parser.add_argument(
         "--save-summary",
         type=str,
         default=None,
-        help="Path to save summary JSON",
+        help="Путь для сохранения сводного JSON-файла",
     )
     parser.add_argument(
         "--baseline",
         type=str,
         default=None,
-        help="Baseline summary JSON to compare against (default: results/baseline_summary.json if exists)",
+        help="Базовый сводный JSON-файл для сравнения (по умолчанию: results/baseline_summary.json при наличии)",
     )
     parser.add_argument(
         "--check-regression",
         action="store_true",
-        help="Fail if any scenario scores lower than baseline",
+        help="Завершать ошибкой, если результат сценария ниже базового уровня",
     )
     parser.add_argument(
         "--tolerance",
         type=float,
         default=0.05,
-        help="Allowed drop tolerance for regression check (default: 0.05)",
+        help="Допустимое отклонение балла для проверки регрессий (по умолчанию: 0.05)",
     )
     parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
-        help="Verbose simulation output",
+        help="Подробный вывод хода симуляции",
     )
 
     args = parser.parse_args()
 
     controller_path = Path(args.controller)
     if not controller_path.exists():
-        print(f"Error: controller not found: {controller_path}", file=sys.stderr)
+        print(f"Ошибка: контроллер не найден: {controller_path}", file=sys.stderr)
         sys.exit(1)
 
     # Determine baseline summary if available
@@ -326,7 +326,7 @@ def main() -> None:
             with open(baseline_file, "r", encoding="utf-8") as f:
                 baseline_data = json.load(f)
         except Exception as e:
-            print(f"Warning: could not read baseline {baseline_file}: {e}", file=sys.stderr)
+            print(f"Предупреждение: не удалось прочитать базовые результаты {baseline_file}: {e}", file=sys.stderr)
 
     report_dir = Path(args.report_dir)
     ctrl_label = controller_path.stem if controller_path.is_file() else controller_path.name
@@ -335,14 +335,14 @@ def main() -> None:
 
     results: List[Dict[str, Any]] = []
 
-    print(f"Evaluating controller: {controller_path} (seed={args.seed})")
-    print(f"Scenarios: {len(args.scenarios)}")
+    print(f"Тестирование контроллера: {controller_path} (seed={args.seed})")
+    print(f"Сценариев: {len(args.scenarios)}")
     print("-" * 60)
 
     for scen_raw in args.scenarios:
         scen_path = resolve_scenario_path(scen_raw)
         if not scen_path.exists():
-            print(f"Error: scenario not found: {scen_raw} ({scen_path})", file=sys.stderr)
+            print(f"Ошибка: сценарий не найден: {scen_raw} ({scen_path})", file=sys.stderr)
             sys.exit(1)
 
         scen_stem = scen_path.stem
@@ -374,18 +374,18 @@ def main() -> None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         with open(save_path, "w", encoding="utf-8") as f:
             json.dump(summary_obj, f, indent=2)
-        print(f"Saved summary to {save_path}")
+        print(f"Сводный отчет сохранен в: {save_path}")
 
     # Check regression if requested or if baseline exists and --check-regression
     if args.check_regression and baseline_data:
         regressions = check_regressions(results, baseline_data, tolerance=args.tolerance)
         if regressions:
-            print("REGRESSION CHECK FAILED:", file=sys.stderr)
+            print("ПРОВЕРКА РЕГРЕССИЙ НЕ ПРОЙДЕНА:", file=sys.stderr)
             for reg in regressions:
                 print(f"  - {reg}", file=sys.stderr)
             sys.exit(1)
         else:
-            print("Regression check: PASSED (all scenarios >= baseline - tolerance)")
+            print("Проверка регрессий: ПРОЙДЕНА (все сценарии >= базовый уровень - допуск)")
 
 
 if __name__ == "__main__":

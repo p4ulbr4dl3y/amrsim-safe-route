@@ -32,7 +32,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
   const [layersMenuOpen, setLayersMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Layers configuration
+  // Конфигурация слоев
   const [layers, setLayers] = useState<MapLayersConfig>({
     robot: true,
     poseEst: true,
@@ -45,7 +45,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
     pedestrians: true,
   });
 
-  // Load scenarios on mount
+  // Загрузка сценариев при монтировании
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -56,7 +56,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
     };
   }, []);
 
-  // Update scenario from queryParams if changed
+  // Обновление сценария из параметров URL при изменении
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
@@ -74,7 +74,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
     setCurrentTickIndex(clamped);
   };
 
-  // Load replay data for selected scenario
+  // Загрузка данных воспроизведения для выбранного сценария
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -87,7 +87,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
       setEpisodes(vm.episodes);
       setTotalTicks(vm.totalTicks);
 
-      // If queryParams has t, find matching tick
+      // Поиск такта при передаче t в параметрах URL
       if (queryParams?.t !== undefined) {
         const targetT = Number(queryParams.t);
         const idx = vm.ticks.findIndex((tk) => tk.t >= targetT);
@@ -95,7 +95,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
         setCurrentTickIndex(initialIdx);
         fractionalTickRef.current = initialIdx;
       } else {
-        // Default to beginning or interesting moment
+        // Переход к началу или первому событию по умолчанию
         const defaultIdx = Math.min(100, Math.floor(vm.ticks.length * 0.1));
         setCurrentTickIndex(defaultIdx);
         fractionalTickRef.current = defaultIdx;
@@ -108,7 +108,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
     };
   }, [scenario]);
 
-  // Handle incoming query params updates when already loaded
+  // Обработка обновления параметров URL при загруженных данных
   useEffect(() => {
     if (queryParams?.t !== undefined && ticks.length > 0) {
       const targetTime = Number(queryParams.t);
@@ -119,7 +119,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
     }
   }, [queryParams?.t, ticks]);
 
-  // High-precision animation playback loop
+  // Цикл воспроизведения анимации высокой точности
   useEffect(() => {
     if (!isPlaying || ticks.length === 0) {
       if (animFrameRef.current !== null) {
@@ -130,7 +130,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
       return;
     }
 
-    // If starting at the end, restart from beginning
+    // Перезапуск с начала при достижении конца записи
     if (fractionalTickRef.current >= ticks.length - 1) {
       fractionalTickRef.current = 0;
       setCurrentTickIndex(0);
@@ -138,7 +138,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
 
     lastTimeRef.current = performance.now();
 
-    // Determine simulation tick rate (Hz): ticks per simulation second
+    // Частота тактов симуляции (Гц): тактов в секунду симуляции
     const tickRate =
       ticks.length > 1 && ticks[ticks.length - 1].t > ticks[0].t
         ? (ticks.length - 1) / (ticks[ticks.length - 1].t - ticks[0].t)
@@ -151,7 +151,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
       const elapsedSeconds = (now - lastTimeRef.current) / 1000;
       lastTimeRef.current = now;
 
-      // Cap delta time to 0.1s to prevent huge jumps on tab switch/lag spike
+      // Ограничение delta time значением 0.1 с для исключения скачков
       const clampedDt = Math.min(elapsedSeconds, 0.1);
       const deltaTicks = clampedDt * playSpeed * tickRate;
       const nextTick = fractionalTickRef.current + deltaTicks;
@@ -205,7 +205,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
 
   const historyTicks = ticks.slice(0, currentTickIndex + 1);
 
-  // Format time mm:ss.d
+  // Форматирование времени в виде мм:сс.д
   const formatTime = (secs: number) => {
     const mins = Math.floor(secs / 60);
     const s = Math.floor(secs % 60);
@@ -216,7 +216,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
   const totalTime = ticks[ticks.length - 1]?.t || 341.0;
   const currentActualTick = Math.min(totalTicks, Math.round(currentTick.t * 10));
 
-  // Determine note & status
+  // Определение примечания и статуса
   const isPersonNear = (currentTick.hum !== null && currentTick.hum < 3.0) || !!currentTick.nt;
   const noteText = currentTick.nt === 'person_near'
     ? 'рядом человек · ограничение скорости'

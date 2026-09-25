@@ -19,7 +19,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
   const [detailedLog, setDetailedLog] = useState(true);
   const [cheatPose, setCheatPose] = useState(false);
 
-  // Execution state
+  // Состояние выполнения
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(100);
   const [isCompleted, setIsCompleted] = useState(true);
@@ -37,7 +37,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
     '[SCORE] Final score: 98.18 / 100 (counted: true)',
   ]);
 
-  // Load scenarios on mount
+  // Загрузка сценариев при монтировании
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -48,7 +48,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
     };
   }, []);
 
-  // Update scenario from queryParams if changed
+  // Обновление сценария из параметров URL при изменении
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
@@ -77,7 +77,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
       `[INFO] Executing controller with Python sandbox isolation...`,
     ]);
 
-    // Simulated progress increment while waiting for response
+    // Симуляция прироста прогресса во время ожидания ответа
     const progressTimer = setInterval(() => {
       setProgress((p) => (p < 85 ? p + 15 : p));
     }, 400);

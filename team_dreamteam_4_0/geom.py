@@ -33,7 +33,7 @@ def rot2d(x, y=None, theta=None):
       rot2d(pts, theta)  -> rotated_pts (shape (2,) or (N, 2))
     """
     if theta is None:
-        # Called as rot2d(pts, theta)
+        # Вызов в формате rot2d(pts, theta)
         pts = np.asarray(x, dtype=float)
         th = float(y)
         c, s = math.cos(th), math.sin(th)
@@ -43,7 +43,7 @@ def rot2d(x, y=None, theta=None):
         ry = pts[:, 0] * s + pts[:, 1] * c
         return np.column_stack([rx, ry])
 
-    # Called as rot2d(x, y, theta)
+    # Вызов в формате rot2d(x, y, theta)
     if isinstance(theta, (int, float, np.floating, np.integer)):
         c, s = math.cos(theta), math.sin(theta)
     else:
@@ -113,7 +113,7 @@ def raycast(
 
     segs_arr = np.asarray(segs, dtype=float)
 
-    # AABB pruning if max_range is finite
+    # Отсечение по ограничивающему прямоугольнику AABB при конечном max_range
     if np.isfinite(max_range) and max_range > 0.0:
         seg_min_x = np.minimum(segs_arr[:, 0], segs_arr[:, 2])
         seg_max_x = np.maximum(segs_arr[:, 0], segs_arr[:, 2])
@@ -138,7 +138,7 @@ def raycast(
     ex = segs_arr[:, 2] - segs_arr[:, 0]  # (M,)
     ey = segs_arr[:, 3] - segs_arr[:, 1]  # (M,)
 
-    # 2D cross product of ray direction and segment vector: (K, M)
+    # 2D векторное произведение направления луча и вектора отрезка: (K, M)
     den = dx[:, None] * ey[None, :] - dy[:, None] * ex[None, :]
 
     cpe = (px * ey - py * ex)[None, :]  # (1, M)
@@ -182,7 +182,7 @@ def seg_dist(px, py, segs: np.ndarray) -> Union[float, np.ndarray]:
 
     ll = np.maximum(ex * ex + ey * ey, 1e-12)
 
-    # u parameter of closest point on segment: (N, M)
+    # Параметр u ближайшей точки на отрезке: (N, M)
     u = np.clip(
         (
             (px_arr[:, None] - ax[None, :]) * ex[None, :]
@@ -267,7 +267,7 @@ def point_to_segs_displacement(px, py, segs: np.ndarray) -> Displacement:
 
     ll = np.maximum(ex * ex + ey * ey, 1e-12)
 
-    # u parameter: (N, M)
+    # Параметр u: (N, M)
     u = np.clip(
         (
             (px_arr[:, None] - ax[None, :]) * ex[None, :]
@@ -281,7 +281,7 @@ def point_to_segs_displacement(px, py, segs: np.ndarray) -> Displacement:
     cx = ax[None, :] + u * ex[None, :]  # (N, M)
     cy = ay[None, :] + u * ey[None, :]  # (N, M)
 
-    dx = px_arr[:, None] - cx  # vector from wall point to query point
+    dx = px_arr[:, None] - cx  # Вектор от точки стены к точке запроса
     dy = py_arr[:, None] - cy
     dist_matrix = np.sqrt(dx * dx + dy * dy)  # (N, M)
 
@@ -293,11 +293,11 @@ def point_to_segs_displacement(px, py, segs: np.ndarray) -> Displacement:
     best_cy = cy[row_idx, best_idx]  # (N,)
     best_projs = np.column_stack([best_cx, best_cy])
 
-    # Direction vector from wall to query point
+    # Вектор направления от стены к точке запроса
     best_dx = dx[row_idx, best_idx]
     best_dy = dy[row_idx, best_idx]
 
-    # Segment normal fallback if point lies directly on segment (distance ~ 0)
+    # Нормаль отрезка по умолчанию, если точка лежит прямо на отрезке (дистанция ~ 0)
     seg_len = np.sqrt(ll[best_idx])
     default_nx = -ey[best_idx] / seg_len
     default_ny = ex[best_idx] / seg_len
@@ -370,19 +370,19 @@ def box_segs(poly) -> np.ndarray:
     if isinstance(poly, dict) and "polygon" in poly:
         poly = poly["polygon"]
 
-    # Check if this is a collection of polygons or a single polygon
+    # Проверка: коллекция полигонов или одиночный полигон
     if isinstance(poly, (list, tuple)) and len(poly) > 0:
         first = poly[0]
         if isinstance(first, dict) and "polygon" in first:
-            # Collection of dicts
+            # Коллекция словарей
             segs_list = [box_segs(item["polygon"]) for item in poly]
             valid = [s for s in segs_list if len(s) > 0]
             return np.vstack(valid) if valid else np.empty((0, 4), dtype=float)
         if isinstance(first, (list, tuple, np.ndarray)):
             first_arr = np.asarray(first)
-            # If elements are 2D arrays or list of lists of points (nested polygons)
+            # Если элементы являются 2D массивами или списком списков точек (вложенные полигоны)
             if first_arr.ndim == 2 and first_arr.shape[1] == 2:
-                # poly is a list of polygons!
+                # poly является списком полигонов
                 segs_list = [box_segs(item) for item in poly]
                 valid = [s for s in segs_list if len(s) > 0]
                 return np.vstack(valid) if valid else np.empty((0, 4), dtype=float)

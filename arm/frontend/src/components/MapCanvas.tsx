@@ -52,13 +52,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   const activeMap = mapData || (mockMapData as unknown as MapData);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Viewport transformation: scale and offset
+  // Преобразование области просмотра: масштаб и смещение
   const [scale, setScale] = useState(isMiniMap ? 1.5 : 3.8);
   const [offset, setOffset] = useState({ x: isMiniMap ? 0 : 30, y: isMiniMap ? 0 : 40 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // Auto-fit bounds for mini-map mode (fit entire warehouse bounds)
+  // Автоматическое масштабирование для миникарты по границам склада
   const getBoundsFit = (canvasWidth: number, canvasHeight: number) => {
     const minX = (activeMap.bounds && activeMap.bounds[0]) ?? 0;
     const minY = (activeMap.bounds && activeMap.bounds[1]) ?? 0;
@@ -115,7 +115,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     };
   }, [isMiniMap, activeMap]);
 
-  // Handle follow robot or target coordinates (disabled in mini-map)
+  // Следование за роботом или центрирование по координатам (отключено на миникарте)
   useEffect(() => {
     if (isMiniMap) return;
     if (!canvasRef.current) return;
@@ -145,14 +145,14 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     }
   }, [followRobot, currentTick?.x, currentTick?.y, targetCoords, isMiniMap, scale, activeMap]);
 
-  // Render loop
+  // Цикл отрисовки
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Handle high DPI
+    // Поддержка экранов с высокой плотностью пикселей High-DPI
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
@@ -171,7 +171,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     const worldWidth = Math.max(1, maxX - minX);
     const worldHeight = Math.max(1, maxY - minY);
 
-    // Compute active scale and offset (guaranteed fit for mini-map)
+    // Вычисление активного масштаба и смещения
     let currentScale = scale;
     let currentOffset = offset;
     if (isMiniMap && rect.width > 0 && rect.height > 0) {
@@ -187,7 +187,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       };
     }
 
-    // Transform helper: world (X, Y) -> screen (px, py)
+    // Преобразование мировых координат (X, Y) в экранные (px, py)
     const toScreen = (wx: number, wy: number) => {
       return {
         x: (wx - minX) * currentScale + currentOffset.x,
@@ -195,10 +195,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       };
     };
 
-    // 1. Background Grid
+    // 1. Фоновая сетка
     ctx.strokeStyle = '#F1F5F9';
     ctx.lineWidth = 1;
-    const gridSize = 20; // 20 meters
+    const gridSize = 20; // 20 метров
     for (let x = minX; x <= maxX; x += gridSize) {
       const p1 = toScreen(x, minY);
       const p2 = toScreen(x, maxY);
@@ -216,14 +216,14 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       ctx.stroke();
     }
 
-    // Warehouse outer bounds perimeter border
+    // Внешний периметр склада
     ctx.strokeStyle = '#CBD5E1';
     ctx.lineWidth = 1.5;
     const pTopLeft = toScreen(minX, maxY);
     const pBotRight = toScreen(maxX, minY);
     ctx.strokeRect(pTopLeft.x, pTopLeft.y, pBotRight.x - pTopLeft.x, pBotRight.y - pTopLeft.y);
 
-    // 2. Drivable Corridors
+    // 2. Проезжие коридоры
     if (layers.drivable && activeMap.drivable) {
       ctx.fillStyle = '#E8EEF5';
       ctx.strokeStyle = '#CBD5E1';
@@ -245,7 +245,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       });
     }
 
-    // 3. Zones (Forbidden, Speed limit)
+    // 3. Зоны: запретные и с ограничением скорости
     if (activeMap.zones) {
       activeMap.zones.forEach((zone: any) => {
         const poly = zone.polygon || zone.points;
@@ -275,7 +275,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       });
     }
 
-    // 4. Buildings (Warehouse blocks)
+    // 4. Здания: складские блоки
     if (layers.buildings && activeMap.buildings) {
       ctx.fillStyle = '#DDE3EA';
       ctx.strokeStyle = '#94A3B8';
@@ -298,7 +298,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       });
     }
 
-    // 5. Reference Path (dashed line from warehouse to shop_a)
+    // 5. Опорный путь: пунктирная линия
     if (layers.referencePath) {
       ctx.strokeStyle = '#93C5FD';
       ctx.lineWidth = 2;
@@ -319,25 +319,25 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       ctx.setLineDash([]);
     }
 
-    // 6. Dock Stations
+    // 6. Станции доков
     if (layers.docks && activeMap.points) {
       Object.entries(activeMap.points).forEach(([id, pt]: [string, any]) => {
         const screenPt = toScreen(pt.x, pt.y);
 
-        // Outer circle (tolerance radius)
+        // Внешний круг: радиус допуска
         ctx.beginPath();
         ctx.arc(screenPt.x, screenPt.y, Math.max(7, (pt.tol || 0.2) * currentScale * 10), 0, Math.PI * 2);
         ctx.strokeStyle = '#2563EB';
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Inner solid dot
+        // Внутренняя точка
         ctx.beginPath();
         ctx.arc(screenPt.x, screenPt.y, 3, 0, Math.PI * 2);
         ctx.fillStyle = '#2563EB';
         ctx.fill();
 
-        // Dock Label
+        // Метка дока
         if (!isMiniMap) {
           ctx.font = '10px Inter, sans-serif';
           ctx.fillStyle = '#475569';
@@ -347,7 +347,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       });
     }
 
-    // 7. AMR Trajectory History Trail
+    // 7. След истории траектории робота
     if (historyTicks.length > 1) {
       ctx.beginPath();
       const firstPt = toScreen(historyTicks[0].x, historyTicks[0].y);
@@ -356,18 +356,18 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         const pt = toScreen(historyTicks[i].x, historyTicks[i].y);
         ctx.lineTo(pt.x, pt.y);
       }
-      ctx.strokeStyle = '#059669'; // Teal-emerald trail matching mockup
+      ctx.strokeStyle = '#059669'; // Изумрудный след траектории
       ctx.lineWidth = 2.5;
       ctx.stroke();
     }
 
-    // 8. Active Tick: AMR Platform & Sensors
+    // 8. Активный такт: платформа и сенсоры
     if (currentTick) {
       const robotScreen = toScreen(currentTick.x, currentTick.y);
-      const robotRadius = 0.9 * currentScale; // 0.9m platform radius
+      const robotRadius = 0.9 * currentScale; // Радиус платформы 0.9 м
       const effRadius = Math.max(6, robotRadius);
 
-      // 8a. Lidar Rays
+      // 8a. Лучи лидара
       if (layers.lidar && currentTick.lidarRays) {
         ctx.strokeStyle = 'rgba(147, 197, 253, 0.45)';
         ctx.lineWidth = 1;
@@ -382,11 +382,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         });
       }
 
-      // 8b. Estimated Pose (Purple circle) & Discrepancy Vector
+      // 8b. Оценка позы и вектор невязки
       if (layers.poseEst && currentTick.pe) {
         const peScreen = toScreen(currentTick.pe[0], currentTick.pe[1]);
 
-        // Difference line (red dashed)
+        // Линия расхождения (красный пунктир)
         if (layers.poseDiff) {
           ctx.beginPath();
           ctx.moveTo(robotScreen.x, robotScreen.y);
@@ -398,7 +398,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
           ctx.setLineDash([]);
         }
 
-        // Purple hollow marker
+        // Фиолетовый маркер оценки
         ctx.beginPath();
         ctx.arc(peScreen.x, peScreen.y, Math.max(5, robotRadius), 0, Math.PI * 2);
         ctx.strokeStyle = '#8B5CF6';
@@ -406,12 +406,12 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         ctx.stroke();
       }
 
-      // 8c. Pedestrians
+      // 8c. Пешеходы
       if (layers.pedestrians && currentTick.peds) {
         currentTick.peds.forEach(ped => {
           const pedScreen = toScreen(ped[0], ped[1]);
 
-          // Danger circle (3.0 m radius)
+          // Зона опасности: радиус 3.0 м
           ctx.beginPath();
           ctx.arc(pedScreen.x, pedScreen.y, 3.0 * currentScale, 0, Math.PI * 2);
           ctx.fillStyle = 'rgba(251, 146, 60, 0.15)';
@@ -420,7 +420,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
           ctx.fill();
           ctx.stroke();
 
-          // Pedestrian core marker
+          // Маркер пешехода
           ctx.beginPath();
           ctx.arc(pedScreen.x, pedScreen.y, Math.max(4, 0.3 * currentScale), 0, Math.PI * 2);
           ctx.fillStyle = '#F97316';
@@ -431,13 +431,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         });
       }
 
-      // 8d. True AMR Robot (Green / Emerald glyph with heading arrow)
+      // 8d. Истинная поза робота со стрелкой курса
       if (layers.robot) {
         ctx.save();
         ctx.translate(robotScreen.x, robotScreen.y);
-        ctx.rotate(-currentTick.th); // Invert theta because screen Y is flipped
+        ctx.rotate(-currentTick.th); // Инверсия угла th из-за перевернутой экранной оси Y
 
-        // Outer body ring
+        // Внешнее кольцо корпуса
         ctx.beginPath();
         ctx.arc(0, 0, effRadius, 0, Math.PI * 2);
         ctx.fillStyle = '#10B981';
@@ -446,7 +446,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Directional arrow pointing forward (along heading)
+        // Стрелка направления курса
         ctx.beginPath();
         ctx.moveTo(effRadius * 0.8, 0);
         ctx.lineTo(-effRadius * 0.4, -effRadius * 0.5);
@@ -463,7 +463,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     ctx.restore();
   }, [currentTick, historyTicks, layers, scale, offset, isMiniMap, activeMap]);
 
-  // Mouse pan & zoom handlers (disabled in mini-map mode)
+  // Обработчики панорамирования и масштабирования мыши
   const handleMouseDown = (e: React.MouseEvent) => {
     if (isMiniMap) return;
     setIsDragging(true);

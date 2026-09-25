@@ -45,17 +45,17 @@ class Localizer:
         self.y = float(initial_pose[1])
         self.th = wrap_angle(float(initial_pose[2]))
 
-        # Pure odometry frame without corrections or scale adjustments
+        # Чистый базис одометрии без поправок и калибровки масштаба
         self.ox = 0.0
         self.oy = 0.0
         self.oth = 0.0
 
-        # Variances: along path, cross path, heading (rad^2)
+        # Дисперсии: вдоль пути, поперек пути, курс (рад^2)
         self.var_along = 0.0
         self.var_cross = 0.0
         self.var_th = 0.0
 
-        # Odometry scale factor (true step = odom_step / scale)
+        # Коэффициент масштаба одометрии (истинный шаг = odom_step / scale)
         self.scale = 1.0
         self.scale_locked = False
         self._scale_odom_dist = 0.0
@@ -63,48 +63,45 @@ class Localizer:
         self._scale_ratios: List[float] = []
         self._prev_scan_xy = (self.x, self.y)
         self._prev_scan_odom = (0.0, 0.0)
-        # Distance travelled since the along-track position was last *confirmed* by a
-        # measurement (transverse wall, GNSS fix, mapped landmark end, frozen scale).
-        # plan/02:99-108: until the scale is frozen the along-path error is the scale
-        # bias times this distance, so this counter -- not the tick count -- sets
-        # sigma_along.
+        # Расстояние, пройденное с момента последнего подтверждения продольной координаты
+        # (поперечная стена, засечка GNSS, ориентир, фиксация масштаба).
         self._unconfirmed_dist = 0.0
 
-        # Per-tick odometry step (real path) pending scan-match confirmation, and the
-        # exact variance increments so a blocked-wheel tick can be undone.
+        # Шаг одометрии за такт до подтверждения сопоставлением со сканом
+        # и точные приращения дисперсий для отката при пробуксовке.
         self._odom_step_tick = 0.0
         self._pending_odom_step = 0.0
-        # Short window used by the wheel-stall detector (plan/02:149-157).
+        # Короткое окно детектора пробуксовки колес
         self._stall_ticks = 0
         self._stall_odom = 0.0
         self._stall_xy = (self.x, self.y)
         self._pre_predict_xy = (self.x, self.y)
         self._predict_var = (0.0, 0.0, 0.0)
 
-        # IMU heading bias (th = imu_heading - heading_bias)
+        # Смещение курса IMU (th = imu_heading - heading_bias)
         self.heading_bias = 0.0
         self.bias_initialized = False
 
-        # Status and health flags
+        # Флаги статуса и состояния
         self.is_lost = False
         self.blocked_wheels = False
         self.scan_inliers = 0
-        # Speed cap exported to the safety governor (plan/02 "Потеря ориентации")
+        # Ограничение скорости, передаваемое в модуль безопасности при потере ориентации
         self.lost_speed_limit = 1.39
         self._low_inlier_ticks = 0
         self._gnss_fix_ticks = 10**9
 
-        # GNSS gating and recovery tracking
+        # Стробирование GNSS и отслеживание восстановления
         self.gnss_rejections: List[Tuple[float, float]] = []
         self.last_gnss_accepted = False
 
-        # Fog detection hysteresis counter (hold 1.0s = 10 ticks)
+        # Счетчик гистерезиса обнаружения тумана (удержание 1.0 с = 10 тактов)
         self._fog_hold = 0
         self.fog_active = False
-        # Bounded cross/along variance penalty for expected near walls lost in fog
+        # Ограниченный штраф дисперсии при потере ожидаемых стен в тумане
         self._fog_var_added = 0.0
 
-        # Longitudinal landmarks: ends of mapped segments and pole centres (plan/02:63-81)
+        # Продольные ориентиры: концы отрезков карты и центры столбов
         self.landmarks = self._build_landmarks(building_segs, pole_centers)
         if pole_centers is not None and len(pole_centers) > 0:
             self.pole_centers: Optional[np.ndarray] = np.asarray(pole_centers, dtype=float).reshape(
@@ -178,19 +175,19 @@ class Localizer:
         instant_fog = False
         if expected_ranges is not None and len(expected_ranges) == n:
             exp = np.asarray(expected_ranges, dtype=float)
-            # Upper bound 19 m: the lidar max_range is 20 m, so 20-25 m can never be seen.
+            # Верхняя граница 19 м: дальность лидара 20 м
             expected_far = (exp >= 9.0) & (exp <= 19.0)
-            # (b) the map expects a wall in the measurable band but the beam is missing.
+            # (b) карта ожидает стену в измеряемом диапазоне, но луч отсутствует
             fog_drop = expected_far & ~finite
             instant_fog = int(fog_drop.sum()) >= 12
-            # (a) mostly non-finite scan, but only where the map actually has far walls to
-            # lose: an open yard without mapped walls has a large NaN share in clear weather.
+            # (a) преобладание лучей без отражения в зонах, где карта ожидает дальние стены;
+            # открытый двор без стен имеет большую долю NaN и в ясную погоду.
             if nan_frac >= 0.12 and int(expected_far.sum()) >= 12:
                 instant_fog = True
         else:
             instant_fog = nan_frac >= 0.12
-        # (c) a long return is evidence against fog for this tick. A few such beams (snow
-        # specks) must not clear the flag, so they only stop the hold from being re-armed.
+        # (c) дальнее отражение свидетельствует против тумана на текущем такте.
+        # Единичные отклики от снежинок не снимают флаг, но блокируют взвод удержания.
         if beams_beyond_65 > 3:
             instant_fog = False
 
@@ -217,22 +214,21 @@ class Localizer:
         - Heading watchdog: if imu_heading jumps > 0.05 rad compared to expected, integrate yaw_rate.
         - Variances propagated based on motion.
         """
-        # 1. Update pure odometry frame (no corrections, no scale)
+        # 1. Обновление чистого базиса одометрии (без поправок и масштаба)
         cos_oth = math.cos(self.oth)
         sin_oth = math.sin(self.oth)
         self.ox += cos_oth * odom_dx - sin_oth * odom_dy
         self.oy += sin_oth * odom_dx + cos_oth * odom_dy
         self.oth = wrap_angle(self.oth + odom_dth)
 
-        # 2. Store the real odometry path of this tick. It is added to the scale
-        #    accumulator only when the scan match confirms actual motion (plan/02:99-108),
-        #    so a slipping/blocked tick cannot poison the estimate.
+        # 2. Сохранение реального пути одометрии текущего такта.
+        # Добавляется к калибровке масштаба только при подтверждении движения сканированием.
         step_dist = math.hypot(odom_dx, odom_dy)
         self.blocked_wheels = False
         self._odom_step_tick = step_dist
         self._pending_odom_step += step_dist
 
-        # 3. Position update scaled by odometry scale factor
+        # 3. Обновление позиции с учетом масштаба одометрии
         s = self.scale if (0.90 <= self.scale <= 1.10) else 1.0
         scaled_dx = odom_dx / s
         scaled_dy = odom_dy / s
@@ -245,7 +241,7 @@ class Localizer:
         self.x += world_dx
         self.y += world_dy
 
-        # 4. Heading update from IMU
+        # 4. Обновление курса по данным IMU
         if not self.bias_initialized:
             self.heading_bias = wrap_angle(imu_heading - self.th)
             self.bias_initialized = True
@@ -253,30 +249,22 @@ class Localizer:
         expected_th = wrap_angle(self.th + imu_yaw_rate * dt)
         measured_th = wrap_angle(imu_heading - self.heading_bias)
 
-        # Watchdog: jump > 0.05 rad fallback to yaw_rate integration
+        # Сторожевой таймер: скачок > 0.05 рад переключает на интегрирование угловой скорости yaw_rate
         if abs(wrap_angle(measured_th - expected_th)) > 0.05:
             self.th = expected_th
         else:
             self.th = measured_th
 
-        # 5. Variance growth
-        # Along-track variance: the odometry scale bias times the distance travelled since
-        # the along-track position was last confirmed by a measurement (plan/02:99-108).
-        # Until the scale is frozen that bias is up to 4% -- "4% on a 40 m leg gives
-        # 1.6 m", plan/02:108 -- and after the freeze the plan's residual is 1% ("1% of
-        # 120 m = 1.2 m", plan/02:75-76), so the along-track error is proportional to the
-        # DISTANCE, not to the square root of the number of ticks. The per-tick walk that
-        # the wave-1 rewrite left un-accumulated understates a *systematic* bias, and the
-        # reported uncertainty stayed at ~2 cm either way, which made it fiction and put
-        # the plan's lost tiers (sigma_along > 2 m / > 5 m) out of reach.
+        # 5. Рост дисперсий.
+        # Продольная дисперсия: погрешность масштаба на пройденное расстояние с последней коррекции.
         self._unconfirmed_dist += step_dist
         d_var_along = 0.0
         bound = self._along_bound_m()
         if bound > 0.0:
             self.var_along = max(self.var_along, bound**2)
 
-        # Cross-track variance: grows with heading uncertainty and yaw drift (0.3 deg / sqrt(min))
-        # 0.3 deg = 0.0052 rad -> ~0.0052 / sqrt(60) ≈ 0.00067 rad/sqrt(s) -> per second ~4.5e-7 rad^2/s
+        # Поперечная дисперсия: растет с неопределенностью курса и дрейфом (0.3 град / sqrt(мин)).
+        # 0.3 град = 0.0052 рад -> ~0.0052 / sqrt(60) ≈ 0.00067 рад/sqrt(с) -> ~4.5e-7 рад^2/с.
         yaw_drift_var = (0.00067**2) * dt
         self.var_th += yaw_drift_var
         d_var_cross = (
@@ -285,7 +273,7 @@ class Localizer:
         self.var_cross += d_var_cross
         self._predict_var = (d_var_along, d_var_cross, yaw_drift_var)
 
-        # Check lost conditions
+        # Проверка условий потери ориентации
         self._check_lost_status()
 
     def _along_bound_m(self) -> float:
@@ -339,7 +327,7 @@ class Localizer:
         if segs is None or len(segs) == 0:
             return self._scan_unavailable(is_fog)
 
-        # Filter segments in robot vicinity (~25m)
+        # Фильтрация отрезков в окрестности робота (~25 м)
         reach = 25.0
         near_segs_arr = filter_segs_aabb(segs, self.x, self.y, reach, aabb=segs_aabb)
         if len(near_segs_arr) == 0:
@@ -348,30 +336,29 @@ class Localizer:
         r_all = np.asarray(ranges, dtype=float)
         rel_all = np.asarray(rel_angles, dtype=float)
 
-        # 1. Subsample rays every 2 deg (step 2)
+        # 1. Прореживание лучей каждые 2 градуса (шаг 2)
         step = 2
         r_sub = r_all[::step]
         rel_sub = rel_all[::step]
 
-        # Valid finite range mask
+        # Маска валидных конечных расстояний
         max_valid_range = 5.5 if is_fog else 19.0
         valid_range_mask = np.isfinite(r_sub) & (r_sub > 0.1) & (r_sub < max_valid_range)
 
-        # Snow filter: a valid return must have at least one neighbour within 0.4m in Cartesian plane
-        # Perform snow filtering on the full/subsampled rays
-        # Subsampled indices
+        # Фильтр снега: валидный отклик должен иметь хотя бы одного соседа в пределах 0.4 м
+        # в декартовой плоскости.
         sub_indices = np.arange(0, len(r_all), step)
 
-        # Check Cartesian distances between neighbouring beams to eliminate single snow specks
-        # A return is snow if isolated: both left and right neighbours (in 1 deg array) are not within 0.4m
+        # Проверка декартовых расстояний между соседними лучами для удаления одиночных снежинок.
+        # Отклик считается снегом при отсутствии соседей ближе 0.4 м.
         cos_rel_all = np.cos(rel_all)
         sin_rel_all = np.sin(rel_all)
         with np.errstate(invalid="ignore"):
-            # inf range * cos == nan at exactly 0/90 deg; those beams are dropped anyway.
+            # При бесконечной дальности отсчеты отбрасываются
             x_pts = r_all * cos_rel_all
             y_pts = r_all * sin_rel_all
 
-        # Vectorized neighbour distance check in robot frame
+        # Векторизованная проверка расстояния до соседей в базисе робота
         n_all = len(r_all)
         prev_idx = (np.arange(n_all) - 1) % n_all
         next_idx = (np.arange(n_all) + 1) % n_all
@@ -390,7 +377,7 @@ class Localizer:
             x_pts[m_next] - x_pts[next_idx[m_next]], y_pts[m_next] - y_pts[next_idx[m_next]]
         )
 
-        # A point is supported if either neighbor is finite and within 0.4m
+        # Точка подтверждена, если любой из соседей конечен и ближе 0.4 м
         supported = (d_prev < 0.4) | (d_next < 0.4)
 
         supported_sub = supported[sub_indices]
@@ -401,7 +388,7 @@ class Localizer:
         cand_ranges = r_sub[candidate_mask]
         cand_rel = rel_sub[candidate_mask]
 
-        # Gauss-Newton state adjustments
+        # Поправки состояния по методу Гаусса - Ньютона
         cur_x = self.x
         cur_y = self.y
         cur_th = self.th
@@ -411,23 +398,20 @@ class Localizer:
         last_normals = None
         last_weights = None
 
-        # 4 iterations of Gauss-Newton
+        # 4 итерации метода Гаусса - Ньютона
         for _ in range(4):
-            # Compute beam endpoints in world frame
+            # Вычисление концов лучей в глобальном базисе
             beam_world_angles = cur_th + cand_rel
             px = cur_x + cand_ranges * np.cos(beam_world_angles)
             py = cur_y + cand_ranges * np.sin(beam_world_angles)
 
-            # Map projection & distance
+            # Проекция на карту и вычисление расстояния
             disp = point_to_segs_displacement(px, py, near_segs_arr)
-            residuals = disp.dists  # distance to nearest segment line
-            normals = disp.normals  # unit normal (Nx, Ny)
+            residuals = disp.dists  # Расстояние до ближайшей прямой сегмента
+            normals = disp.normals  # Единичная нормаль (Nx, Ny)
 
-            # Inlier conditions:
-            # 1. residual < 0.25 m
-            # 2. range not shorter than map expected raycast by > 0.4 m (tested by displacement proj)
-            # If distance from ray origin to projection point is significantly greater than range,
-            # it means ray stopped well before the map wall (obstacle/person/snow).
+            # Условия отбора точек соответствия:
+            # 1. невязка < 0.25 м;
             dist_to_proj = np.hypot(disp.projs[:, 0] - cur_x, disp.projs[:, 1] - cur_y)
             not_short = cand_ranges >= dist_to_proj - 0.4
 
@@ -444,7 +428,7 @@ class Localizer:
             final_std = float(np.std(res_inliers))
             last_normals = norm_inliers
 
-            # Huber weighting: delta = 0.08
+            # Весовая функция Хьюбера: delta = 0.08
             huber_delta = 0.08
             abs_res = np.abs(res_inliers)
             weights = np.where(
@@ -452,11 +436,8 @@ class Localizer:
             )
             last_weights = weights
 
-            # Residual signed error: r_i = n_x * (p_x - proj_x) + n_y * (p_y - proj_y) = dist
-            # When adjusting state by (dx, dy, dth):
-            # dp_x = dx - (py - cur_y) * dth
-            # dp_y = dy + (px - cur_x) * dth
-            # J_i = [n_x, n_y, -n_x * (py - cur_y) + n_y * (px - cur_x)]
+            # Знаковая ошибка невязки: r_i = n_x * (p_x - proj_x) + n_y * (p_y - proj_y) = dist.
+            # При коррекции состояния на (dx, dy, dth):
             rx = px_inliers - cur_x
             ry = py_inliers - cur_y
 
@@ -473,7 +454,7 @@ class Localizer:
             H = J.T @ JW  # (3, 3)
             g = J.T @ (weights * res_inliers)  # (3,)
 
-            # Damping for numerical stability
+            # Демпфирование для численной устойчивости
             H += 1e-3 * np.eye(3)
 
             try:
@@ -481,7 +462,7 @@ class Localizer:
             except np.linalg.LinAlgError:
                 break
 
-            # Apply step
+            # Применение шага коррекции
             cur_x += float(delta[0])
             cur_y += float(delta[1])
             cur_th = wrap_angle(cur_th + float(delta[2]))
@@ -494,24 +475,22 @@ class Localizer:
         if not is_fog:
             self._fog_var_added = 0.0
 
-        # Low-inlier timer (plan/02:141)
+        # Таймер малого числа соответствий
         self._register_scan_health(is_fog)
 
-        # Fog: expected near walls (<5.5 m) that vanished add variance in batches (plan/02:59)
+        # Туман: исчезновение ожидаемых близких стен (<5.5 м) добавляет дисперсию пачками
         if is_fog:
             self._penalise_missing_near_walls(r_sub, rel_sub, near_segs_arr)
 
-        # Acceptance criteria: inliers >= 30 and std(residual) < 0.08 m
+        # Критерии принятия: число соответствий >= 30 и std(residual) < 0.08 м
         if inliers_count >= 30 and final_std < 0.08:
             prev_x, prev_y = self._prev_scan_xy
             prev_ox, prev_oy = self._prev_scan_odom
             self._prev_scan_xy = (cur_x, cur_y)
             self._prev_scan_odom = (self.ox, self.oy)
 
-            # Wheel stall (plan/02:149-157): odometry moved while the mapped walls did
-            # not move at all. Measured over a short window, because the pose is under
-            # constant scan/GNSS tension and a single tick's scan displacement cannot be
-            # told apart from that tension.
+            # Пробуксовка колес: одометрия зафиксировала движение, тогда как стены карты неподвижны.
+            # Оценивается на коротком окне.
             if self._stall_ticks == 0:
                 self._stall_xy = (cur_x, cur_y)
                 self._stall_odom = 0.0
@@ -524,30 +503,23 @@ class Localizer:
                 self._stall_ticks = 0
                 self._stall_odom = 0.0
 
-            # Accept state update
+            # Принятие обновления состояния
             self.x = cur_x
             self.y = cur_y
             self.th = cur_th
 
             if stall:
-                # Do not integrate this odometry tick, do not touch the scale.
+                # Не интегрировать одометрию текущего такта и не изменять калибровку масштаба
                 self.blocked_wheels = True
                 self._rollback_predict()
                 self._pending_odom_step = 0.0
             else:
-                # Update variances: project variance into normal / tangent axes of the observed walls
+                # Обновление дисперсий: проекция дисперсий на нормали и касательные наблюдаемых стен
                 if last_normals is not None and len(last_normals) > 0:
                     self._update_variances_from_walls(last_normals, last_weights)
 
-                # Odometry scale accumulation (plan/02:99-108): no wheel block, and the
-                # scan has to carry along-track information. A GNSS fix inside the 1.5 m
-                # gate already anchors the pose, so any accepted match may be accumulated
-                # with it -- that is what keeps a far facade from blocking calibration: on
-                # 03 the north passage has no mapped wall nearer than ~14 m (the lidar
-                # itself clamps at 5.5 m in fog), so the match never reaches 80 inliers
-                # even though its end face and the facade bays are perfectly visible
-                # landmarks (plan/02:63-81). Without GNSS the plan's stricter bar holds:
-                # a dense match *and* the angle/landmark evidence.
+                # Накопление масштаба одометрии: отсутствие пробуксовки и наличие продольной информации.
+                # Фиксация GNSS в пределах 1.5 м калибрует масштаб.
                 gnss_recent = self.last_gnss_accepted or self._gnss_fix_ticks <= 50
                 if not self.scale_locked:
                     longitudinal = self._scan_has_angle(last_normals) or self._scan_holds_landmark(
@@ -557,7 +529,7 @@ class Localizer:
                         self._accumulate_scale(prev_ox, prev_oy, cur_x - prev_x, cur_y - prev_y)
                 self._pending_odom_step = 0.0
 
-                # Longitudinal landmarks: update the weak (tangential) axis only.
+                # Продольные ориентиры: обновление только слабой (касательной) оси
                 self._apply_landmark_correction(
                     r_all, rel_all, d_prev, d_next, finite_all, near_segs_arr
                 )
@@ -565,8 +537,8 @@ class Localizer:
             self._check_lost_status()
             return True
 
-        # Match rejected: keep the odometry path pending so the next accepted match
-        # compares odometry and scan over exactly the same interval.
+        # Сопоставление отклонено: сохранение пути одометрии в ожидании следующего
+        # успешного сопоставления на том же интервале.
         self._check_lost_status()
         return False
 
@@ -583,8 +555,8 @@ class Localizer:
         if normals is None or len(normals) < 2:
             return False
         ang = np.arctan2(normals[:, 1], normals[:, 0])
-        # Undirected normals -> work on doubled angles; the mean resultant length drops
-        # below cos(30 deg) as soon as the spread exceeds 30 deg.
+        # Ненаправленные нормали: работа с удвоенными углами;
+        # средняя длина результирующего вектора падает ниже cos(30 град) при разбросе более 30 град.
         r_len = math.hypot(float(np.cos(2.0 * ang).mean()), float(np.sin(2.0 * ang).mean()))
         return r_len < 0.866
 
@@ -712,7 +684,7 @@ class Localizer:
         disp = point_to_segs_displacement(wx, wy, segs)
         dists = np.atleast_1d(disp.dists)
         seg_idx = np.atleast_1d(disp.seg_idx)
-        # The feature must be a mapped point: its endpoint lies on a wall.
+        # Признак должен принадлежать карте: его конечная точка лежит на стене
         on_wall = dists < 0.35
         if not on_wall.any():
             return
@@ -732,8 +704,8 @@ class Localizer:
                 continue
             tx, ty = (x2 - x1) / seg_len, (y2 - y1) / seg_len
 
-            # The feature must BE the landmark, not merely near it: a loose gate lets a
-            # far-away wall end drag the pose along an axis the scan cannot observe.
+            # Признак должен быть именно ориентиром, а не просто находиться рядом,
+            # исключая ложные продольные сдвиги по невидимым осям.
             best_d = None
             best_xy = None
             for ex, ey in ((x1, y1), (x2, y2)):
@@ -750,15 +722,14 @@ class Localizer:
                 continue
 
             d_t = (best_xy[0] - wx[k]) * tx + (best_xy[1] - wy[k]) * ty
-            # Dead zone: the returned corner is quantised by the 1 deg beam grid, so a
-            # small residual is noise. Correcting it every tick would integrate into a
-            # large along-wall drift, and the scan cannot observe that axis to undo it.
+            # Зона нечувствительности: возвращенный угол квантован шагом 1 град,
+            # малая невязка является шумом и не должна накапливаться.
             if abs(d_t) < 0.3:
                 continue
             shifts.append(max(-0.5, min(0.5, d_t)))
             tangents.append((tx, ty))
 
-        # A single beam-boundary feature is not trustworthy enough to move the pose.
+        # Одиночный граничный луч недостаточно надежен для сдвига позы
         if len(shifts) < 2:
             return
 
@@ -772,10 +743,10 @@ class Localizer:
         mty /= mag
         self.x += shift * mtx
         self.y += shift * mty
-        # A confirmed mapped landmark end is a direct along-track measurement.
+        # Подтвержденный конец ориентира является прямым измерением вдоль пути
         self._unconfirmed_dist = 0.0
 
-        # Only the tangential axis is informed by this measurement.
+        # Измерение уточняет исключительно продольную ось
         beta = math.atan2(mty, mtx)
         d_angle = wrap_angle(beta - self.th)
         cos_d2 = math.cos(d_angle) ** 2
@@ -786,9 +757,8 @@ class Localizer:
 
     def _update_variances_from_walls(self, normals: np.ndarray, weights: np.ndarray) -> None:
         """Update variances along and cross wall normal directions."""
-        # Mean normal orientation
-        # Wall holds the normal and heading, but does NOT constrain the tangent!
-        # Shrink variance along normal, keep variance along tangent.
+        # Средняя ориентация нормалей.
+        # Стена фиксирует нормаль и курс, но не ограничивает касательную составляющую.
         n_x = float(np.average(normals[:, 0], weights=weights))
         n_y = float(np.average(normals[:, 1], weights=weights))
         norm_mag = math.hypot(n_x, n_y)
@@ -796,36 +766,27 @@ class Localizer:
             n_x /= norm_mag
             n_y /= norm_mag
 
-            # Normal angle
+            # Угол нормали
             alpha = math.atan2(n_y, n_x)
-            # Robot heading vs wall normal
+            # Курс робота относительно нормали стены
             d_angle = wrap_angle(alpha - self.th)
             cos_d2 = math.cos(d_angle) ** 2
             sin_d2 = math.sin(d_angle) ** 2
 
-            # The normal error collapses to ~0.02^2 (scan precision)
+            # Ошибка по нормали уменьшается до ~0.02^2 (точность сканирования)
             var_wall = 0.02**2
 
-            # Along and cross variance update.
-            # The scan measures the wall NORMAL. Project it on the robot axes:
-            #   n . forward = cos(d_angle),  n . lateral = sin(d_angle).
-            # A wall parallel to the path (d_angle ~ 90 deg) therefore collapses the
-            # CROSS variance; a wall perpendicular to the path collapses the ALONG one.
-            # The tangential component is NOT constrained by this match.
+            # Обновление продольной и поперечной дисперсий.
+            # Сканирование измеряет нормаль к стене с проекцией на оси робота.
             self.var_cross = self.var_cross * cos_d2 + var_wall * sin_d2
             self.var_along = self.var_along * sin_d2 + var_wall * cos_d2
             self.var_th = min(self.var_th, (0.01) ** 2)
 
-            # Does ANY inlier normal point along the heading, i.e. is a transverse
-            # surface in the match? The weighted mean normal above follows the longest
-            # wall, so in a corridor carrying one cross wall the mean stays lateral even
-            # though that cross wall really does measure the along-track axis. Such a
-            # surface ends the dead-reckoning stretch (plan/02:99-108). (var_along itself
-            # is left to the blend above: rewriting it here would change the GNSS gain
-            # k_x and with it every trajectory that the acceptance packet covers.)
+            # Проверка наличия нормалей вдоль курса движения (поперечная стена).
+            # Средневзвешенная нормаль ориентирована вдоль наиболее длинных стен.
             if normals.size:
                 head = normals[:, 0] * math.cos(self.th) + normals[:, 1] * math.sin(self.th)
-                if float(np.max(np.abs(head))) > 0.87:  # normal within ~30 deg of heading
+                if float(np.max(np.abs(head))) > 0.87:  # Нормаль в пределах ~30 градусов от курса
                     self._unconfirmed_dist = 0.0
 
     @staticmethod
@@ -833,7 +794,7 @@ class Localizer:
         """Clamp the estimate to the physically allowed set [0.96,0.99] U [1.01,1.04]."""
         s = max(0.96, min(1.04, float(calc_scale)))
         if 0.99 <= s <= 1.01:
-            # The 1.0 gap is not a valid odometry scale: push to the nearer boundary.
+            # Разрыв масштаба около 1.0 недопустим: сдвиг к ближайшей границе
             s = 1.01 if s >= 1.0 else 0.99
         return s
 
@@ -861,13 +822,8 @@ class Localizer:
         if odom_len <= 1e-6:
             return
 
-        # Both displacements live in different frames and the difference is a constant:
-        # odometry (ox, oy, oth) is the pure wheel frame whose heading starts at 0, while
-        # the scan displacement is taken in world axes and the pose heading starts at
-        # initial_pose[2]. On 01/02/04 the platform starts at theta = 0 so the two frames
-        # coincide, but 03 starts at -90 deg and the raw dot product then projects a
-        # sideways odometry delta onto a downhill scan delta -- it collapses to ~0 (or
-        # flips sign), _scale_lidar_dist never reaches 25 m and the scale stays at 1.0.
+        # Перемещения вычисляются в различных базисах с постоянным смещением:
+        # одометрия (ox, oy, oth) - чистый базис колес с нулевым начальным курсом.
         rot = self.th - self.oth
         c_rot = math.cos(rot)
         s_rot = math.sin(rot)
@@ -880,9 +836,8 @@ class Localizer:
 
         self._scale_odom_dist += odom_len
         self._scale_lidar_dist += lidar_step
-        # Per-interval ratio odom/lidar. The along-wall component is only partially
-        # observable, so single ratios are noisy by design; a trimmed mean over the whole
-        # window is unbiased while individual scan glitches cannot move it.
+        # Отношение одометрии к лидару на интервале.
+        # Продольная составляющая вдоль стены частично ненаблюдаема, усеченное среднее фильтрует шум.
         if lidar_step > 0.01 * odom_len:
             self._scale_ratios.append(odom_len / lidar_step)
 
@@ -893,11 +848,11 @@ class Localizer:
                 calc_scale = self._scale_odom_dist / max(self._scale_lidar_dist, 1e-6)
             self.scale = self._snap_scale(calc_scale)
             self.scale_locked = True
-            # The frozen scale confirms the along-track position: the dead-reckoning
-            # budget restarts, now bounded by the 1% residual of the calibration.
+            # Зафиксированный масштаб подтверждает продольную координату:
+            # бюджет счисления пути перезапускается с остаточной погрешностью калибровки 1%.
             self._unconfirmed_dist = 0.0
-            # Along-track uncertainty after calibration is set by the residual scale
-            # error (plan/02:97, plan/02:108), not by the wide pre-calibration budget.
+            # Продольная неопределенность после калибровки определяется остаточной погрешностью масштаба,
+            # а не исходным широким бюджетом.
             self.var_along = max(self.var_along, (0.01 * self._scale_lidar_dist) ** 2)
 
     @staticmethod
@@ -939,60 +894,59 @@ class Localizer:
         dy = gnss_y - self.y
         dist = math.hypot(dx, dy)
 
-        # Innovation gate: 1.5 m
+        # Строб невязки GNSS: 1.5 м
         if dist < 1.5:
-            # In fog the scan is range-clamped and blind by construction: the map cannot
-            # corroborate anything, so the GNSS fix is the only reference and is used.
+            # В тумане лидар ослеплен и дальность ограничена: карта не дает подтверждений,
+            # засечка GNSS остается единственным источником координат.
             scan_ok = (self.scan_inliers >= 30) or self.fog_active
             if not scan_ok and dist > 0.6:
-                # The map cannot corroborate the pose (too few inliers) and the request
-                # is not a small correction: hold it until the scan agrees again.
+                # Карта не подтверждает позу (мало точек соответствия), а поправка велика:
+                # удержание позы до восстановления совпадения со сканом.
                 self._gnss_fix_ticks += 1
                 self.gnss_rejections.append((dx, dy))
                 self._check_lost_status()
                 return False
 
             self.gnss_rejections.clear()
-            # Gated innovation filter update (Kalman-like blended correction)
-            # R_gnss ~ (0.3m)^2, HDOP scaling
+            # Фильтр стробированной невязки (взвешенная коррекция калмановского типа):
+            # R_gnss ~ (0.3 м)^2, масштабирование по HDOP.
             r_var = (0.3 * max(1.0, gnss_hdop)) ** 2
             k_x = self.var_along / (self.var_along + r_var)
             k_y = self.var_cross / (self.var_cross + r_var)
             k = max(0.01, min(0.15, 0.5 * (k_x + k_y)))
-            # A poor hdop only weakens the measurement, it does not veto it.
+            # Высокий HDOP снижает вес измерения, но не отменяет его
             if gnss_hdop > 1.4:
                 k *= 0.5
-            # A scan-blind correction is trusted less.
+            # Коррекция без подтверждения лидаром имеет пониженное доверие
             if not scan_ok:
                 k *= 0.3
 
             self.x += k * dx
             self.y += k * dy
 
-            # Variance shrink bounded by GNSS accuracy
+            # Уменьшение дисперсии ограничено точностью GNSS
             self.var_along = max(0.04, self.var_along * (1.0 - k))
             self.var_cross = max(0.04, self.var_cross * (1.0 - k))
             self.last_gnss_accepted = True
             self._gnss_fix_ticks = 0
-            # An accepted fix inside the 1.5 m gate is an absolute along-track reference.
+            # Принятая засечка в пределах строба 1.5 м служит абсолютной продольной привязкой
             self._unconfirmed_dist = 0.0
             self._check_lost_status()
             return True
 
-        # Rejected innovation: record for persistent disagreement check
+        # Отклоненная невязка: сохранение для проверки устойчивого расхождения
         self._gnss_fix_ticks += 1
         self.gnss_rejections.append((dx, dy))
 
-        # Recovery from a persistent, stable disagreement. A GNSS jump lasts 2-5 s, so a
-        # 6 s window with a tight spread cannot be a jump; the scan must still hold the
-        # old pose (many inliers) for the filter to be the one that drifted.
+        # Восстановление при устойчивом согласии измерений. Скачок GNSS длится 2-5 с,
+        # стабильное согласование в окне 6 с свидетельствует о дрейфе лидара вдоль стены.
         if len(self.gnss_rejections) >= 60:
             recent = np.array(self.gnss_rejections[-40:])
             shift_x = float(recent[:, 0].mean())
             shift_y = float(recent[:, 1].mean())
             shift = math.hypot(shift_x, shift_y)
             if recent.std(axis=0).max() < 0.5 and self.scan_inliers >= 60 and 1.5 < shift < 3.0:
-                # Filter drifted along an unobservable wall, GNSS is consistent.
+                # Фильтр сдрейфовал вдоль гладкой стены, данные GNSS стабильны
                 self.x += shift_x
                 self.y += shift_y
                 self.var_along = 0.5**2
@@ -1023,7 +977,7 @@ class Localizer:
         dist_to_goal = math.hypot(gx - self.x, gy - self.y)
         heading_err = abs(wrap_angle(self.th - gh))
 
-        # Only activate close to goal (<= 3.0m) and roughly aligned (<= 0.35 rad)
+        # Активация только вблизи цели (<= 3.0 м) и при соосности (<= 0.35 рад)
         if dist_to_goal > 3.0 or heading_err > 0.35:
             return False
 
@@ -1038,7 +992,7 @@ class Localizer:
             vals = vals[np.isfinite(vals)]
             return float(np.median(vals)) if len(vals) >= 3 else math.nan
 
-        # Front (index 0), Left (index n // 4 = 90 deg), Right (index 3*n // 4 = 270 deg / -90 deg)
+        # Спереди (индекс 0), слева (индекс n // 4 = 90 град), справа (индекс 3*n // 4 = 270 град)
         exp_front = raycast(self.x, self.y, np.array([self.th]), dock_wall_segs)
         exp_left = raycast(self.x, self.y, np.array([self.th + math.pi / 2]), dock_wall_segs)
         exp_right = raycast(self.x, self.y, np.array([self.th - math.pi / 2]), dock_wall_segs)
@@ -1052,16 +1006,16 @@ class Localizer:
 
         applied = False
 
-        # Longitudinal adjustment (front wall)
+        # Продольная корректировка по передней стене
         if math.isfinite(mf) and math.isfinite(exp_front[0]) and abs(mf - exp_front[0]) < 0.6:
             err_f = mf - exp_front[0]
-            # If measured range is smaller than expected, robot is closer than expected -> move backwards
+            # Если измеренная дистанция меньше ожидаемой, робот ближе к стене -> смещение назад
             self.x -= 0.5 * err_f * cos_th
             self.y -= 0.5 * err_f * sin_th
             self.var_along = min(self.var_along, 0.02**2)
             applied = True
 
-        # Lateral adjustment (side walls)
+        # Поперечная корректировка по боковым стенам
         lat_errs = []
         if math.isfinite(ml) and math.isfinite(exp_left[0]) and abs(ml - exp_left[0]) < 0.6:
             lat_errs.append(-(ml - exp_left[0]))
@@ -1070,15 +1024,15 @@ class Localizer:
 
         if lat_errs:
             lat_corr = float(np.mean(lat_errs))
-            # Lateral direction is (-sin_th, cos_th)
+            # Поперечное направление равно (-sin_th, cos_th)
             self.x += 0.5 * lat_corr * (-sin_th)
             self.y += 0.5 * lat_corr * cos_th
             self.var_cross = min(self.var_cross, 0.02**2)
             applied = True
 
         if applied:
-            # A dock correction is not scan-matched travel: do not let it pollute the
-            # scan-displacement used for scale calibration and wheel-stall detection.
+            # Коррекция в доке не является движением по одометрии и не должна попадать
+            # в калибровку масштаба и детектор пробуксовки.
             self._prev_scan_xy = (self.x, self.y)
             self._prev_scan_odom = (self.ox, self.oy)
 
@@ -1114,7 +1068,7 @@ class Localizer:
             self._prev_scan_xy = (self.x, self.y)
             self._prev_scan_odom = (self.ox, self.oy)
             if not self.scale_locked:
-                # The recovered pose invalidates the accumulated calibration path.
+                # Восстановленная поза аннулирует накопленный путь калибровки
                 self._scale_odom_dist = 0.0
                 self._scale_lidar_dist = 0.0
         return ok
@@ -1137,7 +1091,7 @@ class Localizer:
         r_all = np.asarray(ranges, dtype=float)
         rel_all = np.asarray(rel_angles, dtype=float)
 
-        # 60 rays (every 6th beam)
+        # 60 лучей (каждый 6-й луч)
         step = 6
         r_60 = r_all[::step]
         rel_60 = rel_all[::step]
@@ -1181,9 +1135,8 @@ class Localizer:
         candidates.sort(key=lambda c: -c[0])
         best_score, bx, by, bth = candidates[0]
 
-        # Sharp peak: the best hypothesis must beat every hypothesis that is NOT in its
-        # own neighbourhood (0.75 m / 3 deg). Neighbouring grid cells of a correct pose
-        # score almost identically by construction, so they must not count as rivals.
+        # Выраженный пик: лучшая гипотеза должна превосходить все варианты вне
+        # своей локальной окрестности (0.75 м / 3 град).
         second_score = 0
         for score, cx, cy, cand_th in candidates[1:]:
             if (
@@ -1194,7 +1147,7 @@ class Localizer:
                 second_score = score
                 break
 
-        # Sharp distinct peak: inliers >= 35 and clearly better than the rest of the grid
+        # Четкий локальный пик: число соответствий >= 35 и явное преимущество по сетке
         if best_score >= 35 and (
             best_score >= second_score * 1.15 or best_score - second_score >= 6
         ):
@@ -1219,14 +1172,8 @@ class Localizer:
           sigma_along > 5 m and still unexplained -> is_lost (see the comment below)
           inliers < 15 outside fog for > 1 s     -> is_lost
         """
-        # A wide along bound is a reason to STOP only while it is still unexplained. Once
-        # the scan, a landmark end, an accepted GNSS fix or the frozen scale has measured
-        # the along position, sigma_along is stale (it can only be reduced by the
-        # mean-normal blend) and standing cannot improve it anyway: the grid search is
-        # flat along a featureless corridor -- measured to return False at every position
-        # of the s4 charger approach, including at a correct pose -- so a pure along-track
-        # stop is a deadlock that abandons the mission. The bound is left untouched, so
-        # the reported uncertainty stays conservative; only the stop is released.
+        # Широкая продольная граница требует остановки только при отсутствии объяснения.
+        # При наличии подтверждения сканированием или GNSS движение продолжается.
         align = self.sigma_along > 5.0 and self._along_bound_m() > 5.0
         cross = self.sigma_cross > 0.8 or self.sigma_th > math.radians(10.0)
         blind = self._low_inlier_ticks >= 10
@@ -1240,9 +1187,8 @@ class Localizer:
             and (self.sigma_along < 2.0 or self._unconfirmed_dist == 0.0)
             and self._low_inlier_ticks == 0
         ):
-            # The exit also accepts a *confirmed* along axis: sigma_along is a cumulative
-            # bound, so without this the stale wide value would hold the platform stopped
-            # even after the along position has been measured afresh.
+            # Выход также допускает подтвержденную продольную ось:
+            # предотвращается остановка платформы по устаревшей оценке дисперсии.
             self.is_lost = False
 
         if self.is_lost:

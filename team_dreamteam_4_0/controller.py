@@ -41,37 +41,37 @@ class Controller:
         self.config = config
         self.dt = float(config.get("dt", 0.1))
 
-        # Platform dynamic limits
+        # Динамические ограничения платформы
         rb = config.get("robot", {})
         self.v_top = float(rb.get("v_max", 1.39))
 
-        # Lidar beam angles
+        # Углы лучей лидара
         lid = config.get("lidar", {})
         beams = int(lid.get("beams", 360))
         amin = float(lid.get("angle_min_deg", 0.0))
         ainc = float(lid.get("angle_increment_deg", 1.0))
         self.rel_angles = np.radians(amin + ainc * np.arange(beams))
 
-        # Building wall segments
+        # Отрезки стен зданий
         self.building_segs = box_segs(map_.get("buildings", []))
-        # Poles are tiny mapped polygons (max side < 1 m, plan/02:68) used as
-        # longitudinal landmarks by the localizer.
+        # Столбы - это мелкие полигоны карты (максимальная сторона < 1 м), используемые
+        # локализатором как продольные ориентиры.
         self.pole_centers = self._extract_pole_centers(map_.get("buildings", []))
 
-        # Subsystems
+        # Подсистемы
         self.localizer = self._make_localizer(initial_pose)
         self.perception = Perception(dt=self.dt)
         self.route = RouteFollower(map_dict=map_, config=config)
         self.safety = SafetyGovernor(v_top=self.v_top, dt=self.dt)
 
-        # Zones
+        # Зоны
         self.zones = [
             (np.asarray(z["polygon"], dtype=float), float(z["v_max"]))
             for z in map_.get("zones", [])
             if z.get("type") == "speed_limit" or "v_max" in z
         ]
 
-        # Mission and arrival tracking
+        # Отслеживание миссии и прибытия
         self.current_mission_id: Optional[str] = None
         self.arrived: bool = False
         self.visited_from: bool = False
@@ -128,10 +128,10 @@ class Controller:
         cos_w, sin_w = math.cos(pose[2]), math.sin(pose[2])
         dx_o = trk.ox - odom_pose[0]
         dy_o = trk.oy - odom_pose[1]
-        # Odometry frame -> robot frame
+        # Базис одометрии -> базис робота
         rx = cos_o * dx_o + sin_o * dy_o
         ry = -sin_o * dx_o + cos_o * dy_o
-        # Robot frame -> world frame
+        # Базис робота -> глобальный базис
         return (pose[0] + cos_w * rx - sin_w * ry, pose[1] + sin_w * rx + cos_w * ry)
 
     def _active_tracks(self) -> List[Any]:
@@ -145,7 +145,7 @@ class Controller:
 
     def step(self, obs: Dict[str, Any]) -> Dict[str, Any]:
         """Perform one control cycle for the AMR platform."""
-        # 1. Predict pose using odometry and IMU
+        # 1. Прогноз позы по одометрии и IMU
         odom = obs["odom"]
         imu = obs["imu"]
         dx_odom = float(odom["dx"])
@@ -156,7 +156,7 @@ class Controller:
 
         self.localizer.predict(dx_odom, dy_odom, dth_odom, imu_heading, imu_yaw_rate, self.dt)
 
-        # 2. Lidar scan matching against mapped walls
+        # 2. Сопоставление сканов лидара со стенами карты
         ranges = np.asarray(obs["lidar"]["ranges"], dtype=float)
         rel_angles = self.rel_angles
         exp_ranges = raycast(
@@ -164,7 +164,7 @@ class Controller:
         )
         is_fog = self.localizer.detect_fog(ranges, expected_ranges=exp_ranges)
 
-        # Active building segments (can exclude demolished walls detected by perception)
+        # Активные отрезки зданий (с исключением снесенных стен по данным распознавания)
         active_segs = self.building_segs
         if self.perception.removed_segment_ids:
             mask = np.ones(len(self.building_segs), dtype=bool)
@@ -175,10 +175,9 @@ class Controller:
 
         self.localizer.update_scan(ranges, rel_angles, active_segs, is_fog=is_fog)
 
-        # 2b. Lost-pose recovery: the standing platform re-searches the map
-        # (plan/02:143-145). try_recover() refuses to run unless the platform is
-        # actually stopped, so the `stopped` verdict must be passed explicitly --
-        # calling it without it left the search dead. At most one attempt per second.
+        # 2b. Восстановление потерянной позы: неподвижная платформа повторно ищет карту.
+        # try_recover() выполняется только при полной остановке платформы, поэтому флаг
+        # stopped передается явно. Не более одной попытки в секунду.
         v_odom = dx_odom / self.dt
         if self.localizer.is_lost:
             now_t = float(obs.get("t", 0.0))
@@ -193,7 +192,7 @@ class Controller:
                         stopped=(abs(v_odom) < 0.04),
                     )
 
-        # 3. GNSS update with innovation gating
+        # 3. Обновление GNSS со стробированием невязки
         gnss = obs.get("gnss", {})
         raw_x = gnss.get("x")
         raw_y = gnss.get("y")
@@ -204,7 +203,7 @@ class Controller:
         gnss_hdop = float(raw_hdop) if raw_hdop is not None else 99.0
         self.localizer.update_gnss(gnss_x, gnss_y, gnss_valid, gnss_hdop)
 
-        # Ground truth cheat override if enabled
+        # Переопределение истинной позы (ground truth), если включено
         if self.truth_pose is not None:
             self.localizer.x, self.localizer.y, self.localizer.th = self.truth_pose
             self.localizer.var_along = 0.0
@@ -215,7 +214,7 @@ class Controller:
         odom_pose = self.localizer.odom_pose
         w_odom = dth_odom / self.dt
 
-        # 4. Mission management & dock snap
+        # 4. Управление миссией и привязка к доку
         mission = obs.get("mission")
         if mission is not None:
             mid = mission.get("id")
@@ -224,7 +223,7 @@ class Controller:
                 self.arrived = False
                 self.visited_from = False
 
-            # Check from pick-up proximity (plan/02:125: filter was within 1.5m during mission)
+            # Проверка близости к точке погрузки (фильтр в пределах 1.5 м во время миссии)
             from_key = mission.get("from")
             if isinstance(from_key, str) and "points" in self.map:
                 pt_info = self.map["points"].get(from_key, {})
@@ -237,13 +236,13 @@ class Controller:
                 if d_from < 1.5:
                     self.visited_from = True
 
-            # Dock snap near terminal goal
+            # Привязка к доку возле целевой точки
             goal_pt = mission.get("goal")
             if goal_pt is not None and len(goal_pt) >= 3 and not self.truth_pose:
                 self.localizer.dock_snap(ranges, rel_angles, goal_pt, active_segs)
                 pose = self.localizer.pose
 
-        # If already arrived and holding arrived status
+        # Если уже прибыл и удерживается статус прибытия
         if self.arrived:
             return {
                 "v": 0.0,
@@ -253,7 +252,7 @@ class Controller:
                 "note": "dock",
             }
 
-        # 5. Perception: track dynamic & static obstacles in clean odometry frame
+        # 5. Распознавание: отслеживание динамических и статических препятствий в чистом базисе одометрии
         self.perception.step(
             ranges=ranges,
             rel_angles=rel_angles,
@@ -266,13 +265,12 @@ class Controller:
             scan_inliers=self.localizer.scan_inliers,
         )
 
-        # Only *confirmed* tracks reach the safety governor and the route obstacle
-        # layer (frozen wave-3 interface). A lone/paired snow return never repeats
-        # at the same world point from tick to tick (plan/03:18), so it must not be
-        # allowed to act as a phantom person and freeze the mission.
+        # Только подтвержденные треки передаются в модуль безопасности и слой препятствий
+        # маршрута. Одиночный снежный отклик не повторяется в одной точке мира от такта к такту,
+        # поэтому не должен считаться ложным пешеходом и останавливать миссию.
         active_tracks = self._active_tracks()
 
-        # Extract confirmed static obstacles for route planner
+        # Извлечение подтвержденных статических препятствий для планировщика маршрута
         static_obs: List[Tuple[float, float, float]] = []
         confirmed_xy: List[Tuple[float, float]] = []
         for trk in active_tracks:
@@ -284,10 +282,9 @@ class Controller:
                 r_obs = max(0.4, 0.5 * min(2.0, trk.length))
                 static_obs.append((wx, wy, r_obs))
 
-        # Map discrepancies (map_extra / wall_extra) must feed the route obstacle
-        # layer too, otherwise an unmapped map patch is crossed head-on (audit gap 9).
-        # The extra layer is admitted only where it belongs to a confirmed track, so
-        # an unconfirmed phantom wall cannot rewrite the route either.
+        # Расхождения карты (map_extra / wall_extra) также передаются в слой препятствий маршрута,
+        # иначе неразмеченный участок проходится в лоб. Дополнительный слой принимается только для
+        # подтвержденных треков, исключая перестроение маршрута по фантомным стенам.
         for ex, ey, er in self.perception.get_extra_obstacles():
             if not any(math.hypot(ex - cx, ey - cy) < 0.35 for cx, cy in confirmed_xy):
                 continue
@@ -295,7 +292,7 @@ class Controller:
                 continue
             static_obs.append((float(ex), float(ey), float(er)))
 
-        # 6. Route follower step
+        # 6. Шаг следования по маршруту
         route_cmd = self.route.step(
             pose=pose,
             mission=mission,
@@ -308,18 +305,14 @@ class Controller:
         rem_dist = float(route_cmd.get("remaining_dist", 99.0))
         route_note = route_cmd.get("note") or ""
 
-        # Lost-orientation speed cap (plan/02:133-147): the frozen SafetyGovernor
-        # signature has no lost argument, so clamp the candidate here. The clamp runs on
-        # every tick, not only under `is_lost`: `lost_speed_limit` already carries all
-        # four tiers -- 0.4 (wide cross/heading sigma), 0.6 (wide along sigma, keep
-        # driving and catch the angle), 0.0 (lost), 1.39 (healthy, so this is a no-op in
-        # the nominal case). Gating it on `is_lost` made the 0.4/0.6 tiers dead code,
-        # because the lost branch always exports 0.0 anyway.
+        # Ограничение скорости при потере ориентации: ограничение применяется на каждом такте,
+        # lost_speed_limit включает все ступени скорости: 0.4 (высокая поперечная или угловая погрешность),
+        # 0.6 (высокая продольная погрешность), 0.0 (потеря), 1.39 (номинальный режим).
         lost_cap = float(getattr(self.localizer, "lost_speed_limit", 1.39))
         if lost_cap < v_cand:
             v_cand = lost_cap
 
-        # Check arrival threshold at terminal dock (plan/02:121-127)
+        # Проверка порога прибытия в конечный док
         if mission is not None and len(self.route.active_path) >= 2:
             terminal_pt = self.route.active_path[-1]
             dist_to_dock = math.hypot(pose[0] - terminal_pt[0], pose[1] - terminal_pt[1])
@@ -340,7 +333,7 @@ class Controller:
                     "note": "dock",
                 }
 
-        # 7. Safety governor evaluation
+        # 7. Оценка модуля безопасности
         v_safe, w_safe, status, safety_note = self.safety.evaluate(
             v_cand=v_cand,
             w_cand=w_cand,
@@ -358,18 +351,18 @@ class Controller:
             blocked_wheels=self.localizer.blocked_wheels,
             perception_note=self.perception.note,
             remaining_dist=rem_dist,
-            # Lateral pose sigma feeds the `lost s_lat=<m>` note (plan/03:120).
+            # Поперечная погрешность позы передается в примечание lost s_lat
             sigma_cross=self.localizer.sigma_cross,
         )
 
-        # Combine notes: active safety reasons outrank route notes, but a stale
-        # map_missing/map_extra could hide an active avoidance note (audit gap 15).
+        # Объединение примечаний: активные причины безопасности приоритетнее заметок маршрута,
+        # но устаревшие map_missing/map_extra не должны скрывать активный объезд.
         if route_note and safety_note in ("map_missing", "map_extra"):
             combined_note = route_note
         else:
             combined_note = safety_note or route_note or ""
 
-        # Status follows measured odometry while the platform is still rolling (plan/03:86-90).
+        # Статус определяется по измеренной одометрии, пока платформа движется
         final_status = "moving" if abs(v_odom) > 0.04 else status
 
         return {

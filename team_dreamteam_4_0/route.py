@@ -94,7 +94,7 @@ class RouteFollower:
         self.map_dict = map_dict or {}
         self.config = config or {}
 
-        # Drivable and forbidden geometry
+        # Геометрия проезжей части и запретных зон
         self.drivable_polys: List[np.ndarray] = []
         self.forbidden_polys: List[np.ndarray] = []
         self.speed_zones: List[Dict[str, Any]] = []
@@ -103,14 +103,14 @@ class RouteFollower:
 
         self._parse_map(self.map_dict)
 
-        # 2D Grid settings for A*
+        # Параметры двумерной сетки для A*
         self.grid_res = 0.5
-        # Plan/04:40: a free cell must stay at least 0.2 m away from the
-        # drivable boundary, so the margin is baked into the static grid.
+        # Свободная ячейка должна находиться на расстоянии не менее 0.2 м от границы
+        # проезжей части, запас заложен в статическую сетку.
         self.grid_margin = 0.2
         self._init_grid()
 
-        # Mission and path tracking state
+        # Состояние миссии и отслеживания пути
         self.current_mission_id: Optional[str] = None
         self.reference_path: np.ndarray = np.empty((0, 2), dtype=float)
         self.active_path: np.ndarray = np.empty((0, 2), dtype=float)
@@ -119,11 +119,11 @@ class RouteFollower:
         self.hold_count: int = 0
         self.note: Optional[str] = None
 
-        # Replan throttling
+        # Ограничение частоты перепланирования
         self.last_replan_t: float = -10.0
-        self.replan_interval: float = 2.0  # seconds
+        self.replan_interval: float = 2.0  # секунды
 
-        # Deadline / final-approach state (plan/04:51-57)
+        # Состояние дедлайна и финального захода на посадку
         self.t_start: Optional[float] = None
         self.deadline_s: Optional[float] = None
         self.time_left: Optional[float] = None
@@ -180,9 +180,9 @@ class RouteFollower:
 
         free_mask = in_d & (~in_f)
 
-        # Plan/04:40: free cell = inside a drivable aisle with a 0.2 m margin
-        # to its boundary, outside forbidden zones and outside map walls.
-        # Only the cheap in_d candidates are re-checked with the margin.
+        # Свободная ячейка: внутри проезда с отступом 0.2 м от границы,
+        # вне запретных зон и вне стен карты.
+        # Только кандидаты in_d перепроверяются с учетом запаса.
         margin = float(getattr(self, "grid_margin", 0.2))
         if margin > 0.0:
             cand = np.flatnonzero(free_mask)
@@ -289,7 +289,7 @@ class RouteFollower:
         self.last_replan_t = -10.0
         self.last_offset_dy = 0.0
 
-        # Deadline bookkeeping (plan/04:51-57)
+        # Учет дедлайна
         t_start = mission.get("t_start")
         self.t_start = float(t_start) if t_start is not None else None
         deadline = mission.get("deadline_s")
@@ -297,16 +297,16 @@ class RouteFollower:
         self.time_left = None
         self.final_approach = False
 
-        # Check pickup point distance
+        # Проверка расстояния до точки погрузки
         from_xy = self.get_point_xy(mission.get("from"), fallback=ref_path[0])
         dist_to_from = math.hypot(pose[0] - from_xy[0], pose[1] - from_xy[1])
 
         if dist_to_from > 1.5:
-            # Generate initial leg from current pose to from_xy
+            # Построение начального участка от текущей позы до from_xy
             init_leg = self.plan_path((pose[0], pose[1]), from_xy)
             if init_leg is not None and len(init_leg) > 0:
                 init_arr = np.asarray(init_leg, dtype=float)
-                # Concatenate with reference path (skipping first point if coincident)
+                # Объединение с опорным путем (пропуск первой точки при совпадении)
                 if (
                     np.hypot(init_arr[-1, 0] - ref_path[0, 0], init_arr[-1, 1] - ref_path[0, 1])
                     < 0.2
@@ -364,7 +364,7 @@ class RouteFollower:
         self, x: float, y: float, obs_circles: List[Tuple[float, float, float]]
     ) -> bool:
         for ox, oy, r in obs_circles:
-            # Safety inflation: 0.9 + 0.35 + obstacle radius r
+            # Запас безопасности: 0.9 + 0.35 + радиус препятствия r
             req_dist = 0.9 + 0.35 + r
             if math.hypot(x - ox, y - oy) < req_dist:
                 return False
@@ -407,7 +407,7 @@ class RouteFollower:
             return False
 
         for ox, oy, r in obs_circles:
-            # Same 0.9 + 0.35 inflation used by the grid search.
+            # Аналогичный запас 0.9 + 0.35, используемый поиском по сетке
             req_dist = 0.9 + 0.35 + r
             if bool(np.any(np.hypot(pts[:, 0] - ox, pts[:, 1] - oy) < req_dist)):
                 return False
@@ -478,7 +478,7 @@ class RouteFollower:
         if goal_cell not in came_from and start_cell != goal_cell:
             return None
 
-        # Reconstruct path
+        # Восстановление пути
         path_cells = [goal_cell]
         while path_cells[-1] != start_cell:
             path_cells.append(came_from[path_cells[-1]])
@@ -486,7 +486,7 @@ class RouteFollower:
 
         coords = [start] + [self._cell_to_coord(ci, cj) for ci, cj in path_cells] + [goal]
 
-        # Line-of-sight shortcutting
+        # Спрямление пути по лучу прямой видимости
         shortcutted = [coords[0]]
         i = 0
         n_pts = len(coords)
@@ -578,7 +578,7 @@ class RouteFollower:
         min_s = math.inf
 
         for ox, oy, r in parsed:
-            # Find projection onto path
+            # Поиск проекции на путь
             for i in range(len(seg_lens)):
                 p1 = path[i]
                 v = diffs[i]
@@ -589,17 +589,17 @@ class RouteFollower:
                 proj = p1 + u * v
                 s_obs = cum_lens[i] + u * L
 
-                # Only evaluate obstacles ahead of robot, but not beyond end of path
+                # Оценка только препятствий впереди робота, но не за пределами конца пути
                 if s_obs < current_s - 0.5 or s_obs > current_s + 35.0:
                     continue
-                # Do not trigger tube avoidance near terminal dock point (last 3.0m)
+                # Не запускать локальный объезд возле конечной точки дока (последние 3.0 м)
                 if s_obs > cum_lens[-1] - 3.0:
                     continue
 
                 dist_center = math.hypot(ox - proj[0], oy - proj[1])
                 dist_edge = dist_center - r
 
-                # Tube check: obstacle edge enters reference tube or violates 1.1m clearance gap
+                # Проверка трубки: край препятствия входит в трубку пути или нарушает зазор 1.1 м
                 if dist_edge < max(tube_radius, 2.0):
                     if s_obs < min_s:
                         min_s = s_obs
@@ -629,22 +629,21 @@ class RouteFollower:
         cum_lens = np.concatenate([[0.0], np.cumsum(seg_lens)])
         total_len = cum_lens[-1]
 
-        # Find segment at s_obs
+        # Поиск сегмента в точке s_obs
         idx = np.searchsorted(cum_lens, s_obs) - 1
         idx = max(0, min(len(seg_lens) - 1, idx))
         v = diffs[idx]
         L = max(seg_lens[idx], 1e-6)
         u_dir = v / L
-        normal = np.array([-u_dir[1], u_dir[0]])  # Left normal
+        normal = np.array([-u_dir[1], u_dir[0]])  # Левая нормаль
 
-        # Signed lateral offset of primary obstacle from path
+        # Знаковое поперечное смещение основного препятствия от пути
         p1 = path[idx]
         d_lat_obs = (ox - p1[0]) * normal[0] + (oy - p1[1]) * normal[1]
 
-        # Plan/04:36-39: shift towards the roomy side of the aisle first
-        # (northern aisle -> south, western exit -> west, southern aisle ->
-        # either side); only a symmetric aisle falls back to moving away from
-        # the obstacle.
+        # Смещение выполняется в первую очередь в просторную сторону проезда
+        # (северный проезд -> юг, западный выход -> запад, южный проезд -> любая сторона);
+        # только симметричный проезд отступает в противоположную от препятствия сторону.
         t_obs = (s_obs - cum_lens[idx]) / max(1e-6, L)
         p_obs = p1 + t_obs * diffs[idx]
         c_plus = self._lateral_clearance((float(p_obs[0]), float(p_obs[1])), normal)
@@ -654,7 +653,7 @@ class RouteFollower:
         else:
             prefer = 1.0 if c_plus > c_minus else -1.0
 
-        # Candidate lateral shifts in 0.2m increments
+        # Кандидаты поперечного смещения с шагом 0.2 м
         base_shifts = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4]
         candidates = [prefer * s for s in base_shifts] + [-prefer * s for s in base_shifts]
 
@@ -664,13 +663,13 @@ class RouteFollower:
         s_ramp_out = min(total_len, s_obs + 4.5)
 
         for delta in candidates:
-            # Sample the shifted section
+            # Дискретизация смещенного участка
             s_samples = np.arange(s_ramp_in, s_ramp_out + 0.2, 0.25)
             pts_shifted = []
             feasible = True
 
             for s_val in s_samples:
-                # Ramp weighting
+                # Весовая функция рампы
                 if s_val <= s_ramp_in:
                     w = 0.0
                 elif s_val < s_plat_in:
@@ -682,7 +681,7 @@ class RouteFollower:
                 else:
                     w = 0.0
 
-                # Interpolate unshifted point on path
+                # Интерполяция несмещенной точки на пути
                 s_idx = np.searchsorted(cum_lens, s_val) - 1
                 s_idx = max(0, min(len(seg_lens) - 1, s_idx))
                 tau = (s_val - cum_lens[s_idx]) / max(1e-6, seg_lens[s_idx])
@@ -691,23 +690,23 @@ class RouteFollower:
                 p_shift = p_orig + w * delta * normal
                 pts_shifted.append(p_shift)
 
-                # Check gap > 1.1m at plateau to all nearby obstacles
+                # Проверка зазора > 1.1 м на плато до всех близлежащих препятствий
                 if s_plat_in <= s_val <= s_plat_out:
                     for o_x, o_y, o_r in obs_list:
-                        # Required center distance: platform (0.9) + obstacle (o_r) + gap (1.1m)
+                        # Требуемое межцентровое расстояние: платформа (0.9) + препятствие (o_r) + зазор (1.1 м)
                         if math.hypot(p_shift[0] - o_x, p_shift[1] - o_y) < 0.9 + o_r + 1.1001:
                             feasible = False
                             break
                     if not feasible:
                         break
 
-                # Check drivable boundary clearance >= 0.2m
+                # Проверка зазора до границы проезда >= 0.2 м
                 if not self.is_drivable(p_shift[0], p_shift[1], margin=0.2):
                     feasible = False
                     break
 
             if feasible and len(pts_shifted) > 0:
-                # Splice shifted waypoints into path
+                # Вставка смещенных точек в путь
                 prefix = [path[j] for j in range(len(path)) if cum_lens[j] < s_ramp_in - 0.1]
                 suffix = [path[j] for j in range(len(path)) if cum_lens[j] > s_ramp_out + 0.1]
                 new_path = prefix + pts_shifted + suffix
@@ -737,8 +736,8 @@ class RouteFollower:
 
         start_pt = (current_pose[0], current_pose[1])
 
-        # Plan/04:40: re-join the remaining reference as soon as the straight
-        # line from the current pose to it is clear, instead of a fixed 5 m.
+        # Возврат на опорную траекторию, как только прямая линия от текущей позы свободна,
+        # вместо фиксированного расстояния 5 м.
         s_goal = min(total_len, s_obs + 5.0)
         s_cap = min(total_len, s_obs + 40.0)
         s_try = s_obs
@@ -761,7 +760,7 @@ class RouteFollower:
         if bypass is None:
             return None
 
-        # Splice bypass into downstream reference path
+        # Соединение объезда с последующим опорным путем
         suffix = [path[j] for j in range(len(path)) if cum_lens[j] > s_goal]
         new_path = bypass + suffix
         return np.asarray(new_path, dtype=float)
@@ -782,7 +781,7 @@ class RouteFollower:
         cum_lens = np.concatenate([[0.0], np.cumsum(seg_lens)])
         total_len = cum_lens[-1]
 
-        # Find closest point on path ahead of last_s
+        # Поиск ближайшей точки на пути впереди last_s
         best_s = self.last_s
         best_dist = math.inf
 
@@ -806,11 +805,11 @@ class RouteFollower:
         self.last_s = curr_s
         rem_dist = max(0.0, total_len - curr_s)
 
-        # Distance to terminal dock goal
+        # Расстояние до целевой точки дока
         goal_pt = path[-1]
         dist_to_goal = math.hypot(x - goal_pt[0], y - goal_pt[1])
 
-        # Dock lookahead rule: within 1.5m, target strictly dock goal
+        # Правило упреждения у дока: в пределах 1.5 м целиться строго в точку дока
         is_dock_zone = dist_to_goal <= 1.5 or rem_dist <= 1.5
         if is_dock_zone:
             target_pt = (float(goal_pt[0]), float(goal_pt[1]))
@@ -822,25 +821,27 @@ class RouteFollower:
             t_coord = path[idx] + tau * diffs[idx]
             target_pt = (float(t_coord[0]), float(t_coord[1]))
 
-        # Target heading and alpha error
+        # Целевой курс и ошибка угла alpha
         dx = target_pt[0] - x
         dy = target_pt[1] - y
         ld = math.hypot(dx, dy)
         target_hd = math.atan2(dy, dx)
         alpha = wrap_angle(target_hd - th)
 
-        # In-place rotation if |alpha| > 0.8
+        # Разворот на месте при |alpha| > 0.8
         if abs(alpha) > 0.8:
             v = 0.0
             w = float(np.clip(2.0 * alpha, -0.8, 0.8))
             return v, w, target_pt, curr_s, rem_dist
 
-        # Speed limits:
-        # 1. Dock speed 0.15 m/s within 1.5m
+        # Ограничения скорости:
+        # - скорость стыковки 0.15 м/с в пределах 1.5 м;
+        # - ограничение скорости поворота: |alpha| > 0.35 -> v <= 0.5;
+        # - профиль торможения.
         v_dock = 0.15 if is_dock_zone else 1.39
-        # 2. Turning speed limit: |alpha| > 0.35 -> v <= 0.5
+        # Ограничение скорости поворота: |alpha| > 0.35 -> v <= 0.5
         v_turn = 0.5 if abs(alpha) > 0.35 else 1.39
-        # 3. Deceleration braking profile
+        # Профиль служебного торможения
         effective_rem = max(0.0, min(rem_dist, dist_to_goal + 0.05) - 0.02)
         v_brake = math.sqrt(2.0 * 0.4 * effective_rem) + 0.03
 
@@ -850,7 +851,7 @@ class RouteFollower:
         v = min(v_max, v_dock, v_turn, v_brake)
         v = max(0.0, v)
 
-        # Pure pursuit curvature steering with fallback to alpha when v is small
+        # Чистое следование pure pursuit с переходом на поворот по alpha при малой скорости
         lx = max(0.5, ld)
         w = 2.0 * v * math.sin(alpha) / lx if v > 0.05 else float(np.clip(1.5 * alpha, -1.0, 1.0))
         w = float(np.clip(w, -1.0, 1.0))
@@ -875,7 +876,7 @@ class RouteFollower:
         """
         x, y, th = pose
 
-        # Update mission tracking if mission provided
+        # Обновление прогресса миссии при ее наличии
         if mission is not None:
             self.update_mission(mission, pose)
 
@@ -889,14 +890,14 @@ class RouteFollower:
                 "hold_count": self.hold_count,
             }
 
-        # Check terminal arrival condition
+        # Проверка условия прибытия в терминальный док
         goal_pt = self.active_path[-1]
         dist_to_goal = math.hypot(x - goal_pt[0], y - goal_pt[1])
 
         if dist_to_goal < 0.10:
             self.arrived = True
             self.hold_count += 1
-            # Optional dock alignment
+            # Финальное выравнивание в доке
             w_align = 0.0
             if mission is not None and "goal" in mission:
                 goal_th = float(mission["goal"][2])
@@ -913,29 +914,28 @@ class RouteFollower:
                 "hold_count": self.hold_count,
             }
 
-        # Current progress along active path
+        # Текущий прогресс вдоль активного пути
         curr_progress = self._get_path_progress(self.active_path, x, y, self.last_s)
 
-        # Deadline / final approach (plan/04:55): with less than 8 s left, less
-        # than 2 m to the goal and an empty corridor, dock at the allowed speed
-        # without adding extra stops.
+        # Финальный заход при дедлайне: если осталось менее 8 с, до цели менее 2 м
+        # и коридор свободен, стыковаться на разрешенной скорости без лишних остановок.
         t0 = self.t_start if self.t_start is not None else current_time
         self.time_left = None if self.deadline_s is None else self.deadline_s - (current_time - t0)
         self.final_approach = bool(
             self.time_left is not None and self.time_left < 8.0 and dist_to_goal < 2.0
         )
 
-        # Obstacle avoidance in reference tube (0.9 + 0.35m) or clearance gap < 1.1m
+        # Объезд препятствий в трубке пути (0.9 + 0.35 м) или при зазоре < 1.1 м
         parsed_obstacles = self._parse_obstacles(obstacles)
         obs_ahead = self.check_obstacles_in_tube(self.active_path, parsed_obstacles, curr_progress)
 
         if obs_ahead is not None and self.final_approach:
-            # Straight to the dock on the allowed speed, no avoidance stop.
+            # Движение прямо в док на разрешенной скорости без остановки на объезд
             if self._line_free((x, y), (float(goal_pt[0]), float(goal_pt[1])), parsed_obstacles):
                 obs_ahead = None
 
         if obs_ahead is not None:
-            # 1. Try lateral offset
+            # 1. Попытка бокового смещения
             shifted = self.apply_lateral_offset(
                 self.active_path, obs_ahead, curr_progress, all_obstacles=parsed_obstacles
             )
@@ -944,7 +944,7 @@ class RouteFollower:
                 self.note = "offset dy=%.1f" % self.last_offset_dy
                 self.last_s = self._get_path_progress(self.active_path, x, y, 0.0)
             else:
-                # 2. Try local A*, throttled to once per 2 s (plan/04:41)
+                # 2. Попытка локального A*, с ограничением частоты раз в 2 с
                 can_replan = (current_time - self.last_replan_t) >= self.replan_interval
                 if can_replan:
                     self.last_replan_t = float(current_time)
@@ -956,7 +956,7 @@ class RouteFollower:
                         self.note = "replan"
                         self.last_s = 0.0
                     else:
-                        # 3. No path found -> safe stop, retry after 2 s
+                        # 3. Путь не найден -> безопасная остановка, повтор через 2 с
                         self.note = "stop_object"
                         return {
                             "v": 0.0,
@@ -967,7 +967,7 @@ class RouteFollower:
                             "hold_count": 0,
                         }
                 elif self.note == "replan":
-                    # Keep following the existing bypass until the next window.
+                    # Следование существующему объезду до следующего окна перепланирования
                     pass
                 else:
                     self.note = "stop_object"
@@ -982,10 +982,10 @@ class RouteFollower:
         else:
             self.note = None
 
-        # Evaluate speed limit zones
+        # Оценка зон ограничения скорости
         v_zone_limit = self.check_speed_zones(x, y, th)
 
-        # Pure pursuit command
+        # Команда алгоритма чистого следования
         v, w, target_pt, _, rem_dist = self.pure_pursuit(pose, self.active_path, v_max=v_zone_limit)
 
         return {
@@ -1000,5 +1000,5 @@ class RouteFollower:
         }
 
 
-# Export Planner as alias of RouteFollower
+# Экспорт Planner как псевдонима RouteFollower
 Planner = RouteFollower
