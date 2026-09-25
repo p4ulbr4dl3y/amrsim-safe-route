@@ -35,12 +35,13 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# IDE
+# IDE & Agent scratch
 .idea/
 .vscode/
 *.swp
 *.swo
 .serena/
+.agents/
 
 # Reports and outputs
 out/
