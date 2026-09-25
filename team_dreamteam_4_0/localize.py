@@ -1203,6 +1203,7 @@ class Localizer:
             self.var_along = 0.2**2
             self.var_cross = 0.2**2
             self.var_th = np.radians(3.0) ** 2
+            self._unconfirmed_dist = 0.0
             self.is_lost = False
             return True
 

@@ -1,4 +1,4 @@
-# Безопасный маршрут — контроллер AMR (amr-sim 0.2, схема amr-1.0)
+# Безопасный маршрут — контроллер AMR (Dreamteam 4.0)
 
 Кейс «Безопасный маршрут»: автономная платформа возит грузы между складом,
 цехами A/B и зарядной по проездам и не должна задевать людей, предметы и стены —
@@ -6,19 +6,19 @@
 каждый тик он получает `obs` (одометрия, IMU, лидар, ГНСС, миссия) и возвращает
 `v`, `w`, `status`, `pose_est`, `note` по схеме amr-1.0.
 
-Контроллер собран из модулей только на стандартной библиотеке и numpy:
+Контроллер собран из модулей строго на стандартной библиотеке и numpy:
 `localize.py` (скан-матч стен, ГНСС-гейт, калибровка масштаба, dock-snap),
 `perceive.py` (кластеры и треки препятствий в чистой одометрии),
 `route.py` (pure pursuit, боковой сдвиг, локальный A*, зоны скорости),
 `safety.py` (зазоры, коридор, estop, статусы), `geom.py` (геометрия),
-`controller.py` (сборка и порядок вызовов). Кратко о решениях и ограничениях —
-в `team/APPROACH.md`.
+`controller.py` (сборка и порядок вызовов). Описание подхода и обоснование решений —
+в [`APPROACH.md`](APPROACH.md) и [`team_dreamteam_4_0/APPROACH.md`](team_dreamteam_4_0/APPROACH.md).
 
 ## Требования
 
 - Python >= 3.10 (см. `pyproject.toml`, `requires-python = ">=3.10"`);
-- только `numpy` (одна строка в `team/requirements.txt`, `numpy>=1.24.0`);
-- интерпретатор `amrsim` лежит в `amrsim-participants/` и запускается через
+- только `numpy` (в `requirements.txt` и `team_dreamteam_4_0/requirements.txt`: `numpy>=1.24.0`);
+- симулятор `amrsim` лежит в `amrsim-participants/` и запускается через
   `PYTHONPATH=amrsim-participants`; кроме numpy он ничего не требует.
 
 ## Установка в чистом окружении
@@ -27,97 +27,92 @@
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -r team/requirements.txt
+.venv/bin/pip install -r requirements.txt
 ```
 
-То же самое без файла требований: `.venv/bin/pip install numpy`.
+Или через `uv`:
+```bash
+uv sync
+```
 
-## Проверка правил изоляции
+## Проверка правил изоляции (Критерий Т3)
 
 ```bash
-PYTHONPATH=amrsim-participants .venv/bin/python -m amrsim check team
+PYTHONPATH=amrsim-participants python -m amrsim check team_dreamteam_4_0
 ```
 
-Ожидаемый результат: `check team: 0 violation(s) or error(s), 0 warning(s)` /
-`result: OK`.
+Ожидаемый результат:
+```
+check team_dreamteam_4_0: 0 violation(s) or error(s), 0 warning(s)
+result: OK
+```
 
 ## Прогон одного сценария
 
 ```bash
-PYTHONPATH=amrsim-participants .venv/bin/python -m amrsim run \
-  amrsim-participants/scenarios/01_clear.json \
-  --controller team/controller.py --seed 7 --report out/01.json
+PYTHONPATH=amrsim-participants python -m amrsim run \
+  scenarios/01_clear.json \
+  --controller team_dreamteam_4_0/controller.py --seed 7 --report out/01.json
 ```
 
-Отчёт по сценарию появится в `out/01.json`. Полезно добавить `--log out/01.jsonl`,
-чтобы получить покадровый журнал. Флаг `--cheat` (истинная поза) — только для
-локального сравнения с оракулом, в зачёт он не идёт.
+Отчёт по сценарию появится в `out/01.json`. Флаг `--log out/01.jsonl` формирует покадровый журнал тиков для АРМ.
 
 ## Пакет прогонов по seed
 
 ```bash
-PYTHONPATH=amrsim-participants .venv/bin/python -m amrsim batch \
-  team amrsim-participants/scenarios \
+PYTHONPATH=amrsim-participants python -m amrsim batch \
+  teams scenarios \
   --seeds 1,2,3,7,11,21,42 --out out/table.csv
 ```
 
-`batch` берёт каталог `team` как команду (в нём есть `controller.py`), гоняет все
-`*.json` из каталога сценариев (включая учебные `01e`/`02e`) на каждом seed и
-пишет таблицу в `out/table.csv` и сводку в `out/table_summary.csv`. Один seed
-можно проверить так: `--seeds 7`.
-
-## Тесты
+## Тесты и линтеры
 
 ```bash
-uv run pytest tests/
+uv run ruff check       # Быстрый линтинг Python
+uv run pytest -v        # 237 автоматических тестов (алгоритмы, сервер, оценка)
 ```
 
-`tests/` контроллер не импортирует; тесты проверяют алгоритмы (локализация, маршрут, безопасность, восприятие) и SDUI сервер.
-
-## АРМ Оператора (Frontend & SDUI Server)
+## АРМ Оператора (Критерий О3 — 15 баллов)
 
 Веб-станция оператора с Server-Driven UI, 2D Canvas картой и Replay Studio.
 
-1. Запуск SDUI бэкенда:
+1. Запуск сервера АРМ (Python stdlib, раздает собранный UI из `arm/frontend/dist`):
 ```bash
-uv run python3 scripts/server.py --port 8000
+python arm/server.py --port 8000
 ```
+Открыть в браузере: `http://localhost:8000`
 
-2. Запуск фронтенда оператора:
+2. Разработка и тестирование фронтенда:
 ```bash
-cd frontend && npm install && npm run dev
-```
-
-3. Тесты и сборка фронтенда:
-```bash
-cd frontend && npm test -- --run
-cd frontend && npm run build
+cd arm/frontend
+npm install
+npm run lint    # Проверка типов TypeScript (tsc --noEmit)
+npm test        # 87 тестов Vitest
+npm run build   # Сборка SPA в arm/frontend/dist
 ```
 
 ## Состав репозитория
 
 ```
-team/
-  controller.py     # точка входа: порядок predict → scan-match → GNSS → perception → route → safety
-  geom.py           # геометрия: отрезки, raycast, AABB, полигоны
-  localize.py       # локализация: фильтр, скан-матч, ГНСС, масштаб, dock-snap, lost
-  perceive.py       # восприятие: кластеры, треки, классы, map_missing/map_extra
-  route.py          # маршрут: pure pursuit, сдвиг, A*, зоны скорости
-  safety.py         # безопасность: зазоры, коридор, estop, статусы и note
-  APPROACH.md       # 15-25 строк о локализации, маршруте, безопасности и ограничениях
-  requirements.txt  # одна строка: numpy
-  scenarios/        # свои проверки О4 (s1_pallet_2m, s2_container_block, s3_wall_removed,
-                    #   s4_shadow_start_charger, s5_fog_inattentive)
-frontend/           # АРМ Оператора: React + Vite + Tailwind + Canvas 2D + KaTeX
-scripts/
-  server.py         # SDUI API сервер для АРМ Оператора
-  eval.py           # оценка и сводка бенчмарков
-tests/              # модульные тесты: контроллер, алгоритмы, SDUI сервер
-results/            # отчёты score: baseline_*.json и team_*.json по сценариям 01-04
-amrsim-participants/  # SDK симулятора amr-sim 0.2 (вне команды, только для запуска)
-out/                # выход прогонов: --report, --log, таблицы batch (в .gitignore)
+team_dreamteam_4_0/    # Модули алгоритма контроллера (критерии Т1, Т2, Т4, Т5)
+  controller.py        # Точка входа: порядок predict → scan-match → GNSS → perception → route → safety
+  geom.py              # Геометрия: отрезки, raycast, AABB, полигоны
+  localize.py          # Локализация: фильтр, скан-матч, ГНСС, масштаб, dock-snap, lost
+  perceive.py          # Восприятие: кластеры, треки, классы, map_missing/map_extra
+  route.py             # Маршрут: pure pursuit, сдвиг, A*, зоны скорости
+  safety.py            # Безопасность: зазоры, коридор, estop, статусы и note
+  APPROACH.md          # 26 строк о локализации, маршруте, безопасности и ограничениях
+  requirements.txt     # Одна строка: numpy
+  scenarios/           # Свои проверки О4 (s1..s5)
+arm/                   # Рабочее место оператора (критерий О3)
+  server.py            # Zero-dependency HTTP/API сервер
+  requirements.txt     # Зависимости АРМ
+  README.md            # Инструкция запуска АРМ
+  frontend/            # React + Vite + Tailwind + Canvas 2D + KaTeX
+scenarios/             # Открытые (01..04) и кастомные сценарии (s1..s5, критерий О4)
+tests/                 # 237 модульных тестов: алгоритмы, сервер, метрики (критерий Т5)
+results/               # Отчёты score: baseline_*.json и team_*.json по сценариям 01-04
+APPROACH.md            # Корневой файл обоснования подхода (критерии Т3, О1)
+presentation.pdf       # Презентация к защите до 12 слайдов (критерий О5)
+.github/workflows/ci.yml # Автоматический CI (тесты, линтеры, сборка, симуляция)
 ```
-
-Свои сценарии из `team/scenarios/` запускаются тем же `amrsim run` с
-`--controller team/controller.py`; контроллер их не читает и по именам файлов не
-ветвится. Отчёты и таблицы складываются в `results/` и `out/`.

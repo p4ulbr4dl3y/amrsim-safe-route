@@ -876,11 +876,17 @@ class TestLocalizeCoverage(unittest.TestCase):
         loc.x = 4.5
         loc.y = 2.0
         loc.is_lost = True
+        loc._unconfirmed_dist = 150.0
         ok = loc.try_recover(ranges, angles, segs, stopped=True)
         self.assertTrue(ok)
         self.assertFalse(loc.is_lost)
+        self.assertEqual(loc._unconfirmed_dist, 0.0)
         self.assertAlmostEqual(loc.x, 4.0)
         self.assertAlmostEqual(loc.y, 2.5)
+
+        # Subsequent predict must not immediately relapse into is_lost
+        loc.predict(v=0.1, w=0.0, dt=0.1, yaw_rate=0.0)
+        self.assertFalse(loc.is_lost)
 
     def test_import_fallback(self):
         import sys
