@@ -20,9 +20,9 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIST = (ROOT_DIR / "arm" / "frontend" / "dist") if (ROOT_DIR / "arm" / "frontend" / "dist").exists() else (ROOT_DIR / "frontend" / "dist")
+FRONTEND_DIST = ROOT_DIR / "arm" / "frontend" / "dist"
 SCENARIOS_DIR = ROOT_DIR / "amrsim-participants" / "scenarios"
-TEAM_SCENARIOS_DIR = (ROOT_DIR / "team_dreamteam_4_0" / "scenarios") if (ROOT_DIR / "team_dreamteam_4_0" / "scenarios").exists() else (ROOT_DIR / "team" / "scenarios")
+TEAM_SCENARIOS_DIR = ROOT_DIR / "team_dreamteam_4_0" / "scenarios"
 BACKEND_SCENARIOS_DIR = ROOT_DIR / "scenarios"
 OUT_DIR = ROOT_DIR / "out"
 RESULTS_DIR = ROOT_DIR / "results"
@@ -241,7 +241,7 @@ def load_scenario_json(scenario_id: str) -> dict | None:
 
 def run_simulation(
     scenario_id: str,
-    controller_path: str = "backend/controller.py",
+    controller_path: str = "team_dreamteam_4_0/controller.py",
     seed: int = 7,
     cheat: bool = False,
 ) -> dict:
@@ -254,7 +254,9 @@ def run_simulation(
     log_path = OUT_DIR / f"{norm_id}.jsonl"
 
     if controller_path.startswith("team/"):
-        controller_path = "backend/" + controller_path[len("team/"):]
+        controller_path = "team_dreamteam_4_0/" + controller_path[len("team/"):]
+    elif controller_path.startswith("backend/"):
+        controller_path = "team_dreamteam_4_0/" + controller_path[len("backend/"):]
 
     env = os.environ.copy()
     amrsim_part_dir = str((ROOT_DIR / "amrsim-participants").resolve())

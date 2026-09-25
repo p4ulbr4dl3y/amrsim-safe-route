@@ -12,7 +12,7 @@ from urllib.request import urlopen, Request
 import pytest
 
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "arm"))
 
 import server
 from server import (

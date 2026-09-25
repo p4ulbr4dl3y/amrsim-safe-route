@@ -4,8 +4,8 @@ import unittest
 
 import numpy as np
 
-from team.geom import box_segs, raycast
-from team.perceive import (
+from team_dreamteam_4_0.geom import box_segs, raycast
+from team_dreamteam_4_0.perceive import (
     PEDESTRIAN_CONTOUR_MAX_M,
     Perception,
     Track,
@@ -14,7 +14,7 @@ from team.perceive import (
     is_wall_continuation,
     seen_has_pair,
 )
-from team.safety import SafetyGovernor
+from team_dreamteam_4_0.safety import SafetyGovernor
 
 
 class TestPerception(unittest.TestCase):
@@ -747,7 +747,7 @@ class TestPerceiveCoverage(unittest.TestCase):
     """Targeted coverage for edge cases and branches in perceive.py."""
 
     def test_track_helpers(self):
-        from team.perceive import track_forward_lateral, track_world_shift
+        from team_dreamteam_4_0.perceive import track_forward_lateral, track_world_shift
         tr = Track(1, 0.0, 0.0, None)
         self.assertEqual(track_forward_lateral(tr), (math.inf, math.inf))
         tr.pts = np.empty((0, 2))

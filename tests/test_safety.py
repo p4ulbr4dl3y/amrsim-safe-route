@@ -4,8 +4,8 @@ import unittest
 
 import numpy as np
 
-from team.perceive import Track
-from team.safety import (
+from team_dreamteam_4_0.perceive import Track
+from team_dreamteam_4_0.safety import (
     R_PEDESTRIAN,
     R_PLATFORM,
     SLOW_PERSON_GAP,

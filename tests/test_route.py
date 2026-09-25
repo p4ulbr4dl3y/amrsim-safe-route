@@ -11,8 +11,8 @@ import unittest
 
 import numpy as np
 
-from team.geom import inside_polygon
-from team.route import Planner, RouteFollower
+from team_dreamteam_4_0.geom import inside_polygon
+from team_dreamteam_4_0.route import Planner, RouteFollower
 
 
 def load_test_map():
@@ -388,7 +388,7 @@ class TestRouteFollower(unittest.TestCase):
 
 class TestRouteCoverage(unittest.TestCase):
     def test_priority_queue_empty_pop(self):
-        from team.route import _PriorityQueue
+        from team_dreamteam_4_0.route import _PriorityQueue
         pq = _PriorityQueue()
         with self.assertRaises(IndexError):
             pq.get()

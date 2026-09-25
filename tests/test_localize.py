@@ -4,8 +4,8 @@ import unittest
 
 import numpy as np
 
-from team.geom import box_segs, raycast
-from team.localize import Localizer
+from team_dreamteam_4_0.geom import box_segs, raycast
+from team_dreamteam_4_0.localize import Localizer
 
 
 ANGLES = np.radians(np.arange(360))

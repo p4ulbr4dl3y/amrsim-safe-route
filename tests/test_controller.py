@@ -26,8 +26,8 @@ import unittest
 
 import numpy as np
 
-from team.controller import Controller
-from team.geom import raycast
+from team_dreamteam_4_0.controller import Controller
+from team_dreamteam_4_0.geom import raycast
 
 
 # A 120 m straight corridor: south wall at y = 0, north wall at y = 4.  The
