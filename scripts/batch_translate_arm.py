@@ -10,7 +10,6 @@ Adheres strictly to text-stylist guidelines:
 from __future__ import annotations
 
 import ast
-import re
 from pathlib import Path
 
 # Python server.py block replacements

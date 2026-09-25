@@ -34,6 +34,7 @@ wheels/
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+.uv-cache/
 
 # IDE & Agent scratch
 .idea/

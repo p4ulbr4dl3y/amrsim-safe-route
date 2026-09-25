@@ -38,7 +38,6 @@ def apply_translations(mapping_file: Path) -> None:
             s_line = block["start_line"]
             s_col = block["start_col"]
             e_line = block["end_line"]
-            e_col = block["end_col"]
             ru_lines = block.get("ru", [])
 
             if not ru_lines:
