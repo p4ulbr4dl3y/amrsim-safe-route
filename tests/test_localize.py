@@ -885,7 +885,7 @@ class TestLocalizeCoverage(unittest.TestCase):
         self.assertAlmostEqual(loc.y, 2.5)
 
         # Subsequent predict must not immediately relapse into is_lost
-        loc.predict(v=0.1, w=0.0, dt=0.1, yaw_rate=0.0)
+        loc.predict(0.01, 0.0, 0.0, 0.0, 0.0, 0.1)
         self.assertFalse(loc.is_lost)
 
     def test_import_fallback(self):
