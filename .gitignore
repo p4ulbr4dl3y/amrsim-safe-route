@@ -40,3 +40,15 @@ htmlcov/
 .vscode/
 *.swp
 *.swo
+
+# Project design and temporary assets
+page design/
+"page design"/
+
+# Frontend dependencies & build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.local
+frontend/.env
+frontend/.env.*
