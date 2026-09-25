@@ -1,0 +1,108 @@
+{
+ "schema": "amr-1.0",
+ "amrsim": "0.2.0",
+ "package_hash": "b28d6bad9e24a456",
+ "scenario": "04_busy_yard",
+ "scenario_sha": "bea1debd82a87b2b",
+ "hidden": false,
+ "seed": 21,
+ "salted": false,
+ "cheat": false,
+ "controller": {
+  "path": "/tmp/batch_teams_final/team/controller.py",
+  "sha256": "92e0d997a6b4024f"
+ },
+ "counted": true,
+ "end_reason": "missions_done",
+ "error": null,
+ "ticks": 3412,
+ "missions": [
+  {
+   "type": "mission",
+   "id": "m1",
+   "from": "warehouse",
+   "to": "shop_a",
+   "t_start": 0.0,
+   "t_end": 160.3,
+   "t_arrival": 159.4,
+   "max_hold_dist": 0.0864,
+   "deadline_s": 200.7,
+   "reference_length_m": 174.317,
+   "delivered": true,
+   "reason": "delivered"
+  },
+  {
+   "type": "mission",
+   "id": "m2",
+   "from": "shop_a",
+   "to": "warehouse",
+   "t_start": 160.4,
+   "t_end": 341.1,
+   "t_arrival": 340.2,
+   "max_hold_dist": 0.0735,
+   "deadline_s": 200.6,
+   "reference_length_m": 174.271,
+   "delivered": true,
+   "reason": "delivered"
+  }
+ ],
+ "score": {
+  "total": 98.77,
+  "raw_sum": 98.769,
+  "fatal": false,
+  "fatal_t": null,
+  "counted": true,
+  "deliveries": 2,
+  "not_counted_blocks": [],
+  "blocks": {
+   "delivery": 40.0,
+   "efficiency": 13.769,
+   "safety": 25.0,
+   "rules": 10.0,
+   "pose": 10.0,
+   "collisions": 0.0
+  },
+  "max": {
+   "delivery": 40.0,
+   "efficiency": 15.0,
+   "safety": 25.0,
+   "rules": 10.0,
+   "pose": 10.0,
+   "collisions": 0.0
+  },
+  "missions": [
+   {
+    "id": "m1",
+    "delivered": true,
+    "t_start": 0.0,
+    "t_arrival": 159.4,
+    "time_s": 159.4,
+    "ratio": 1.0168,
+    "efficiency": 0.9831582691303775,
+    "reason": "delivered"
+   },
+   {
+    "id": "m2",
+    "delivered": true,
+    "t_start": 160.4,
+    "t_arrival": 340.2,
+    "time_s": 179.8,
+    "ratio": 1.1473,
+    "efficiency": 0.8527201886716667,
+    "reason": "delivered"
+   }
+  ],
+  "episodes": [],
+  "top_episodes": []
+ },
+ "step_time_ms": {
+  "n": 3412,
+  "mean": 1.379,
+  "max": 24.91
+ },
+ "wall_time_s": 6.084,
+ "wall_limit_s": 600.0,
+ "sandbox_violations": [],
+ "controller_stderr_tail": "",
+ "log": "results/table_runs/logs/team__04_busy_yard__s21.jsonl"
+}

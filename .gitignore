@@ -44,4 +44,8 @@ htmlcov/
 
 # Reports and outputs
 out/
-results/
+# results/ намеренно НЕ игнорируется: отчёты по 01-04 (seed-пакет), свои
+# сценарии и таблица batch входят в сдачу (plan/05:15).
+
+# тиковые логи batch (31 МБ, воспроизводятся командой из README) в git не кладём
+results/table_runs/logs/

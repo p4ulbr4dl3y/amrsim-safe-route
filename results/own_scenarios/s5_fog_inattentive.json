@@ -1,0 +1,108 @@
+{
+ "schema": "amr-1.0",
+ "amrsim": "0.2.0",
+ "package_hash": "b28d6bad9e24a456",
+ "scenario": "s5_fog_inattentive",
+ "scenario_sha": "db1e7885a3dbdebd",
+ "hidden": false,
+ "seed": 7,
+ "salted": false,
+ "cheat": false,
+ "controller": {
+  "path": "team/controller.py",
+  "sha256": "92e0d997a6b4024f"
+ },
+ "counted": true,
+ "end_reason": "missions_done",
+ "error": null,
+ "ticks": 3308,
+ "missions": [
+  {
+   "type": "mission",
+   "id": "m1",
+   "from": "warehouse",
+   "to": "shop_a",
+   "t_start": 0.0,
+   "t_end": 170.6,
+   "t_arrival": 169.7,
+   "max_hold_dist": 0.0775,
+   "deadline_s": 200.7,
+   "reference_length_m": 174.317,
+   "delivered": true,
+   "reason": "delivered"
+  },
+  {
+   "type": "mission",
+   "id": "m2",
+   "from": "shop_a",
+   "to": "warehouse",
+   "t_start": 170.7,
+   "t_end": 330.7,
+   "t_arrival": 329.8,
+   "max_hold_dist": 0.0874,
+   "deadline_s": 200.6,
+   "reference_length_m": 174.271,
+   "delivered": true,
+   "reason": "delivered"
+  }
+ ],
+ "score": {
+  "total": 99.27,
+  "raw_sum": 99.267,
+  "fatal": false,
+  "fatal_t": null,
+  "counted": true,
+  "deliveries": 2,
+  "not_counted_blocks": [],
+  "blocks": {
+   "delivery": 40.0,
+   "efficiency": 14.267,
+   "safety": 25.0,
+   "rules": 10.0,
+   "pose": 10.0,
+   "collisions": 0.0
+  },
+  "max": {
+   "delivery": 40.0,
+   "efficiency": 15.0,
+   "safety": 25.0,
+   "rules": 10.0,
+   "pose": 10.0,
+   "collisions": 0.0
+  },
+  "missions": [
+   {
+    "id": "m1",
+    "delivered": true,
+    "t_start": 0.0,
+    "t_arrival": 169.7,
+    "time_s": 169.7,
+    "ratio": 1.0825,
+    "efficiency": 0.9174526867718009,
+    "reason": "delivered"
+   },
+   {
+    "id": "m2",
+    "delivered": true,
+    "t_start": 170.7,
+    "t_arrival": 329.8,
+    "time_s": 159.1,
+    "ratio": 1.0152,
+    "efficiency": 0.9848041269057959,
+    "reason": "delivered"
+   }
+  ],
+  "episodes": [],
+  "top_episodes": []
+ },
+ "step_time_ms": {
+  "n": 3308,
+  "mean": 1.018,
+  "max": 22.809
+ },
+ "wall_time_s": 4.437,
+ "wall_limit_s": 600.0,
+ "sandbox_violations": [],
+ "controller_stderr_tail": "",
+ "log": null
+}

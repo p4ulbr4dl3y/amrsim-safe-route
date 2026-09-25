@@ -1,0 +1,84 @@
+{
+ "schema": "amr-1.0",
+ "amrsim": "0.2.0",
+ "package_hash": "b28d6bad9e24a456",
+ "scenario": "02_gnss_shadow",
+ "scenario_sha": "884e55246967a552",
+ "hidden": false,
+ "seed": 21,
+ "salted": false,
+ "cheat": false,
+ "controller": {
+  "path": "/tmp/batch_teams_final/team/controller.py",
+  "sha256": "92e0d997a6b4024f"
+ },
+ "counted": true,
+ "end_reason": "missions_done",
+ "error": null,
+ "ticks": 1818,
+ "missions": [
+  {
+   "type": "mission",
+   "id": "m1",
+   "from": "warehouse",
+   "to": "shop_b",
+   "t_start": 0.0,
+   "t_end": 181.7,
+   "t_arrival": 180.8,
+   "max_hold_dist": 0.0891,
+   "deadline_s": 252.0,
+   "reference_length_m": 218.918,
+   "delivered": true,
+   "reason": "delivered"
+  }
+ ],
+ "score": {
+  "total": 100.0,
+  "raw_sum": 100.0,
+  "fatal": false,
+  "fatal_t": null,
+  "counted": true,
+  "deliveries": 1,
+  "not_counted_blocks": [],
+  "blocks": {
+   "delivery": 40.0,
+   "efficiency": 15.0,
+   "safety": 25.0,
+   "rules": 10.0,
+   "pose": 10.0,
+   "collisions": 0.0
+  },
+  "max": {
+   "delivery": 40.0,
+   "efficiency": 15.0,
+   "safety": 25.0,
+   "rules": 10.0,
+   "pose": 10.0,
+   "collisions": 0.0
+  },
+  "missions": [
+   {
+    "id": "m1",
+    "delivered": true,
+    "t_start": 0.0,
+    "t_arrival": 180.8,
+    "time_s": 180.8,
+    "ratio": 0.9184,
+    "efficiency": 1.0,
+    "reason": "delivered"
+   }
+  ],
+  "episodes": [],
+  "top_episodes": []
+ },
+ "step_time_ms": {
+  "n": 1818,
+  "mean": 1.307,
+  "max": 25.057
+ },
+ "wall_time_s": 3.206,
+ "wall_limit_s": 600.0,
+ "sandbox_violations": [],
+ "controller_stderr_tail": "",
+ "log": "results/table_runs/logs/team__02_gnss_shadow__s21.jsonl"
+}
