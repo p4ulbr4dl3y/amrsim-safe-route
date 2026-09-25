@@ -3,6 +3,7 @@
 Strictly conforms to AMR-1.0 schema, isolation rules, and scoring thresholds.
 Only standard library and numpy are used.
 """
+
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,7 +25,7 @@ except ImportError:
 
 class Controller:
     """Integrated AMR platform controller.
-    
+
     Order of execution in step(obs):
     1. Odometry & IMU dead reckoning predict.
     2. Wall scan-matching, GNSS innovation gate, dock snap.
@@ -131,8 +132,7 @@ class Controller:
         rx = cos_o * dx_o + sin_o * dy_o
         ry = -sin_o * dx_o + cos_o * dy_o
         # Robot frame -> world frame
-        return (pose[0] + cos_w * rx - sin_w * ry,
-                pose[1] + sin_w * rx + cos_w * ry)
+        return (pose[0] + cos_w * rx - sin_w * ry, pose[1] + sin_w * rx + cos_w * ry)
 
     def _active_tracks(self) -> List[Any]:
         """Return confirmed tracks only for safety and the obstacle layer.
@@ -154,16 +154,14 @@ class Controller:
         imu_heading = float(imu["heading"])
         imu_yaw_rate = float(imu["yaw_rate"])
 
-        self.localizer.predict(
-            dx_odom, dy_odom, dth_odom,
-            imu_heading, imu_yaw_rate,
-            self.dt
-        )
+        self.localizer.predict(dx_odom, dy_odom, dth_odom, imu_heading, imu_yaw_rate, self.dt)
 
         # 2. Lidar scan matching against mapped walls
         ranges = np.asarray(obs["lidar"]["ranges"], dtype=float)
         rel_angles = self.rel_angles
-        exp_ranges = raycast(self.localizer.x, self.localizer.y, self.localizer.th + rel_angles, self.building_segs)
+        exp_ranges = raycast(
+            self.localizer.x, self.localizer.y, self.localizer.th + rel_angles, self.building_segs
+        )
         is_fog = self.localizer.detect_fog(ranges, expected_ranges=exp_ranges)
 
         # Active building segments (can exclude demolished walls detected by perception)
@@ -325,9 +323,14 @@ class Controller:
         if mission is not None and len(self.route.active_path) >= 2:
             terminal_pt = self.route.active_path[-1]
             dist_to_dock = math.hypot(pose[0] - terminal_pt[0], pose[1] - terminal_pt[1])
-            is_route_arrived = bool(route_cmd.get("arrived", False) or route_cmd.get("status") == "arrived")
-            if ((dist_to_dock <= 0.10 or is_route_arrived)
-                    and abs(v_odom) < 0.04 and self.visited_from):
+            is_route_arrived = bool(
+                route_cmd.get("arrived", False) or route_cmd.get("status") == "arrived"
+            )
+            if (
+                (dist_to_dock <= 0.10 or is_route_arrived)
+                and abs(v_odom) < 0.04
+                and self.visited_from
+            ):
                 self.arrived = True
                 return {
                     "v": 0.0,

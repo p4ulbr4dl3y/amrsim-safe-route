@@ -1,4 +1,5 @@
 """Unit tests for team.perceive module."""
+
 import math
 import unittest
 
@@ -21,10 +22,12 @@ class TestPerception(unittest.TestCase):
     def setUp(self):
         self.perc = Perception(dt=0.1)
         # Create standard rectangular building wall: y=50.0, x in [0, 100]
-        self.map_segs = np.array([
-            [0.0, 50.0, 100.0, 50.0],
-            [100.0, 50.0, 100.0, 0.0],
-        ])
+        self.map_segs = np.array(
+            [
+                [0.0, 50.0, 100.0, 50.0],
+                [100.0, 50.0, 100.0, 0.0],
+            ]
+        )
 
     def test_geometry_fitting_and_wall_detection(self):
         # 1. Straight wall segment: 2.0m long, 0.02m thick
@@ -170,7 +173,7 @@ class TestPerception(unittest.TestCase):
         for idx in [359, 0, 1]:
             ranges1[idx] = 3.0
 
-        tracks1 = self.perc.step(
+        self.perc.step(
             ranges=ranges1,
             rel_angles=rel_angles,
             pose=pose1,
@@ -188,7 +191,7 @@ class TestPerception(unittest.TestCase):
         for idx in [359, 0, 1]:
             ranges2[idx] = 2.0
 
-        tracks2 = self.perc.step(
+        self.perc.step(
             ranges=ranges2,
             rel_angles=rel_angles,
             pose=pose2,
@@ -251,9 +254,15 @@ class TestPerception(unittest.TestCase):
         for d in range(-2, 3):
             ranges[d % 360] = dist
         tracks = self.perc.step(
-            ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom,
-            map_segs=self.map_segs, sigma_pose=0.05, is_fog=False,
-            v_odom=v_odom, scan_inliers=50,
+            ranges=ranges,
+            rel_angles=rel_angles,
+            pose=pose,
+            odom_pose=odom,
+            map_segs=self.map_segs,
+            sigma_pose=0.05,
+            is_fog=False,
+            v_odom=v_odom,
+            scan_inliers=50,
         )
         return tracks
 
@@ -264,8 +273,8 @@ class TestPerception(unittest.TestCase):
         # and never reaches |v_odom| < 0.02.
         classified_at = None
         for k in range(30):
-            robot_x = 10.0 + 0.022 * k      # 0.22 m/s: the platform never stops
-            object_x = 13.0                  # static in the world
+            robot_x = 10.0 + 0.022 * k  # 0.22 m/s: the platform never stops
+            object_x = 13.0  # static in the world
             tracks = self._tick_with_object(robot_x, object_x, v_odom=0.22)
             if classified_at is None and any(t.is_static_object for t in tracks):
                 classified_at = k
@@ -297,9 +306,15 @@ class TestPerception(unittest.TestCase):
             for d in range(-2, 3):
                 ranges[(bearing + d) % 360] = dist
             tracks = self.perc.step(
-                ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom,
-                map_segs=self.map_segs, sigma_pose=0.05, is_fog=False,
-                v_odom=0.22, scan_inliers=50,
+                ranges=ranges,
+                rel_angles=rel_angles,
+                pose=pose,
+                odom_pose=odom,
+                map_segs=self.map_segs,
+                sigma_pose=0.05,
+                is_fog=False,
+                v_odom=0.22,
+                scan_inliers=50,
             )
             if classified_at is None and any(t.is_static_object for t in tracks):
                 classified_at = k
@@ -325,8 +340,12 @@ class TestPerception(unittest.TestCase):
         rel_angles = np.radians(np.arange(360))
         ranges = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
         self.perc.step(
-            ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom,
-            map_segs=self.map_segs, v_odom=0.0,
+            ranges=ranges,
+            rel_angles=rel_angles,
+            pose=pose,
+            odom_pose=odom,
+            map_segs=self.map_segs,
+            v_odom=0.0,
         )
         self.assertTrue(tr.is_pedestrian)
         self.assertFalse(tr.is_wall)
@@ -344,9 +363,15 @@ class TestPerception(unittest.TestCase):
         for d in range(-2, 3):
             ranges[d % 360] = 0.5
         self.perc.step(
-            ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom_pose,
-            map_segs=self.map_segs, sigma_pose=0.05, is_fog=False,
-            v_odom=0.0, scan_inliers=50,
+            ranges=ranges,
+            rel_angles=rel_angles,
+            pose=pose,
+            odom_pose=odom_pose,
+            map_segs=self.map_segs,
+            sigma_pose=0.05,
+            is_fog=False,
+            v_odom=0.0,
+            scan_inliers=50,
         )
         self.assertTrue(self.perc.tracks)
         self.assertTrue(all(tr.inside_platform_body() for tr in self.perc.tracks))
@@ -356,9 +381,15 @@ class TestPerception(unittest.TestCase):
         # Even after several more sightings the in-hull phantom must not confirm.
         for _ in range(4):
             self.perc.step(
-                ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom_pose,
-                map_segs=self.map_segs, sigma_pose=0.05, is_fog=False,
-                v_odom=0.0, scan_inliers=50,
+                ranges=ranges,
+                rel_angles=rel_angles,
+                pose=pose,
+                odom_pose=odom_pose,
+                map_segs=self.map_segs,
+                sigma_pose=0.05,
+                is_fog=False,
+                v_odom=0.0,
+                scan_inliers=50,
             )
         self.assertEqual(self.perc.active_tracks, [])
 
@@ -382,9 +413,16 @@ class TestPerception(unittest.TestCase):
         rel_angles = np.radians(np.arange(360))
         ranges = np.full(360, 20.0)
         v_safe, _, _, note = gov.evaluate(
-            v_cand=1.39, w_cand=0.0, v_odom=0.0, w_odom=0.0,
-            pose=(0.0, 0.0, 0.0), odom_pose=(0.0, 0.0, 0.0),
-            tracks=self.perc.active_tracks, ranges=ranges, rel_angles=rel_angles, zones=[],
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.0,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=self.perc.active_tracks,
+            ranges=ranges,
+            rel_angles=rel_angles,
+            zones=[],
         )
         self.assertAlmostEqual(v_safe, 1.39)
         self.assertNotIn("stop_person", note)
@@ -403,9 +441,15 @@ class TestPerception(unittest.TestCase):
             for d in range(-2, 3):
                 ranges[d % 360] = 1.8
             self.perc.step(
-                ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom,
-                map_segs=self.map_segs, sigma_pose=0.05, is_fog=False,
-                v_odom=0.0, scan_inliers=50,
+                ranges=ranges,
+                rel_angles=rel_angles,
+                pose=pose,
+                odom_pose=odom,
+                map_segs=self.map_segs,
+                sigma_pose=0.05,
+                is_fog=False,
+                v_odom=0.0,
+                scan_inliers=50,
             )
         tr = self.perc.tracks[0]
         self.assertTrue(tr.confirmed)
@@ -413,9 +457,15 @@ class TestPerception(unittest.TestCase):
         # Fog dropout: clear scan, the person is gone from the lidar.
         ranges_clear = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
         active = self.perc.step(
-            ranges=ranges_clear, rel_angles=rel_angles, pose=pose, odom_pose=odom,
-            map_segs=self.map_segs, sigma_pose=0.05, is_fog=True,
-            v_odom=0.0, scan_inliers=0,
+            ranges=ranges_clear,
+            rel_angles=rel_angles,
+            pose=pose,
+            odom_pose=odom,
+            map_segs=self.map_segs,
+            sigma_pose=0.05,
+            is_fog=True,
+            v_odom=0.0,
+            scan_inliers=0,
         )
         self.assertIn(tr, active)
         self.assertTrue(tr.confirmed)
@@ -426,9 +476,16 @@ class TestPerception(unittest.TestCase):
         # The coasting, still-confirmed person keeps braking the platform.
         gov = SafetyGovernor(v_top=1.39, dt=0.1)
         v_safe, _, _, note = gov.evaluate(
-            v_cand=1.39, w_cand=0.0, v_odom=0.0, w_odom=0.0,
-            pose=pose, odom_pose=odom, tracks=self.perc.active_tracks,
-            ranges=ranges_clear, rel_angles=rel_angles, zones=[],
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.0,
+            w_odom=0.0,
+            pose=pose,
+            odom_pose=odom,
+            tracks=self.perc.active_tracks,
+            ranges=ranges_clear,
+            rel_angles=rel_angles,
+            zones=[],
         )
         self.assertEqual(v_safe, 0.0)
         self.assertIn("stop_person", note)
@@ -472,8 +529,14 @@ class TestPerception(unittest.TestCase):
         tr.hist = [(0.0, 2.0)] * 15
         tr.seen = [1, 1]
         self.perc.tracks = [tr]
-        self.perc.step(ranges=ranges, rel_angles=rel_angles, pose=pose,
-                       odom_pose=odom, map_segs=self.map_segs, v_odom=0.0)
+        self.perc.step(
+            ranges=ranges,
+            rel_angles=rel_angles,
+            pose=pose,
+            odom_pose=odom,
+            map_segs=self.map_segs,
+            v_odom=0.0,
+        )
 
         self.assertTrue(tr.is_wall)
         self.assertFalse(tr.is_static_object)
@@ -487,8 +550,14 @@ class TestPerception(unittest.TestCase):
         odom = (0.0, 0.0, 0.0)
         rel_angles = np.radians(np.arange(360))
         ranges = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
-        self.perc.step(ranges=ranges, rel_angles=rel_angles, pose=pose,
-                       odom_pose=odom, map_segs=self.map_segs, v_odom=0.0)
+        self.perc.step(
+            ranges=ranges,
+            rel_angles=rel_angles,
+            pose=pose,
+            odom_pose=odom,
+            map_segs=self.map_segs,
+            v_odom=0.0,
+        )
 
     def test_large_cluster_does_not_latch_pedestrian_on_shift(self):
         # Task T.1 / plan/03:26-28: a large (non-pedestrian-contour) cluster whose
@@ -613,7 +682,10 @@ class TestPerception(unittest.TestCase):
         rel_angles = np.radians(np.arange(360))
         ranges = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
         self.perc.step(
-            ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom,
+            ranges=ranges,
+            rel_angles=rel_angles,
+            pose=pose,
+            odom_pose=odom,
             map_segs=self.map_segs,
         )
 
@@ -646,15 +718,21 @@ class TestPerception(unittest.TestCase):
         tr.dyn = False
         tr.length = 2.0
         self.perc.tracks = [tr]
-        self.perc.step(ranges=ranges, rel_angles=rel_angles, pose=pose,
-                       odom_pose=odom, map_segs=self.map_segs)
+        self.perc.step(
+            ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom, map_segs=self.map_segs
+        )
         self.assertEqual(self.perc.note, "map_extra")
 
         # Cause disappears -> note decays instead of sticking forever
         self.perc.tracks = []
         for _ in range(25):
-            self.perc.step(ranges=ranges, rel_angles=rel_angles, pose=pose,
-                           odom_pose=odom, map_segs=self.map_segs)
+            self.perc.step(
+                ranges=ranges,
+                rel_angles=rel_angles,
+                pose=pose,
+                odom_pose=odom,
+                map_segs=self.map_segs,
+            )
         self.assertEqual(self.perc.note, "")
 
     # ------------------------------------------------------------------ plan/05:115
@@ -675,9 +753,15 @@ class TestPerception(unittest.TestCase):
         ranges[0] = 1.0  # one lone short return
 
         tracks = self.perc.step(
-            ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom_pose,
-            map_segs=self.map_segs, sigma_pose=0.05, is_fog=False,
-            v_odom=0.0, scan_inliers=50,
+            ranges=ranges,
+            rel_angles=rel_angles,
+            pose=pose,
+            odom_pose=odom_pose,
+            map_segs=self.map_segs,
+            sigma_pose=0.05,
+            is_fog=False,
+            v_odom=0.0,
+            scan_inliers=50,
         )
         self.assertEqual(tracks, [])
         self.assertEqual(self.perc.tracks, [])
@@ -685,9 +769,16 @@ class TestPerception(unittest.TestCase):
 
         gov = SafetyGovernor(v_top=1.39, dt=0.1)
         v_safe, _, status, note = gov.evaluate(
-            v_cand=1.0, w_cand=0.0, v_odom=1.0, w_odom=0.0,
-            pose=pose, odom_pose=odom_pose, tracks=self.perc.active_tracks,
-            ranges=ranges, rel_angles=rel_angles, zones=[],
+            v_cand=1.0,
+            w_cand=0.0,
+            v_odom=1.0,
+            w_odom=0.0,
+            pose=pose,
+            odom_pose=odom_pose,
+            tracks=self.perc.active_tracks,
+            ranges=ranges,
+            rel_angles=rel_angles,
+            zones=[],
         )
         self.assertEqual(v_safe, 1.0)
         self.assertEqual(status, "moving")
@@ -715,9 +806,15 @@ class TestPerception(unittest.TestCase):
         note_at_removal = None
         for k in range(40):
             self.perc.step(
-                ranges=ranges, rel_angles=rel_angles, pose=(0.0, 0.0, 0.0),
-                odom_pose=(0.0, 0.0, 0.0), map_segs=segs, sigma_pose=0.0,
-                is_fog=False, v_odom=0.0, scan_inliers=50,
+                ranges=ranges,
+                rel_angles=rel_angles,
+                pose=(0.0, 0.0, 0.0),
+                odom_pose=(0.0, 0.0, 0.0),
+                map_segs=segs,
+                sigma_pose=0.0,
+                is_fog=False,
+                v_odom=0.0,
+                scan_inliers=50,
             )
             if self.perc.removed_segment_ids:
                 removed_tick = k
@@ -737,9 +834,15 @@ class TestPerception(unittest.TestCase):
 
         # One more step with the removed segment hits line 677 (continue if s_idx in removed_segment_ids)
         self.perc.step(
-            ranges=ranges, rel_angles=rel_angles, pose=(0.0, 0.0, 0.0),
-            odom_pose=(0.0, 0.0, 0.0), map_segs=segs, sigma_pose=0.0,
-            is_fog=False, v_odom=0.0, scan_inliers=50,
+            ranges=ranges,
+            rel_angles=rel_angles,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            map_segs=segs,
+            sigma_pose=0.0,
+            is_fog=False,
+            v_odom=0.0,
+            scan_inliers=50,
         )
 
 
@@ -748,6 +851,7 @@ class TestPerceiveCoverage(unittest.TestCase):
 
     def test_track_helpers(self):
         from team_dreamteam_4_0.perceive import track_forward_lateral, track_world_shift
+
         tr = Track(1, 0.0, 0.0, None)
         self.assertEqual(track_forward_lateral(tr), (math.inf, math.inf))
         tr.pts = np.empty((0, 2))
@@ -764,18 +868,20 @@ class TestPerceiveCoverage(unittest.TestCase):
         self.assertEqual(fit_cluster_geometry(np.empty((0, 2))), (0.0, 0.0))
         self.assertEqual(fit_cluster_geometry(np.array([[1.0, 2.0]])), (0.0, 0.0))
         # len == 2
-        l, th = fit_cluster_geometry(np.array([[0.0, 0.0], [3.0, 4.0]]))
-        self.assertAlmostEqual(l, 5.0)
+        length, th = fit_cluster_geometry(np.array([[0.0, 0.0], [3.0, 4.0]]))
+        self.assertAlmostEqual(length, 5.0)
         self.assertEqual(th, 0.0)
         # SVD exception handling
         pts = np.array([[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]])
         orig_svd = np.linalg.svd
         try:
+
             def bad_svd(*args, **kwargs):
                 raise np.linalg.LinAlgError("mock failure")
+
             np.linalg.svd = bad_svd
-            l, th = fit_cluster_geometry(pts)
-            self.assertGreater(l, 0.0)
+            length, th = fit_cluster_geometry(pts)
+            self.assertGreater(length, 0.0)
             self.assertEqual(th, 0.0)
         finally:
             np.linalg.svd = orig_svd
@@ -784,7 +890,9 @@ class TestPerceiveCoverage(unittest.TestCase):
         self.assertFalse(is_wall_cluster(np.array([[0.0, 0.0], [1.0, 1.0]])))
         # is_wall_continuation empty or short clouds
         self.assertFalse(is_wall_continuation(np.empty((0, 2)), []))
-        self.assertFalse(is_wall_continuation(np.array([[1.0, 1.0]]), [np.array([[0.0, 0.0]])]))  # len < 3
+        self.assertFalse(
+            is_wall_continuation(np.array([[1.0, 1.0]]), [np.array([[0.0, 0.0]])])
+        )  # len < 3
         # dists > 0.6
         wall = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
         far_pts = np.array([[10.0, 10.0], [11.0, 10.0]])
@@ -793,8 +901,10 @@ class TestPerceiveCoverage(unittest.TestCase):
         # SVD exception in is_wall_continuation
         orig_svd = np.linalg.svd
         try:
+
             def bad_svd(*args, **kwargs):
                 raise np.linalg.LinAlgError("mock failure")
+
             np.linalg.svd = bad_svd
             near_pts = np.array([[2.2, 0.0], [2.4, 0.0]])
             self.assertFalse(is_wall_continuation(near_pts, [wall]))
@@ -813,7 +923,7 @@ class TestPerceiveCoverage(unittest.TestCase):
         ranges = np.full(360, 20.0)
         ranges[358] = 2.0
         ranges[359] = 2.0
-        tracks = perc.step(ranges, rel_angles, (10, 10, 0), (0, 0, 0), map_segs, sigma_pose=0.1)
+        perc.step(ranges, rel_angles, (10, 10, 0), (0, 0, 0), map_segs, sigma_pose=0.1)
         self.assertGreaterEqual(len(perc.tracks), 1)
 
     def test_track_classification_and_inheritance(self):
@@ -827,9 +937,12 @@ class TestPerceiveCoverage(unittest.TestCase):
         # Detect a wall piece
         c_wall = {
             "pts": np.array([[10.0, 0.0], [12.0, 0.0], [14.0, 0.0]]),
-            "ox": 12.0, "oy": 0.0,
-            "length": 4.0, "thickness": 0.01,
-            "is_wall": True, "is_wall_piece": False,
+            "ox": 12.0,
+            "oy": 0.0,
+            "length": 4.0,
+            "thickness": 0.01,
+            "is_wall": True,
+            "is_wall_piece": False,
         }
 
         wall_tr = Track(1, 12.0, 0.0, c_wall["pts"])
@@ -846,7 +959,9 @@ class TestPerceiveCoverage(unittest.TestCase):
 
     def test_map_discrepancies_empty_segs(self):
         perc = Perception(dt=0.1)
-        perc._check_map_discrepancies(np.array([1.0]), np.array([1.0]), 0, 0, 0, np.empty((0, 4)), 50)
+        perc._check_map_discrepancies(
+            np.array([1.0]), np.array([1.0]), 0, 0, 0, np.empty((0, 4)), 50
+        )
         self.assertEqual(perc.note, "")
 
         # Directly hit line 677 (removed_segment_ids continue in overshoot loop)
@@ -858,13 +973,18 @@ class TestPerceiveCoverage(unittest.TestCase):
 
     def test_import_fallback(self):
         import sys
+
         mod_name = "team.perceive"
         if mod_name in sys.modules:
             orig = sys.modules[mod_name]
             try:
                 with open("/Users/yegor/doc-1790342627/team/perceive.py", "r") as f:
                     code = f.read()
-                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/perceive.py", "__package__": ""}
+                globs = {
+                    "__name__": "__main__",
+                    "__file__": "/Users/yegor/doc-1790342627/team/perceive.py",
+                    "__package__": "",
+                }
                 team_path = "/Users/yegor/doc-1790342627/team"
                 if team_path not in sys.path:
                     sys.path.insert(0, team_path)
@@ -875,10 +995,12 @@ class TestPerceiveCoverage(unittest.TestCase):
     def test_step_wall_extra_and_ped_inheritance_and_discrepancies(self):
         perc = Perception(dt=0.1)
         perc.removed_segment_ids.add(0)
-        map_segs = np.array([
-            [0.0, 50.0, 100.0, 50.0],
-            [0.0, 60.0, 100.0, 60.0],
-        ])
+        map_segs = np.array(
+            [
+                [0.0, 50.0, 100.0, 50.0],
+                [0.0, 60.0, 100.0, 60.0],
+            ]
+        )
         rel_angles = np.radians(np.arange(360))
         pose = (10.0, 40.0, 0.0)
         odom_pose = (0.0, 0.0, 0.0)
@@ -897,7 +1019,7 @@ class TestPerceiveCoverage(unittest.TestCase):
         perc.tracks.append(unconf_wall)
         perc._last_pose = (0, 0, 0)
         perc._last_odom_pose = (0, 0, 0)
-        obs = perc.get_extra_obstacles()
+        _ = perc.get_extra_obstacles()
 
     def test_new_track_inherits_pedestrian(self):
         perc = Perception(dt=0.1)

@@ -1,4 +1,5 @@
 """Unit tests for team.safety module."""
+
 import math
 import unittest
 
@@ -504,7 +505,6 @@ class TestSafety(unittest.TestCase):
         )
         self.assertEqual(w_safe, 0.0)
 
-
     # --- D2: human limits are scoped to is_human = is_pedestrian or is_unknown ---
 
     def _eval(self, tracks, v_cand=1.39, v_odom=0.3, w_cand=0.0, gov=None, ranges=None, **kw):
@@ -609,9 +609,7 @@ class TestSafety(unittest.TestCase):
         # and even though the braking-reach corridor test does not reach it yet.
         obj = self._track(1.6, 0.4, "static_object", False)  # hypot 1.649 -> gap 0.749
         self.assertLess(calculate_clearance(obj.pts, is_pedestrian=False), 0.8)
-        v_safe, w_safe, _, note = self._eval(
-            [obj], v_cand=1.39, v_odom=0.0, w_cand=0.3
-        )
+        v_safe, w_safe, _, note = self._eval([obj], v_cand=1.39, v_odom=0.0, w_cand=0.3)
         self.assertEqual(v_safe, 0.0)
         # 1.649 m from the centre is still outside the 0.9 m hull -> rotation allowed.
         self.assertEqual(w_safe, 0.3)
@@ -707,6 +705,7 @@ class TestSafety(unittest.TestCase):
         self.assertIn("lost s_lat=0.0", note)
         _, _, _, note_sig = self._eval([], v_odom=0.0, is_lost=True, sigma_cross=0.4)
         self.assertIn("lost s_lat=0.4", note_sig)
+
     # --- O: the anticipatory gap lets the normal brake beat the 3.0 m / 0.28 m/s line ---
 
     def _cluster(self, clearance, npts, label="pedestrian", dyn=True, moving=0.0):
@@ -747,7 +746,9 @@ class TestSafety(unittest.TestCase):
         # the band of a crawling platform: at 0.1 m/s the platform keeps the route's speed and
         # the new regime does not throttle it on an empty road.
         cl = self._band_mid(0.5)
-        self.assertGreater(cl, SLOW_PERSON_GAP + min(SLOW_PERSON_MARGIN_K * 0.1, SLOW_PERSON_MARGIN_MAX))
+        self.assertGreater(
+            cl, SLOW_PERSON_GAP + min(SLOW_PERSON_MARGIN_K * 0.1, SLOW_PERSON_MARGIN_MAX)
+        )
         tr, _ = self._cluster(cl, SLOW_PERSON_MIN_PTS)
         v_safe, _, _, note = self._eval([tr], v_cand=0.5, v_odom=0.1)
         self.assertAlmostEqual(v_safe, 0.5)
@@ -809,9 +810,16 @@ class TestSafety(unittest.TestCase):
         # Once the odometry really stops, the same geometry reports `waiting`, not moving.
         stopped_gov = SafetyGovernor(v_top=1.39, dt=0.1)
         v_stop, _, status_stop, _ = stopped_gov.evaluate(
-            v_cand=1.39, w_cand=0.0, v_odom=0.0, w_odom=0.0,
-            pose=(0.0, 0.0, 0.0), odom_pose=(0.0, 0.0, 0.0), tracks=[human],
-            ranges=np.full(360, 20.0), rel_angles=np.radians(np.arange(360)), zones=[],
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.0,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[human],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
         )
         self.assertEqual(v_stop, 0.0)
         self.assertEqual(status_stop, "waiting")
@@ -840,9 +848,16 @@ class TestSafetyEdgeCases(unittest.TestCase):
 
         # Line 359: loop over tracks with empty pts
         v, w, status, note = gov.evaluate(
-            v_cand=1.0, w_cand=0.0, v_odom=0.0, w_odom=0.0,
-            pose=(0, 0, 0), odom_pose=(0, 0, 0), tracks=[tr_empty],
-            ranges=np.full(360, 20.0), rel_angles=np.radians(np.arange(360)), zones=[],
+            v_cand=1.0,
+            w_cand=0.0,
+            v_odom=0.0,
+            w_odom=0.0,
+            pose=(0, 0, 0),
+            odom_pose=(0, 0, 0),
+            tracks=[tr_empty],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
         )
         self.assertEqual(v, 1.0)
 
@@ -853,9 +868,16 @@ class TestSafetyEdgeCases(unittest.TestCase):
         tr_close.class_label = "wall_extra"
         tr_close.dyn = False
         v_e, w_e, status_e, note_e = gov.evaluate(
-            v_cand=1.0, w_cand=0.0, v_odom=1.0, w_odom=0.0,
-            pose=(0, 0, 0), odom_pose=(0, 0, 0), tracks=[tr_close],
-            ranges=np.full(360, 20.0), rel_angles=np.radians(np.arange(360)), zones=[],
+            v_cand=1.0,
+            w_cand=0.0,
+            v_odom=1.0,
+            w_odom=0.0,
+            pose=(0, 0, 0),
+            odom_pose=(0, 0, 0),
+            tracks=[tr_close],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
             remaining_dist=0.2,
         )
         self.assertEqual(v_e, 0.0)
@@ -864,9 +886,16 @@ class TestSafetyEdgeCases(unittest.TestCase):
         # Lines 544-547: is_arrived=True
         gov_arr = SafetyGovernor(v_top=1.39, dt=0.1)
         v_a, w_a, status_a, note_a = gov_arr.evaluate(
-            v_cand=1.0, w_cand=0.5, v_odom=0.0, w_odom=0.0,
-            pose=(0, 0, 0), odom_pose=(0, 0, 0), tracks=[],
-            ranges=np.full(360, 20.0), rel_angles=np.radians(np.arange(360)), zones=[],
+            v_cand=1.0,
+            w_cand=0.5,
+            v_odom=0.0,
+            w_odom=0.0,
+            pose=(0, 0, 0),
+            odom_pose=(0, 0, 0),
+            tracks=[],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
             is_arrived=True,
         )
         self.assertEqual(v_a, 0.0)
@@ -876,13 +905,18 @@ class TestSafetyEdgeCases(unittest.TestCase):
 
     def test_import_fallback(self):
         import sys
+
         mod_name = "team.safety"
         if mod_name in sys.modules:
             orig = sys.modules[mod_name]
             try:
                 with open("/Users/yegor/doc-1790342627/team/safety.py", "r") as f:
                     code = f.read()
-                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/safety.py", "__package__": ""}
+                globs = {
+                    "__name__": "__main__",
+                    "__file__": "/Users/yegor/doc-1790342627/team/safety.py",
+                    "__package__": "",
+                }
                 team_path = "/Users/yegor/doc-1790342627/team"
                 if team_path not in sys.path:
                     sys.path.insert(0, team_path)

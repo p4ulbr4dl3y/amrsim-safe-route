@@ -1,4 +1,5 @@
 """Unit tests for team.localize module."""
+
 import math
 import unittest
 
@@ -6,7 +7,6 @@ import numpy as np
 
 from team_dreamteam_4_0.geom import box_segs, raycast
 from team_dreamteam_4_0.localize import Localizer
-
 
 ANGLES = np.radians(np.arange(360))
 
@@ -19,8 +19,7 @@ def corridor_segs() -> np.ndarray:
     return np.array(segs)
 
 
-def sim_fog_ranges(clear_ranges: np.ndarray, reach: float = 6.0,
-                   n_nan: int = 12) -> np.ndarray:
+def sim_fog_ranges(clear_ranges: np.ndarray, reach: float = 6.0, n_nan: int = 12) -> np.ndarray:
     """Reproduce the simulator's fog model: clamp at `reach`, drop out, then inf -> NaN."""
     r = np.array(clear_ranges, dtype=float)
     r[r > reach] = np.inf
@@ -130,11 +129,13 @@ class TestLocalizer(unittest.TestCase):
     def test_dock_snap(self):
         # Dock bay: front wall at x=225, side walls at y=92.0 and y=97.0
         # Goal at (223.5, 94.5, 0.0)
-        dock_segs = np.array([
-            [225.0, 92.0, 225.0, 97.0],  # front wall
-            [220.0, 97.0, 225.0, 97.0],  # left wall (y=97)
-            [220.0, 92.0, 225.0, 92.0],  # right wall (y=92)
-        ])
+        dock_segs = np.array(
+            [
+                [225.0, 92.0, 225.0, 97.0],  # front wall
+                [220.0, 97.0, 225.0, 97.0],  # left wall (y=97)
+                [220.0, 92.0, 225.0, 92.0],  # right wall (y=92)
+            ]
+        )
         goal = (223.5, 94.5, 0.0)
 
         # True pose at goal: front range = 1.5m, left = 2.5m, right = 2.5m
@@ -274,19 +275,21 @@ class TestLocalizer(unittest.TestCase):
         along-motion estimate collapse (the dot product of two perpendicular vectors), so
         _scale_lidar_dist never reaches 25 m and the scale silently stays at 1.0.
         """
-        segs = np.array([
-            [95.0, 0.0, 95.0, 120.0],
-            [105.0, 0.0, 105.0, 120.0],
-            [95.0, 60.0, 105.0, 60.0],
-            [95.0, 10.0, 105.0, 10.0],
-        ])
+        segs = np.array(
+            [
+                [95.0, 0.0, 95.0, 120.0],
+                [105.0, 0.0, 105.0, 120.0],
+                [95.0, 60.0, 105.0, 60.0],
+                [95.0, 10.0, 105.0, 10.0],
+            ]
+        )
         heading = -math.pi / 2.0
         loc = Localizer((100.0, 55.0, heading), building_segs=segs)
         true_y = 55.0
         locked_at = None
         for k in range(420):
             loc.predict(0.103, 0.0, 0.0, heading, 0.0, 0.1)  # odom over-reports by 3%
-            true_y -= 0.1                                      # true motion is due south
+            true_y -= 0.1  # true motion is due south
             ranges = raycast(100.0, true_y, heading + ANGLES, segs, max_range=19.0)
             self.assertTrue(loc.update_scan(ranges, ANGLES, segs, is_fog=False))
             loc.update_gnss(100.0, true_y, True, 0.9)
@@ -296,8 +299,10 @@ class TestLocalizer(unittest.TestCase):
 
         self.assertIsNotNone(locked_at, "scale was never calibrated at a -90 deg start heading")
         self.assertGreaterEqual(
-            loc._scale_lidar_dist, 25.0,
-            "the world-frame scan path must accumulate, not collapse onto a lateral axis")
+            loc._scale_lidar_dist,
+            25.0,
+            "the world-frame scan path must accumulate, not collapse onto a lateral axis",
+        )
         self.assertAlmostEqual(loc.scale, 1.03, delta=0.01)
 
     def test_scale_gate_opens_on_sparse_far_facade(self):
@@ -351,52 +356,54 @@ class TestLocalizer(unittest.TestCase):
     def test_lost_status_tiers_and_recovery(self):
         """Lost tiers and the grid-search recovery (plan/02:133-147)."""
         # A room constrains both axes, so a sharp grid-search peak exists.
-        segs = np.array([
-            [90.0, 44.0, 112.0, 44.0],
-            [112.0, 44.0, 112.0, 56.0],
-            [112.0, 56.0, 90.0, 56.0],
-            [90.0, 56.0, 90.0, 44.0],
-        ])
+        segs = np.array(
+            [
+                [90.0, 44.0, 112.0, 44.0],
+                [112.0, 44.0, 112.0, 56.0],
+                [112.0, 56.0, 90.0, 56.0],
+                [90.0, 56.0, 90.0, 44.0],
+            ]
+        )
         loc = Localizer((98.0, 50.0, 0.0))
 
         # Narrow across, wide along: keep driving but catch a corner.
-        loc.var_along = 3.0 ** 2
-        loc.var_cross = 0.1 ** 2
+        loc.var_along = 3.0**2
+        loc.var_cross = 0.1**2
         loc._check_lost_status()
         self.assertFalse(loc.is_lost)
         self.assertLessEqual(loc.lost_speed_limit, 0.6)
 
         # sigma_cross > 0.4 -> speed limit, still not lost.
         loc.var_along = 1.0
-        loc.var_cross = 0.5 ** 2
+        loc.var_cross = 0.5**2
         loc._check_lost_status()
         self.assertFalse(loc.is_lost)
         self.assertLessEqual(loc.lost_speed_limit, 0.4)
 
         # sigma_cross > 0.8 -> lost, stop.
-        loc.var_cross = 0.9 ** 2
+        loc.var_cross = 0.9**2
         loc._check_lost_status()
         self.assertTrue(loc.is_lost)
         self.assertEqual(loc.lost_speed_limit, 0.0)
 
         # sigma_along > 5 m *while the along axis is still unconfirmed* -> lost as well.
-        loc.var_cross = 0.1 ** 2
-        loc.var_along = 5.5 ** 2
+        loc.var_cross = 0.1**2
+        loc.var_along = 5.5**2
         loc._unconfirmed_dist = 0.0
         loc._check_lost_status()
         self.assertFalse(loc.is_lost, "a stale wide bound must not stop the platform")
-        loc._unconfirmed_dist = 140.0      # 4% of 140 m > 5 m: still unexplained
+        loc._unconfirmed_dist = 140.0  # 4% of 140 m > 5 m: still unexplained
         loc._check_lost_status()
         self.assertTrue(loc.is_lost)
         self.assertEqual(loc.lost_speed_limit, 0.0)
 
         # Search runs only while stopped and lost, and shifts the hypothesis to the peak.
         ranges = raycast(98.0, 50.0, ANGLES, segs, max_range=19.0)
-        loc.x, loc.y, loc.th = 99.0, 50.5, 0.04   # drift the hypothesis away
+        loc.x, loc.y, loc.th = 99.0, 50.5, 0.04  # drift the hypothesis away
         self.assertFalse(loc.try_recover(ranges, ANGLES, segs, stopped=False))
         self.assertTrue(loc.is_lost)
-        loc.var_along = 0.1 ** 2
-        loc.var_cross = 0.1 ** 2
+        loc.var_along = 0.1**2
+        loc.var_cross = 0.1**2
         self.assertTrue(loc.try_recover(ranges, ANGLES, segs, stopped=True))
         self.assertFalse(loc.is_lost)
         self.assertEqual(loc.lost_speed_limit, 1.39)
@@ -407,8 +414,8 @@ class TestLocalizer(unittest.TestCase):
         # platform stands and looks, a transverse surface finally measures the along axis
         # (the grid search is flat along a featureless corridor, so standing there
         # forever would abandon the mission).
-        loc.var_along = 5.5 ** 2
-        loc.var_cross = 0.1 ** 2
+        loc.var_along = 5.5**2
+        loc.var_cross = 0.1**2
         loc._unconfirmed_dist = 130.0
         loc.is_lost = True
         loc._unconfirmed_dist = 0.0
@@ -445,8 +452,8 @@ class TestLocalizer(unittest.TestCase):
         loc2 = Localizer((1.5, 1.15, 0.0), building_segs=long_wall)
         ranges2 = raycast(1.9, 1.0, ANGLES, long_wall, max_range=20.0)
         self.assertTrue(loc2.update_scan(ranges2, ANGLES, long_wall, is_fog=False))
-        self.assertGreater(abs(loc2.x - 1.9), 0.3)   # still unobservable
-        self.assertLess(abs(loc2.y - 1.0), 0.05)     # normal held by the facade
+        self.assertGreater(abs(loc2.x - 1.9), 0.3)  # still unobservable
+        self.assertLess(abs(loc2.y - 1.0), 0.05)  # normal held by the facade
 
     def test_landmark_association_requires_mapped_corner(self):
         """The scale gate accepts a corner only when it really is a mapped landmark.
@@ -463,8 +470,7 @@ class TestLocalizer(unittest.TestCase):
         def holds(range_value):
             r = np.full(n, np.nan)
             r[90] = range_value
-            return loc._scan_holds_landmark(
-                r, ANGLES, inf, inf, np.isfinite(r), segs)
+            return loc._scan_holds_landmark(r, ANGLES, inf, inf, np.isfinite(r), segs)
 
         # Beam 90 returns the mapped west end of the wall (0, 4): a real landmark.
         self.assertTrue(holds(4.0))
@@ -545,11 +551,13 @@ class TestLocalizer(unittest.TestCase):
         so one call only halves the error. Repeating it on the same true dock geometry
         must converge into the 0.05 m ball around the goal.
         """
-        dock_segs = np.array([
-            [225.0, 92.0, 225.0, 97.0],  # front wall, 1.5 m from the goal
-            [220.0, 97.0, 225.0, 97.0],  # left wall,  2.5 m from the goal
-            [220.0, 92.0, 225.0, 92.0],  # right wall, 2.5 m from the goal
-        ])
+        dock_segs = np.array(
+            [
+                [225.0, 92.0, 225.0, 97.0],  # front wall, 1.5 m from the goal
+                [220.0, 97.0, 225.0, 97.0],  # left wall,  2.5 m from the goal
+                [220.0, 92.0, 225.0, 92.0],  # right wall, 2.5 m from the goal
+            ]
+        )
         goal = (223.5, 94.5, 0.0)
         angles_rel = np.radians(np.arange(360))
         ranges = raycast(223.5, 94.5, angles_rel, dock_segs)  # true dock geometry
@@ -735,10 +743,12 @@ class TestLocalizeCoverage(unittest.TestCase):
     def test_penalise_missing_near_walls(self):
         loc = Localizer((0.0, 0.0, 0.0))
         # segs at 2.0m ahead
-        segs = np.array([
-            [2.0, -5.0, 2.0, 5.0],
-            [-5.0, -5.0, -5.0, 5.0],
-        ])
+        segs = np.array(
+            [
+                [2.0, -5.0, 2.0, 5.0],
+                [-5.0, -5.0, -5.0, 5.0],
+            ]
+        )
         rel = np.radians(np.linspace(-30, 30, 30))
         # Expected ranges are ~2.0m, measured are NaN
         r_nan = np.full(30, np.nan)
@@ -758,8 +768,12 @@ class TestLocalizeCoverage(unittest.TestCase):
         loc = Localizer((0.0, 0.0, 0.0), building_segs=segs, pole_centers=poles)
 
         # Early return branches (lines 686, 689, 695, 707)
-        loc._apply_landmark_correction(np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.empty((0, 4)))
-        loc._apply_landmark_correction(np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), segs)
+        loc._apply_landmark_correction(
+            np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.empty((0, 4))
+        )
+        loc._apply_landmark_correction(
+            np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), segs
+        )
 
         # Synthetic scan with jump > 1.5m at landmark
         n = 360
@@ -821,12 +835,16 @@ class TestLocalizeCoverage(unittest.TestCase):
         self.assertFalse(loc.dock_snap(np.array([]), np.array([]), (10.0, 10.0, 0.0), None))
         # Close to goal but empty ranges or segs (line 1023)
         self.assertFalse(loc.dock_snap(np.array([]), np.array([]), (0.1, 0.0, 0.0), None))
-        self.assertFalse(loc.dock_snap(np.array([1.0]), np.array([0.0]), (0.1, 0.0, 0.0), np.empty((0, 4))))
+        self.assertFalse(
+            loc.dock_snap(np.array([1.0]), np.array([0.0]), (0.1, 0.0, 0.0), np.empty((0, 4)))
+        )
 
     def test_try_recover_and_grid_search(self):
         loc = Localizer((0.0, 0.0, 0.0))
         # Not lost or not stopped
-        self.assertFalse(loc.try_recover(np.array([1.0]), np.array([0.0]), np.empty((0, 4)), stopped=False))
+        self.assertFalse(
+            loc.try_recover(np.array([1.0]), np.array([0.0]), np.empty((0, 4)), stopped=False)
+        )
 
         loc.is_lost = True
         # Arguments None (line 1092)
@@ -835,14 +853,22 @@ class TestLocalizeCoverage(unittest.TestCase):
         # recover_grid_search edge cases (lines 1125, 1138, 1151)
         self.assertFalse(loc.recover_grid_search(np.array([]), np.array([]), np.empty((0, 4))))
         # Fewer than 15 valid rays
-        self.assertFalse(loc.recover_grid_search(np.full(360, np.nan), np.radians(np.arange(360)), np.array([[0, 0, 1, 0]])))
+        self.assertFalse(
+            loc.recover_grid_search(
+                np.full(360, np.nan), np.radians(np.arange(360)), np.array([[0, 0, 1, 0]])
+            )
+        )
         # No local segments in reach
         far_segs = np.array([[1000.0, 1000.0, 1010.0, 1000.0]])
         valid_ranges = np.full(360, 5.0)
-        self.assertFalse(loc.recover_grid_search(valid_ranges, np.radians(np.arange(360)), far_segs))
+        self.assertFalse(
+            loc.recover_grid_search(valid_ranges, np.radians(np.arange(360)), far_segs)
+        )
 
         # Successful grid recovery with asymmetric room
-        poly = np.array([[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [8.0, 10.0], [8.0, 5.0], [0.0, 5.0]])
+        poly = np.array(
+            [[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [8.0, 10.0], [8.0, 5.0], [0.0, 5.0]]
+        )
         segs = box_segs(poly)
         angles = np.radians(np.arange(360))
         ranges = raycast(4.0, 2.5, angles, segs)
@@ -858,13 +884,18 @@ class TestLocalizeCoverage(unittest.TestCase):
 
     def test_import_fallback(self):
         import sys
+
         mod_name = "team.localize"
         if mod_name in sys.modules:
             orig = sys.modules[mod_name]
             try:
                 with open("/Users/yegor/doc-1790342627/team/localize.py", "r") as f:
                     code = f.read()
-                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/localize.py", "__package__": ""}
+                globs = {
+                    "__name__": "__main__",
+                    "__file__": "/Users/yegor/doc-1790342627/team/localize.py",
+                    "__package__": "",
+                }
                 team_path = "/Users/yegor/doc-1790342627/team"
                 if team_path not in sys.path:
                     sys.path.insert(0, team_path)

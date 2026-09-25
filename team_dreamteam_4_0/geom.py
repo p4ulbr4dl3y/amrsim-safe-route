@@ -7,6 +7,7 @@ Conventions:
 - Polygons stored as shape (K, 2): [[x, y], ...].
 Only standard library (math) and numpy are used.
 """
+
 import math
 from typing import Union
 
@@ -15,7 +16,7 @@ import numpy as np
 
 def wrap_angle(theta: Union[float, int, np.ndarray]) -> Union[float, np.ndarray]:
     """Normalize angle(s) to [-pi, pi].
-    
+
     Supports scalar floats/ints and numpy arrays.
     """
     if isinstance(theta, (int, float, np.floating, np.integer)):
@@ -26,7 +27,7 @@ def wrap_angle(theta: Union[float, int, np.ndarray]) -> Union[float, np.ndarray]
 
 def rot2d(x, y=None, theta=None):
     """Rotate 2D points by angle theta (radians) counterclockwise.
-    
+
     Supported calling conventions:
       rot2d(x, y, theta) -> (rx, ry)
       rot2d(pts, theta)  -> rotated_pts (shape (2,) or (N, 2))
@@ -54,49 +55,53 @@ def rot2d(x, y=None, theta=None):
 
 def segments_aabb(segs: np.ndarray) -> np.ndarray:
     """Compute axis-aligned bounding boxes for segments.
-    
+
     segs: (M, 4) -> (M, 4) containing [min_x, min_y, max_x, max_y].
     """
     if segs is None or len(segs) == 0:
         return np.empty((0, 4), dtype=float)
-    return np.column_stack([
-        np.minimum(segs[:, 0], segs[:, 2]),
-        np.minimum(segs[:, 1], segs[:, 3]),
-        np.maximum(segs[:, 0], segs[:, 2]),
-        np.maximum(segs[:, 1], segs[:, 3]),
-    ])
+    return np.column_stack(
+        [
+            np.minimum(segs[:, 0], segs[:, 2]),
+            np.minimum(segs[:, 1], segs[:, 3]),
+            np.maximum(segs[:, 0], segs[:, 2]),
+            np.maximum(segs[:, 1], segs[:, 3]),
+        ]
+    )
 
 
-def filter_segs_aabb(segs: np.ndarray, x: float, y: float, radius: float,
-                     aabb: np.ndarray = None) -> np.ndarray:
+def filter_segs_aabb(
+    segs: np.ndarray, x: float, y: float, radius: float, aabb: np.ndarray = None
+) -> np.ndarray:
     """Filter segments whose AABB intersects the box [x - radius, y - radius, x + radius, y + radius]."""
     if segs is None or len(segs) == 0:
         return np.empty((0, 4), dtype=float)
     if aabb is None:
         aabb = segments_aabb(segs)
     mask = (
-        (aabb[:, 2] >= x - radius) &
-        (aabb[:, 0] <= x + radius) &
-        (aabb[:, 3] >= y - radius) &
-        (aabb[:, 1] <= y + radius)
+        (aabb[:, 2] >= x - radius)
+        & (aabb[:, 0] <= x + radius)
+        & (aabb[:, 3] >= y - radius)
+        & (aabb[:, 1] <= y + radius)
     )
     return segs[mask]
 
 
-def raycast(ox: float, oy: float, angles: np.ndarray, segs: np.ndarray,
-            max_range: float = np.inf) -> np.ndarray:
+def raycast(
+    ox: float, oy: float, angles: np.ndarray, segs: np.ndarray, max_range: float = np.inf
+) -> np.ndarray:
     """Vectorized raycast of lidar rays against 2D line segments with AABB pruning.
-    
+
     ox, oy: lidar origin coordinates
     angles: 1D array of ray angles in world frame (radians)
     segs: (M, 4) array of segment endpoints [x1, y1, x2, y2]
     max_range: maximum detection distance (default inf)
-    
+
     Returns:
       ranges: 1D array of distances to first intersection along each ray (inf if none).
     """
     angles_arr = np.asarray(angles, dtype=float)
-    is_scalar_angle = (angles_arr.ndim == 0)
+    is_scalar_angle = angles_arr.ndim == 0
     angles_arr = np.atleast_1d(angles_arr)
 
     if len(angles_arr) == 0:
@@ -115,10 +120,10 @@ def raycast(ox: float, oy: float, angles: np.ndarray, segs: np.ndarray,
         seg_min_y = np.minimum(segs_arr[:, 1], segs_arr[:, 3])
         seg_max_y = np.maximum(segs_arr[:, 1], segs_arr[:, 3])
         mask = (
-            (seg_max_x >= ox - max_range) &
-            (seg_min_x <= ox + max_range) &
-            (seg_max_y >= oy - max_range) &
-            (seg_min_y <= oy + max_range)
+            (seg_max_x >= ox - max_range)
+            & (seg_min_x <= ox + max_range)
+            & (seg_max_y >= oy - max_range)
+            & (seg_min_y <= oy + max_range)
         )
         segs_arr = segs_arr[mask]
         if len(segs_arr) == 0:
@@ -155,14 +160,14 @@ def raycast(ox: float, oy: float, angles: np.ndarray, segs: np.ndarray,
 
 def seg_dist(px, py, segs: np.ndarray) -> Union[float, np.ndarray]:
     """Distance from point(s) to the nearest segment (vectorized).
-    
+
     px, py: scalars or 1D arrays of point coordinates.
     segs: (M, 4) array of segments [ax, ay, bx, by].
-    
+
     Returns:
       scalar float if px, py are scalars, else (N,) array of minimum distances.
     """
-    is_scalar = (np.ndim(px) == 0 and np.ndim(py) == 0)
+    is_scalar = np.ndim(px) == 0 and np.ndim(py) == 0
     px_arr = np.atleast_1d(np.asarray(px, dtype=float))
     py_arr = np.atleast_1d(np.asarray(py, dtype=float))
 
@@ -179,8 +184,11 @@ def seg_dist(px, py, segs: np.ndarray) -> Union[float, np.ndarray]:
 
     # u parameter of closest point on segment: (N, M)
     u = np.clip(
-        ((px_arr[:, None] - ax[None, :]) * ex[None, :] +
-         (py_arr[:, None] - ay[None, :]) * ey[None, :]) / ll[None, :],
+        (
+            (px_arr[:, None] - ax[None, :]) * ex[None, :]
+            + (py_arr[:, None] - ay[None, :]) * ey[None, :]
+        )
+        / ll[None, :],
         0.0,
         1.0,
     )
@@ -197,7 +205,7 @@ def seg_dist(px, py, segs: np.ndarray) -> Union[float, np.ndarray]:
 
 class Displacement(tuple):
     """Result of point_to_segs_displacement.
-    
+
     Unpacks as tuple: (normals, projs, dists).
     Also provides attributes:
       .normals (alias .normal): unit normal pointing from wall to point ((N, 2) or (2,))
@@ -225,12 +233,12 @@ class Displacement(tuple):
 
 def point_to_segs_displacement(px, py, segs: np.ndarray) -> Displacement:
     """Compute normal vector, projection point, and distance to nearest segment.
-    
+
     Used for scan-matching Gauss-Newton Jacobian and residuals.
-    
+
     px, py: scalars or 1D arrays of points (world frame).
     segs: (M, 4) array of segments [ax, ay, bx, by].
-    
+
     Returns:
       Displacement instance: unpacks as (normals, projs, dists).
       - normals: unit normal pointing from closest point to query point ((N, 2) or (2,)).
@@ -238,7 +246,7 @@ def point_to_segs_displacement(px, py, segs: np.ndarray) -> Displacement:
       - dists:   Euclidean distance ((N,) or float).
       - seg_idx: index of nearest segment ((N,) or int).
     """
-    is_scalar = (np.ndim(px) == 0 and np.ndim(py) == 0)
+    is_scalar = np.ndim(px) == 0 and np.ndim(py) == 0
     px_arr = np.atleast_1d(np.asarray(px, dtype=float))
     py_arr = np.atleast_1d(np.asarray(py, dtype=float))
     n_pts = len(px_arr)
@@ -261,8 +269,11 @@ def point_to_segs_displacement(px, py, segs: np.ndarray) -> Displacement:
 
     # u parameter: (N, M)
     u = np.clip(
-        ((px_arr[:, None] - ax[None, :]) * ex[None, :] +
-         (py_arr[:, None] - ay[None, :]) * ey[None, :]) / ll[None, :],
+        (
+            (px_arr[:, None] - ax[None, :]) * ex[None, :]
+            + (py_arr[:, None] - ay[None, :]) * ey[None, :]
+        )
+        / ll[None, :],
         0.0,
         1.0,
     )
@@ -305,7 +316,7 @@ def point_to_segs_displacement(px, py, segs: np.ndarray) -> Displacement:
 
 def inside_polygon(x, y=None, poly=None) -> Union[bool, np.ndarray]:
     """Test whether point(s) lie inside a 2D polygon using even-odd crossing rule.
-    
+
     Supported calling conventions:
       inside_polygon(x, y, poly) -> bool or (N,) boolean array
       inside_polygon(pts, poly)  -> bool or (N,) boolean array
@@ -313,12 +324,12 @@ def inside_polygon(x, y=None, poly=None) -> Union[bool, np.ndarray]:
     if poly is None:
         pts = np.asarray(x, dtype=float)
         poly_arr = np.asarray(y, dtype=float)
-        is_single = (pts.ndim == 1)
+        is_single = pts.ndim == 1
         pts_arr = np.atleast_2d(pts)
         px = pts_arr[:, 0]
         py = pts_arr[:, 1]
     else:
-        is_single = (np.ndim(x) == 0 and np.ndim(y) == 0)
+        is_single = np.ndim(x) == 0 and np.ndim(y) == 0
         px = np.atleast_1d(np.asarray(x, dtype=float))
         py = np.atleast_1d(np.asarray(y, dtype=float))
         poly_arr = np.asarray(poly, dtype=float)
@@ -347,7 +358,7 @@ def inside_polygon(x, y=None, poly=None) -> Union[bool, np.ndarray]:
 
 def box_segs(poly) -> np.ndarray:
     """Extract line segments [x1, y1, x2, y2] from polygon(s).
-    
+
     Accepts:
       - (K, 2) array / list of vertices representing a single closed polygon -> (K, 4)
       - dict with 'polygon' key -> (K, 4)

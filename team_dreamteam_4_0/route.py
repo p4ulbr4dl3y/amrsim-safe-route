@@ -6,6 +6,7 @@ Pure pursuit tracking, speed zone management, lateral offset avoidance,
 and grid A* fallback.
 Isolation: only standard math, typing, and numpy are used.
 """
+
 import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -87,8 +88,9 @@ class RouteFollower:
     - Safe stop (v = 0, status waiting, note=stop_object) if corridor blocked.
     """
 
-    def __init__(self, map_dict: Optional[Dict[str, Any]] = None,
-                 config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, map_dict: Optional[Dict[str, Any]] = None, config: Optional[Dict[str, Any]] = None
+    ) -> None:
         self.map_dict = map_dict or {}
         self.config = config or {}
 
@@ -138,11 +140,13 @@ class RouteFollower:
                 if z_type == "forbidden" or z_id == "FB_HAZ":
                     self.forbidden_polys.append(np.asarray(z["polygon"], dtype=float))
                 elif z_type == "speed_limit" or "v_max" in z:
-                    self.speed_zones.append({
-                        "id": z_id,
-                        "v_max": float(z["v_max"]),
-                        "polygon": np.asarray(z["polygon"], dtype=float),
-                    })
+                    self.speed_zones.append(
+                        {
+                            "id": z_id,
+                            "v_max": float(z["v_max"]),
+                            "polygon": np.asarray(z["polygon"], dtype=float),
+                        }
+                    )
         if "points" in m:
             self.points = m["points"]
         if "buildings" in m:
@@ -188,16 +192,16 @@ class RouteFollower:
 
         self.static_free_grid = free_mask.reshape((self.ny, self.nx))
 
-    def is_drivable(self, x: Union[float, np.ndarray],
-                    y: Union[float, np.ndarray] = None,
-                    margin: float = 0.2) -> Union[bool, np.ndarray]:
+    def is_drivable(
+        self, x: Union[float, np.ndarray], y: Union[float, np.ndarray] = None, margin: float = 0.2
+    ) -> Union[bool, np.ndarray]:
         """Check if 2D coordinates are inside drivable polygon, outside FB_HAZ,
         and at least `margin` meters away from drivable boundaries."""
         if y is None:
             pts = np.atleast_2d(np.asarray(x, dtype=float))
-            is_single = (np.ndim(x) == 1)
+            is_single = np.ndim(x) == 1
         else:
-            is_single = (np.ndim(x) == 0 and np.ndim(y) == 0)
+            is_single = np.ndim(x) == 0 and np.ndim(y) == 0
             px = np.atleast_1d(np.asarray(x, dtype=float))
             py = np.atleast_1d(np.asarray(y, dtype=float))
             pts = np.column_stack([px, py])
@@ -215,8 +219,14 @@ class RouteFollower:
         if margin > 0.0:
             diag = margin * 0.70710678
             offsets = [
-                (margin, 0.0), (-margin, 0.0), (0.0, margin), (0.0, -margin),
-                (diag, diag), (-diag, diag), (diag, -diag), (-diag, -diag)
+                (margin, 0.0),
+                (-margin, 0.0),
+                (0.0, margin),
+                (0.0, -margin),
+                (diag, diag),
+                (-diag, diag),
+                (diag, -diag),
+                (-diag, -diag),
             ]
             for dx, dy in offsets:
                 valid &= _check(pts + np.array([dx, dy]))
@@ -230,11 +240,13 @@ class RouteFollower:
         Returns maximum permissible speed (m/s), default 1.39 m/s.
         """
         c, s = math.cos(th), math.sin(th)
-        test_pts = np.array([
-            [x, y],
-            [x + 3.0 * c, y + 3.0 * s],
-            [x - 1.5 * c, y - 1.5 * s],
-        ])
+        test_pts = np.array(
+            [
+                [x, y],
+                [x + 3.0 * c, y + 3.0 * s],
+                [x - 1.5 * c, y - 1.5 * s],
+            ]
+        )
 
         speed_cap = 1.39
         for zone in self.speed_zones:
@@ -245,8 +257,9 @@ class RouteFollower:
                     speed_cap = z_limit
         return speed_cap
 
-    def get_point_xy(self, pt_ident: Any,
-                     fallback: Optional[Union[List[float], np.ndarray]] = None) -> Tuple[float, float]:
+    def get_point_xy(
+        self, pt_ident: Any, fallback: Optional[Union[List[float], np.ndarray]] = None
+    ) -> Tuple[float, float]:
         """Resolve a dock / waypoint identifier to (x, y) coordinates."""
         if isinstance(pt_ident, str) and pt_ident in self.points:
             p = self.points[pt_ident]
@@ -259,8 +272,7 @@ class RouteFollower:
             return float(fallback[0]), float(fallback[1])
         return 0.0, 0.0
 
-    def update_mission(self, mission: Dict[str, Any],
-                       pose: Tuple[float, float, float]) -> None:
+    def update_mission(self, mission: Dict[str, Any], pose: Tuple[float, float, float]) -> None:
         """Handle mission updates and generate initial approach leg if needed."""
         m_id = mission.get("id")
         if m_id == self.current_mission_id and len(self.active_path) > 0:
@@ -295,7 +307,10 @@ class RouteFollower:
             if init_leg is not None and len(init_leg) > 0:
                 init_arr = np.asarray(init_leg, dtype=float)
                 # Concatenate with reference path (skipping first point if coincident)
-                if np.hypot(init_arr[-1, 0] - ref_path[0, 0], init_arr[-1, 1] - ref_path[0, 1]) < 0.2:
+                if (
+                    np.hypot(init_arr[-1, 0] - ref_path[0, 0], init_arr[-1, 1] - ref_path[0, 1])
+                    < 0.2
+                ):
                     self.active_path = np.vstack([init_arr[:-1], ref_path])
                 else:
                     self.active_path = np.vstack([init_arr, ref_path])
@@ -304,8 +319,12 @@ class RouteFollower:
         else:
             self.active_path = ref_path.copy()
 
-    def plan_path(self, start: Tuple[float, float], goal: Tuple[float, float],
-                  obstacles: Optional[List[Tuple[float, float, float]]] = None) -> Optional[List[Tuple[float, float]]]:
+    def plan_path(
+        self,
+        start: Tuple[float, float],
+        goal: Tuple[float, float],
+        obstacles: Optional[List[Tuple[float, float, float]]] = None,
+    ) -> Optional[List[Tuple[float, float]]]:
         """Compute path between start and goal avoiding obstacles and FB_HAZ."""
         return self._astar_search(start, goal, obstacles=obstacles)
 
@@ -319,9 +338,13 @@ class RouteFollower:
         y = self.y_min + ci * self.grid_res
         return x, y
 
-    def _find_nearest_free_cell(self, ci: int, cj: int,
-                                obs_circles: List[Tuple[float, float, float]],
-                                max_dist_m: float = 3.0) -> Optional[Tuple[int, int]]:
+    def _find_nearest_free_cell(
+        self,
+        ci: int,
+        cj: int,
+        obs_circles: List[Tuple[float, float, float]],
+        max_dist_m: float = 3.0,
+    ) -> Optional[Tuple[int, int]]:
         k = int(math.ceil(max_dist_m / self.grid_res))
         best_cell = None
         best_d2 = math.inf
@@ -337,8 +360,9 @@ class RouteFollower:
                             best_cell = (ni, nj)
         return best_cell
 
-    def _is_clear_of_obstacles(self, x: float, y: float,
-                               obs_circles: List[Tuple[float, float, float]]) -> bool:
+    def _is_clear_of_obstacles(
+        self, x: float, y: float, obs_circles: List[Tuple[float, float, float]]
+    ) -> bool:
         for ox, oy, r in obs_circles:
             # Safety inflation: 0.9 + 0.35 + obstacle radius r
             req_dist = 0.9 + 0.35 + r
@@ -346,8 +370,9 @@ class RouteFollower:
                 return False
         return True
 
-    def _lateral_clearance(self, point: Tuple[float, float],
-                           normal: np.ndarray, max_dist: float = 3.0) -> float:
+    def _lateral_clearance(
+        self, point: Tuple[float, float], normal: np.ndarray, max_dist: float = 3.0
+    ) -> float:
         """Largest shift along `normal` that keeps a 0.2 m drivable margin.
 
         Used to pick the roomy side of an aisle (plan/04:36-39): the northern
@@ -358,21 +383,25 @@ class RouteFollower:
         travelled = 0.0
         while travelled + step <= max_dist + 1e-9:
             dist = travelled + step
-            if not self.is_drivable(point[0] + dist * normal[0],
-                                    point[1] + dist * normal[1], margin=0.2):
+            if not self.is_drivable(
+                point[0] + dist * normal[0], point[1] + dist * normal[1], margin=0.2
+            ):
                 break
             travelled = dist
         return travelled
 
-    def _line_free(self, p1: Tuple[float, float], p2: Tuple[float, float],
-                   obs_circles: List[Tuple[float, float, float]],
-                   margin: float = 0.2) -> bool:
+    def _line_free(
+        self,
+        p1: Tuple[float, float],
+        p2: Tuple[float, float],
+        obs_circles: List[Tuple[float, float, float]],
+        margin: float = 0.2,
+    ) -> bool:
         """Check if straight segment between p1 and p2 is clear (vectorised)."""
         dist = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
         steps = max(2, int(math.ceil(dist / 0.25)))
         ts = np.linspace(0.0, 1.0, steps)
-        pts = np.column_stack([p1[0] + ts * (p2[0] - p1[0]),
-                               p1[1] + ts * (p2[1] - p1[1])])
+        pts = np.column_stack([p1[0] + ts * (p2[0] - p1[0]), p1[1] + ts * (p2[1] - p1[1])])
 
         if not bool(np.all(self.is_drivable(pts, margin=margin))):
             return False
@@ -384,8 +413,12 @@ class RouteFollower:
                 return False
         return True
 
-    def _astar_search(self, start: Tuple[float, float], goal: Tuple[float, float],
-                      obstacles: Optional[List[Tuple[float, float, float]]] = None) -> Optional[List[Tuple[float, float]]]:
+    def _astar_search(
+        self,
+        start: Tuple[float, float],
+        goal: Tuple[float, float],
+        obstacles: Optional[List[Tuple[float, float, float]]] = None,
+    ) -> Optional[List[Tuple[float, float]]]:
         obs_circles = obstacles or []
 
         ci_s, cj_s = self._coord_to_cell(start[0], start[1])
@@ -398,8 +431,14 @@ class RouteFollower:
             return None
 
         nbr_offsets = [
-            (-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
-            (-1, -1, 1.4142), (-1, 1, 1.4142), (1, -1, 1.4142), (1, 1, 1.4142)
+            (-1, 0, 1.0),
+            (1, 0, 1.0),
+            (0, -1, 1.0),
+            (0, 1, 1.0),
+            (-1, -1, 1.4142),
+            (-1, 1, 1.4142),
+            (1, -1, 1.4142),
+            (1, 1, 1.4142),
         ]
 
         pq = _PriorityQueue()
@@ -487,8 +526,9 @@ class RouteFollower:
                     out.append((ox, oy, r))
         return out
 
-    def _get_path_progress(self, path: np.ndarray, x: float, y: float,
-                           last_s: float = 0.0) -> float:
+    def _get_path_progress(
+        self, path: np.ndarray, x: float, y: float, last_s: float = 0.0
+    ) -> float:
         """Find progress distance s along polyline corresponding to point (x, y)."""
         if len(path) < 2:
             return 0.0
@@ -516,10 +556,9 @@ class RouteFollower:
 
         return max(last_s, best_s)
 
-    def check_obstacles_in_tube(self, path: np.ndarray,
-                                obstacles: Any,
-                                current_s: float,
-                                tube_radius: float = 1.25) -> Optional[Tuple[float, float, float, float]]:
+    def check_obstacles_in_tube(
+        self, path: np.ndarray, obstacles: Any, current_s: float, tube_radius: float = 1.25
+    ) -> Optional[Tuple[float, float, float, float]]:
         """Detect if an obstacle penetrates the reference tube or requires lateral avoidance.
 
         Trigger condition:
@@ -568,10 +607,13 @@ class RouteFollower:
 
         return best_obs
 
-    def apply_lateral_offset(self, path: np.ndarray,
-                             obstacle: Tuple[float, float, float, float],
-                             current_s: float,
-                             all_obstacles: Optional[List[Tuple[float, float, float]]] = None) -> Optional[np.ndarray]:
+    def apply_lateral_offset(
+        self,
+        path: np.ndarray,
+        obstacle: Tuple[float, float, float, float],
+        current_s: float,
+        all_obstacles: Optional[List[Tuple[float, float, float]]] = None,
+    ) -> Optional[np.ndarray]:
         """Apply lateral shift to polyline in 0.2m increments until clearance > 1.1m
 
         and boundary margin >= 0.2m is satisfied for all scene obstacles.
@@ -674,10 +716,13 @@ class RouteFollower:
 
         return None
 
-    def replan_astar(self, current_pose: Tuple[float, float, float],
-                     path: np.ndarray,
-                     obstacle: Tuple[float, float, float, float],
-                     all_obstacles: Optional[List[Tuple[float, float, float]]] = None) -> Optional[np.ndarray]:
+    def replan_astar(
+        self,
+        current_pose: Tuple[float, float, float],
+        path: np.ndarray,
+        obstacle: Tuple[float, float, float, float],
+        all_obstacles: Optional[List[Tuple[float, float, float]]] = None,
+    ) -> Optional[np.ndarray]:
         """Local A* replan on 0.5m grid avoiding all scene obstacles."""
         ox, oy, r, s_obs = obstacle
         if len(path) < 2:
@@ -721,9 +766,9 @@ class RouteFollower:
         new_path = bypass + suffix
         return np.asarray(new_path, dtype=float)
 
-    def pure_pursuit(self, pose: Tuple[float, float, float],
-                     path: np.ndarray,
-                     v_max: float = 1.39) -> Tuple[float, float, Tuple[float, float], float, float]:
+    def pure_pursuit(
+        self, pose: Tuple[float, float, float], path: np.ndarray, v_max: float = 1.39
+    ) -> Tuple[float, float, Tuple[float, float], float, float]:
         """Pure pursuit tracking along polyline.
 
         Returns (v, w, target_point, current_s, remaining_dist).
@@ -766,7 +811,7 @@ class RouteFollower:
         dist_to_goal = math.hypot(x - goal_pt[0], y - goal_pt[1])
 
         # Dock lookahead rule: within 1.5m, target strictly dock goal
-        is_dock_zone = (dist_to_goal <= 1.5 or rem_dist <= 1.5)
+        is_dock_zone = dist_to_goal <= 1.5 or rem_dist <= 1.5
         if is_dock_zone:
             target_pt = (float(goal_pt[0]), float(goal_pt[1]))
         else:
@@ -812,10 +857,13 @@ class RouteFollower:
 
         return v, w, target_pt, curr_s, rem_dist
 
-    def step(self, pose: Tuple[float, float, float],
-             mission: Optional[Dict[str, Any]] = None,
-             obstacles: Optional[Any] = None,
-             current_time: float = 0.0) -> Dict[str, Any]:
+    def step(
+        self,
+        pose: Tuple[float, float, float],
+        mission: Optional[Dict[str, Any]] = None,
+        obstacles: Optional[Any] = None,
+        current_time: float = 0.0,
+    ) -> Dict[str, Any]:
         """Compute navigation command for the current simulation tick.
 
         Returns dict containing:
@@ -883,14 +931,14 @@ class RouteFollower:
 
         if obs_ahead is not None and self.final_approach:
             # Straight to the dock on the allowed speed, no avoidance stop.
-            if self._line_free((x, y), (float(goal_pt[0]), float(goal_pt[1])),
-                               parsed_obstacles):
+            if self._line_free((x, y), (float(goal_pt[0]), float(goal_pt[1])), parsed_obstacles):
                 obs_ahead = None
 
         if obs_ahead is not None:
             # 1. Try lateral offset
-            shifted = self.apply_lateral_offset(self.active_path, obs_ahead, curr_progress,
-                                                all_obstacles=parsed_obstacles)
+            shifted = self.apply_lateral_offset(
+                self.active_path, obs_ahead, curr_progress, all_obstacles=parsed_obstacles
+            )
             if shifted is not None:
                 self.active_path = shifted
                 self.note = "offset dy=%.1f" % self.last_offset_dy
@@ -900,8 +948,9 @@ class RouteFollower:
                 can_replan = (current_time - self.last_replan_t) >= self.replan_interval
                 if can_replan:
                     self.last_replan_t = float(current_time)
-                    replanned = self.replan_astar(pose, self.active_path, obs_ahead,
-                                                  all_obstacles=parsed_obstacles)
+                    replanned = self.replan_astar(
+                        pose, self.active_path, obs_ahead, all_obstacles=parsed_obstacles
+                    )
                     if replanned is not None:
                         self.active_path = replanned
                         self.note = "replan"

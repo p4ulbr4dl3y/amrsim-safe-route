@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-import io
 import json
-from pathlib import Path
+import sys
 import threading
+from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import urlopen, Request
+from urllib.request import Request, urlopen
 
 import pytest
 
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "arm"))
 
 import server
 from server import (
     AMRServerHandler,
-    SCENARIO_META,
     build_analytics_view_model,
     build_dashboard_view_model,
     build_episodes_view_model,
@@ -52,7 +50,9 @@ def test_normalize_scenario_id():
     assert normalize_scenario_id("backend/scenarios/s1_pallet_2m.json") == "s1_pallet_2m"
     assert normalize_scenario_id("team/scenarios/s1_pallet_2m.json") == "s1_pallet_2m"
     assert normalize_scenario_id("team/s1_pallet_2m") == "s1_pallet_2m"
-    assert normalize_scenario_id("backend\\scenarios\\s2_container_block.json") == "s2_container_block"
+    assert (
+        normalize_scenario_id("backend\\scenarios\\s2_container_block.json") == "s2_container_block"
+    )
     assert normalize_scenario_id("02_gnss_shadow_easy") == "02e_gnss_shadow_easy"
     assert normalize_scenario_id("02_gnss_shadow_easy.json") == "02e_gnss_shadow_easy"
     assert normalize_scenario_id("02_shadow_easy") == "02e_gnss_shadow_easy"
@@ -134,9 +134,20 @@ def test_episodes_never_empty_for_any_scenario():
 def test_csv_export_format_and_rows():
     """Verify that CSV export contains valid columns and multiple data rows for every scenario."""
     expected_headers = [
-        "Episode ID", "Type", "Category", "Severity", "Start (s)", "End (s)",
-        "X", "Y", "Speed (m/s)", "Hum Dist (m)", "Obj Dist (m)", "PE Error (m)",
-        "Cost (pts)", "Explanation"
+        "Episode ID",
+        "Type",
+        "Category",
+        "Severity",
+        "Start (s)",
+        "End (s)",
+        "X",
+        "Y",
+        "Speed (m/s)",
+        "Hum Dist (m)",
+        "Obj Dist (m)",
+        "PE Error (m)",
+        "Cost (pts)",
+        "Explanation",
     ]
 
     for sc_id in ALL_SCENARIO_IDS:
@@ -147,21 +158,35 @@ def test_csv_export_format_and_rows():
         lines = [",".join(expected_headers)]
         for ep in episodes:
             tk_snap = ep.get("telemetrySnapshot") or {}
-            v_val = f"{tk_snap.get('v', ''):.2f}" if isinstance(tk_snap.get('v'), (int, float)) else ""
-            hum_val = f"{tk_snap.get('hum', ''):.2f}" if isinstance(tk_snap.get('hum'), (int, float)) else ""
-            obj_val = f"{tk_snap.get('obj', ''):.2f}" if isinstance(tk_snap.get('obj'), (int, float)) else ""
-            pe_val = f"{tk_snap.get('pe_error', ''):.4f}" if isinstance(tk_snap.get('pe_error'), (int, float)) else ""
+            v_val = (
+                f"{tk_snap.get('v', ''):.2f}" if isinstance(tk_snap.get("v"), (int, float)) else ""
+            )
+            hum_val = (
+                f"{tk_snap.get('hum', ''):.2f}"
+                if isinstance(tk_snap.get("hum"), (int, float))
+                else ""
+            )
+            obj_val = (
+                f"{tk_snap.get('obj', ''):.2f}"
+                if isinstance(tk_snap.get("obj"), (int, float))
+                else ""
+            )
+            pe_val = (
+                f"{tk_snap.get('pe_error', ''):.4f}"
+                if isinstance(tk_snap.get("pe_error"), (int, float))
+                else ""
+            )
             cost_val = f"{ep.get('cost', 0.0):.2f}"
             expl = str(ep.get("ruleExplanation", "")).replace('"', '""')
 
             lines.append(
                 f"{ep.get('id')},{ep.get('type')},{ep.get('category')},{ep.get('severity', 'info')},"
                 f"{ep.get('t_start')},{ep.get('t_end')},{ep.get('x')},{ep.get('y')},"
-                f"{v_val},{hum_val},{obj_val},{pe_val},{cost_val},\"{expl}\""
+                f'{v_val},{hum_val},{obj_val},{pe_val},{cost_val},"{expl}"'
             )
 
         csv_content = "\n".join(lines)
-        csv_lines = [l for l in csv_content.splitlines() if l.strip()]
+        csv_lines = [line for line in csv_content.splitlines() if line.strip()]
 
         # Ensure header + at least 1 data row
         assert len(csv_lines) >= 2, f"CSV has no data rows for {sc_id}"
@@ -196,13 +221,19 @@ def test_api_scenarios_endpoint(http_server):
 
 
 def test_api_export_csv_endpoint(http_server):
-    for test_sc in ["01_clear", "02_gnss_shadow_easy", "s1_pallet_2m", "s2_container_block", "s3_wall_removed"]:
+    for test_sc in [
+        "01_clear",
+        "02_gnss_shadow_easy",
+        "s1_pallet_2m",
+        "s2_container_block",
+        "s3_wall_removed",
+    ]:
         url = f"{http_server}/api/export/csv?scenario={test_sc}"
         with urlopen(url) as resp:
             assert resp.status == 200
             assert "text/csv" in resp.headers.get("Content-Type", "")
             content = resp.read().decode("utf-8")
-            lines = [l for l in content.splitlines() if l.strip()]
+            lines = [line for line in content.splitlines() if line.strip()]
             assert len(lines) >= 2, f"CSV export for {test_sc} returned empty rows!"
             assert "Episode ID" in lines[0]
 
@@ -218,6 +249,7 @@ def test_api_ui_dashboard_endpoint(http_server):
 
 def test_rule_explanations_latex_formatting():
     from server import RULE_EXPLANATIONS
+
     assert "person_near_fast" in RULE_EXPLANATIONS
     # Check that KaTeX math delimiters ($) are present for key physical thresholds
     assert "$d_{\\text{hum}} < 3.0" in RULE_EXPLANATIONS["person_near_fast"]
@@ -278,13 +310,15 @@ def test_api_post_unknown_endpoint(http_server):
 
 def test_format_time():
     from server import format_time
+
     assert format_time(0.0) == "00:00"
     assert format_time(65.0) == "01:05"
     assert format_time(3600.0) == "60:00"
 
 
 def test_get_scenario_file_relative_and_not_found(tmp_path, monkeypatch):
-    from server import get_scenario_file, ROOT_DIR
+    from server import get_scenario_file
+
     # Relative path from ROOT_DIR
     rel_file = "amrsim-participants/scenarios/01_clear.json"
     assert get_scenario_file(rel_file) is not None
@@ -295,6 +329,7 @@ def test_get_scenario_file_relative_and_not_found(tmp_path, monkeypatch):
 
 def test_load_scenario_json(tmp_path):
     from server import load_scenario_json
+
     # Existing valid
     data = load_scenario_json("01_clear")
     assert data is not None
@@ -310,7 +345,6 @@ def test_load_scenario_json(tmp_path):
 
 
 def test_get_scenario_report_bad_file(tmp_path, monkeypatch):
-    import server
     # Force report load error
     monkeypatch.setattr(server, "OUT_DIR", tmp_path)
     monkeypatch.setattr(server, "RESULTS_DIR", tmp_path)
@@ -321,7 +355,6 @@ def test_get_scenario_report_bad_file(tmp_path, monkeypatch):
 
 
 def test_get_scenario_log_path_none(tmp_path, monkeypatch):
-    import server
     monkeypatch.setattr(server, "OUT_DIR", tmp_path)
     monkeypatch.setattr(server, "ROOT_DIR", tmp_path)
     assert server.get_scenario_log_path("missing") is None
@@ -329,12 +362,12 @@ def test_get_scenario_log_path_none(tmp_path, monkeypatch):
 
 def test_run_simulation_missing_scen():
     from server import run_simulation
+
     with pytest.raises(FileNotFoundError):
         run_simulation("non_existent_scen_xyz")
 
 
 def test_run_simulation_mocked(tmp_path, monkeypatch):
-    import server
     from unittest.mock import MagicMock
 
     rep_path = tmp_path / "01_clear.json"
@@ -386,7 +419,6 @@ def test_extract_map_data_variations():
 
 
 def test_parse_ticks_log_edge_cases(tmp_path, monkeypatch):
-    import server
 
     # Non-existent log
     monkeypatch.setattr(server, "get_scenario_log_path", lambda s: None)
@@ -420,7 +452,6 @@ def test_parse_ticks_log_edge_cases(tmp_path, monkeypatch):
 
 
 def test_build_dashboard_empty_ticks(monkeypatch):
-    import server
     # Force empty raw_ticks in parse_ticks_log
     monkeypatch.setattr(
         server,
@@ -434,7 +465,6 @@ def test_build_dashboard_empty_ticks(monkeypatch):
 
 
 def test_build_episodes_gnss_and_empty(monkeypatch):
-    import server
 
     # GNSS outage tick
     gnss_ticks = [
@@ -494,7 +524,6 @@ def test_api_report_not_found(http_server):
 
 
 def test_api_ui_endpoints_error_branches(http_server, monkeypatch):
-    import server
 
     def raise_err(*args, **kwargs):
         raise ValueError("Simulated UI builder error")
@@ -530,7 +559,6 @@ def test_api_static_frontend_and_spa(http_server):
 
 
 def test_api_run_simulation_endpoint(http_server, monkeypatch):
-    import server
 
     def mock_run_sim(scenario_id, controller_path, seed, cheat):
         return {
@@ -547,12 +575,14 @@ def test_api_run_simulation_endpoint(http_server, monkeypatch):
 
     # Valid POST /api/run
     url = f"{http_server}/api/run"
-    payload = json.dumps({
-        "scenario": "01_clear",
-        "controller": "team/controller.py",
-        "seed": 7,
-        "cheatPose": False,
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "scenario": "01_clear",
+            "controller": "team/controller.py",
+            "seed": 7,
+            "cheatPose": False,
+        }
+    ).encode("utf-8")
 
     req = Request(url, data=payload, headers={"Content-Type": "application/json"})
     with urlopen(req) as resp:
@@ -561,11 +591,10 @@ def test_api_run_simulation_endpoint(http_server, monkeypatch):
         assert data["exitCode"] == 0
         assert data["score"] == 95.0
         assert "logs" in data
-        assert any("amrsim simulated run ok" in l for l in data["logs"])
+        assert any("amrsim simulated run ok" in line for line in data["logs"])
 
 
 def test_api_run_simulation_error_branch(http_server, monkeypatch):
-    import server
 
     def mock_run_fail(*args, **kwargs):
         raise RuntimeError("Controller crash simulated")
@@ -580,7 +609,6 @@ def test_api_run_simulation_error_branch(http_server, monkeypatch):
 
 
 def test_server_main_execution(monkeypatch):
-    import server
     from unittest.mock import MagicMock
 
     mock_srv = MagicMock()
@@ -599,7 +627,6 @@ def test_server_main_execution(monkeypatch):
 
 
 def test_api_run_simulation_with_stderr_and_invalid_body(http_server, monkeypatch):
-    import server
 
     def mock_run_with_stderr(*args, **kwargs):
         return {
@@ -620,11 +647,10 @@ def test_api_run_simulation_with_stderr_and_invalid_body(http_server, monkeypatc
     with urlopen(req) as resp:
         assert resp.status == 200
         data = json.loads(resp.read().decode("utf-8"))
-        assert any("warning: some warning" in l for l in data["logs"])
+        assert any("warning: some warning" in line for line in data["logs"])
 
 
 def test_api_static_serving_404_when_no_frontend_dist(http_server, monkeypatch):
-    import server
     monkeypatch.setattr(server, "FRONTEND_DIST", Path("/non_existent_frontend_dist_dir"))
     with pytest.raises(HTTPError) as exc_info:
         urlopen(f"{http_server}/nonexistent_static_path_123")
@@ -632,7 +658,6 @@ def test_api_static_serving_404_when_no_frontend_dist(http_server, monkeypatch):
 
 
 def test_api_static_serving_existing_file(http_server, monkeypatch):
-    import server
     # Set FRONTEND_DIST to ROOT_DIR so super().do_GET() serves pyproject.toml in cwd
     monkeypatch.setattr(server, "FRONTEND_DIST", server.ROOT_DIR)
     with urlopen(f"{http_server}/pyproject.toml") as resp:
@@ -640,7 +665,6 @@ def test_api_static_serving_existing_file(http_server, monkeypatch):
 
 
 def test_get_scenario_file_edge_cases(tmp_path, monkeypatch):
-    import server
 
     # 1. Line 165: raw_p is not a file relative to cwd, but rel_p is
     monkeypatch.chdir(tmp_path)
@@ -664,7 +688,6 @@ def test_get_scenario_file_edge_cases(tmp_path, monkeypatch):
 
 
 def test_run_simulation_corrupt_report(tmp_path, monkeypatch):
-    import server
     from unittest.mock import MagicMock
 
     rep_path = tmp_path / "01_clear.json"
@@ -683,7 +706,6 @@ def test_run_simulation_corrupt_report(tmp_path, monkeypatch):
 
 
 def test_checkpoint_spacing_skip(monkeypatch):
-    import server
 
     # Two checkpoints very close in time (< 15.0s) to trigger line 834 skip
     ticks = [
@@ -714,7 +736,6 @@ def test_checkpoint_spacing_skip(monkeypatch):
 
 
 def test_build_episodes_with_episodes_but_empty_ticks(monkeypatch):
-    import server
     monkeypatch.setattr(
         server,
         "parse_ticks_log",
@@ -732,17 +753,10 @@ def test_build_episodes_with_episodes_but_empty_ticks(monkeypatch):
 
 
 def test_server_entrypoint_main():
-    import server
-    from unittest.mock import patch
     import runpy
+    from unittest.mock import patch
 
     with patch.object(sys, "argv", ["server.py", "--help"]):
         with pytest.raises(SystemExit) as exc:
             runpy.run_path(str(Path(server.__file__)), run_name="__main__")
         assert exc.value.code == 0
-
-
-
-
-
-

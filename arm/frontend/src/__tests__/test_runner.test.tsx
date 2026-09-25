@@ -97,15 +97,14 @@ describe('RunnerPage Component', () => {
 
   it('handles successful simulation launch and displays score & action buttons', async () => {
     const runSpy = vi.spyOn(apiClient, 'runSimulation').mockResolvedValue({
-      scenario: '04_busy_yard',
-      seed: 7,
       exitCode: 0,
-      score: 99.4,
-      duration: 10.2,
-      wallTimeMs: 1500,
-      completed: true,
       stdout: '[STEP 100] Reached dock\n[STEP 200] Unloaded pallet',
       stderr: '',
+      reportPath: 'out/04_busy_yard.json',
+      logPath: 'out/04_busy_yard.jsonl',
+      report: {},
+      score: 99.4,
+      logs: ['[STEP 100] Reached dock', '[STEP 200] Unloaded pallet'],
     });
 
     render(<RunnerPage onNavigate={onNavigateMock} />);

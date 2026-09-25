@@ -2,6 +2,7 @@
 
 Conforms to plan/02-lokalizaciya.md and isolation requirements (only stdlib and numpy).
 """
+
 import math
 from typing import List, Optional, Tuple, Union
 
@@ -25,12 +26,12 @@ except ImportError:
 
 class Localizer:
     """AMR State Estimator and Localizer.
-    
+
     Coordinates:
       x: East (m)
       y: North (m)
       th: Counterclockwise from East (rad)
-      
+
     Pure odometry frame (ox, oy, oth) is tracked without corrections for dynamic object perception.
     """
 
@@ -91,7 +92,7 @@ class Localizer:
         # Speed cap exported to the safety governor (plan/02 "Потеря ориентации")
         self.lost_speed_limit = 1.39
         self._low_inlier_ticks = 0
-        self._gnss_fix_ticks = 10 ** 9
+        self._gnss_fix_ticks = 10**9
 
         # GNSS gating and recovery tracking
         self.gnss_rejections: List[Tuple[float, float]] = []
@@ -106,8 +107,9 @@ class Localizer:
         # Longitudinal landmarks: ends of mapped segments and pole centres (plan/02:63-81)
         self.landmarks = self._build_landmarks(building_segs, pole_centers)
         if pole_centers is not None and len(pole_centers) > 0:
-            self.pole_centers: Optional[np.ndarray] = np.asarray(
-                pole_centers, dtype=float).reshape(-1, 2)
+            self.pole_centers: Optional[np.ndarray] = np.asarray(pole_centers, dtype=float).reshape(
+                -1, 2
+            )
         else:
             self.pole_centers = None
 
@@ -209,7 +211,7 @@ class Localizer:
         dt: float,
     ) -> None:
         """Prediction step using odometry and IMU.
-        
+
         - Pure odometry (ox, oy, oth) updated directly.
         - True position (x, y) updated by (odom_dx, odom_dy) / scale rotated by current th.
         - Heading watchdog: if imu_heading jumps > 0.05 rad compared to expected, integrate yaw_rate.
@@ -271,13 +273,15 @@ class Localizer:
         d_var_along = 0.0
         bound = self._along_bound_m()
         if bound > 0.0:
-            self.var_along = max(self.var_along, bound ** 2)
+            self.var_along = max(self.var_along, bound**2)
 
         # Cross-track variance: grows with heading uncertainty and yaw drift (0.3 deg / sqrt(min))
         # 0.3 deg = 0.0052 rad -> ~0.0052 / sqrt(60) ≈ 0.00067 rad/sqrt(s) -> per second ~4.5e-7 rad^2/s
-        yaw_drift_var = (0.00067 ** 2) * dt
+        yaw_drift_var = (0.00067**2) * dt
         self.var_th += yaw_drift_var
-        d_var_cross = (step_dist * math.sin(math.sqrt(self.var_th))) ** 2 + (0.005 * step_dist) ** 2 + 1e-5
+        d_var_cross = (
+            (step_dist * math.sin(math.sqrt(self.var_th))) ** 2 + (0.005 * step_dist) ** 2 + 1e-5
+        )
         self.var_cross += d_var_cross
         self._predict_var = (d_var_along, d_var_cross, yaw_drift_var)
 
@@ -323,7 +327,7 @@ class Localizer:
         segs_aabb: Optional[np.ndarray] = None,
     ) -> bool:
         """Scan-matching against map segments using 4 iterations of Gauss-Newton.
-        
+
         Args:
           ranges: 1D array of beam ranges (360 beams, 1 deg step)
           rel_angles: 1D array of beam angles in robot frame (rad)
@@ -357,7 +361,7 @@ class Localizer:
         # Perform snow filtering on the full/subsampled rays
         # Subsampled indices
         sub_indices = np.arange(0, len(r_all), step)
-        
+
         # Check Cartesian distances between neighbouring beams to eliminate single snow specks
         # A return is snow if isolated: both left and right neighbours (in 1 deg array) are not within 0.4m
         cos_rel_all = np.cos(rel_all)
@@ -379,12 +383,16 @@ class Localizer:
         m_prev = finite_all & finite_all[prev_idx]
         m_next = finite_all & finite_all[next_idx]
 
-        d_prev[m_prev] = np.hypot(x_pts[m_prev] - x_pts[prev_idx[m_prev]], y_pts[m_prev] - y_pts[prev_idx[m_prev]])
-        d_next[m_next] = np.hypot(x_pts[m_next] - x_pts[next_idx[m_next]], y_pts[m_next] - y_pts[next_idx[m_next]])
+        d_prev[m_prev] = np.hypot(
+            x_pts[m_prev] - x_pts[prev_idx[m_prev]], y_pts[m_prev] - y_pts[prev_idx[m_prev]]
+        )
+        d_next[m_next] = np.hypot(
+            x_pts[m_next] - x_pts[next_idx[m_next]], y_pts[m_next] - y_pts[next_idx[m_next]]
+        )
 
         # A point is supported if either neighbor is finite and within 0.4m
         supported = (d_prev < 0.4) | (d_next < 0.4)
-        
+
         supported_sub = supported[sub_indices]
         candidate_mask = valid_range_mask & supported_sub
         if candidate_mask.sum() < 20:
@@ -421,7 +429,7 @@ class Localizer:
             # If distance from ray origin to projection point is significantly greater than range,
             # it means ray stopped well before the map wall (obstacle/person/snow).
             dist_to_proj = np.hypot(disp.projs[:, 0] - cur_x, disp.projs[:, 1] - cur_y)
-            not_short = (cand_ranges >= dist_to_proj - 0.4)
+            not_short = cand_ranges >= dist_to_proj - 0.4
 
             inlier_mask = (residuals < 0.25) & not_short
             inliers_count = int(inlier_mask.sum())
@@ -439,7 +447,9 @@ class Localizer:
             # Huber weighting: delta = 0.08
             huber_delta = 0.08
             abs_res = np.abs(res_inliers)
-            weights = np.where(abs_res <= huber_delta, 1.0, huber_delta / np.maximum(abs_res, 1e-12))
+            weights = np.where(
+                abs_res <= huber_delta, 1.0, huber_delta / np.maximum(abs_res, 1e-12)
+            )
             last_weights = weights
 
             # Residual signed error: r_i = n_x * (p_x - proj_x) + n_y * (p_y - proj_y) = dist
@@ -450,11 +460,13 @@ class Localizer:
             rx = px_inliers - cur_x
             ry = py_inliers - cur_y
 
-            J = np.column_stack([
-                norm_inliers[:, 0],
-                norm_inliers[:, 1],
-                -norm_inliers[:, 0] * ry + norm_inliers[:, 1] * rx,
-            ])  # (K, 3)
+            J = np.column_stack(
+                [
+                    norm_inliers[:, 0],
+                    norm_inliers[:, 1],
+                    -norm_inliers[:, 0] * ry + norm_inliers[:, 1] * rx,
+                ]
+            )  # (K, 3)
 
             W = weights[:, None]
             JW = J * W
@@ -538,18 +550,17 @@ class Localizer:
                 # a dense match *and* the angle/landmark evidence.
                 gnss_recent = self.last_gnss_accepted or self._gnss_fix_ticks <= 50
                 if not self.scale_locked:
-                    longitudinal = (self._scan_has_angle(last_normals)
-                                    or self._scan_holds_landmark(
-                                        r_all, rel_all, d_prev, d_next, finite_all,
-                                        near_segs_arr))
+                    longitudinal = self._scan_has_angle(last_normals) or self._scan_holds_landmark(
+                        r_all, rel_all, d_prev, d_next, finite_all, near_segs_arr
+                    )
                     if gnss_recent or (inliers_count > 80 and longitudinal):
-                        self._accumulate_scale(
-                            prev_ox, prev_oy, cur_x - prev_x, cur_y - prev_y)
+                        self._accumulate_scale(prev_ox, prev_oy, cur_x - prev_x, cur_y - prev_y)
                 self._pending_odom_step = 0.0
 
                 # Longitudinal landmarks: update the weak (tangential) axis only.
                 self._apply_landmark_correction(
-                    r_all, rel_all, d_prev, d_next, finite_all, near_segs_arr)
+                    r_all, rel_all, d_prev, d_next, finite_all, near_segs_arr
+                )
 
             self._check_lost_status()
             return True
@@ -654,7 +665,7 @@ class Localizer:
         nx = float(np.mean(disp.normals[:, 0]))
         ny = float(np.mean(disp.normals[:, 1]))
         mag = math.hypot(nx, ny)
-        inc = 0.02 ** 2
+        inc = 0.02**2
         if mag < 1e-6:
             self.var_cross += inc
         else:
@@ -793,7 +804,7 @@ class Localizer:
             sin_d2 = math.sin(d_angle) ** 2
 
             # The normal error collapses to ~0.02^2 (scan precision)
-            var_wall = 0.02 ** 2
+            var_wall = 0.02**2
 
             # Along and cross variance update.
             # The scan measures the wall NORMAL. Project it on the robot axes:
@@ -895,7 +906,7 @@ class Localizer:
         s = sorted(values)
         n = len(s)
         k = int(trim * n)
-        kept = s[k:n - k] if n - 2 * k > 0 else s
+        kept = s[k : n - k] if n - 2 * k > 0 else s
         return sum(kept) / len(kept)
 
     def update_gnss(
@@ -980,13 +991,12 @@ class Localizer:
             shift_x = float(recent[:, 0].mean())
             shift_y = float(recent[:, 1].mean())
             shift = math.hypot(shift_x, shift_y)
-            if (recent.std(axis=0).max() < 0.5 and self.scan_inliers >= 60
-                    and 1.5 < shift < 3.0):
+            if recent.std(axis=0).max() < 0.5 and self.scan_inliers >= 60 and 1.5 < shift < 3.0:
                 # Filter drifted along an unobservable wall, GNSS is consistent.
                 self.x += shift_x
                 self.y += shift_y
-                self.var_along = 0.5 ** 2
-                self.var_cross = 0.5 ** 2
+                self.var_along = 0.5**2
+                self.var_cross = 0.5**2
                 self.gnss_rejections.clear()
                 self._check_lost_status()
                 return True
@@ -1004,7 +1014,7 @@ class Localizer:
         dock_wall_segs: np.ndarray,
     ) -> bool:
         """Accurate docking snap within 1.5 - 3.0 m of dock goal.
-        
+
         Front beam ~0 deg expects 1.5m to front dock wall.
         Side beams ~+-90 deg expect 2.5m to side dock walls.
         Adjusts pose by half the discrepancy along and cross heading.
@@ -1048,7 +1058,7 @@ class Localizer:
             # If measured range is smaller than expected, robot is closer than expected -> move backwards
             self.x -= 0.5 * err_f * cos_th
             self.y -= 0.5 * err_f * sin_th
-            self.var_along = min(self.var_along, 0.02 ** 2)
+            self.var_along = min(self.var_along, 0.02**2)
             applied = True
 
         # Lateral adjustment (side walls)
@@ -1063,7 +1073,7 @@ class Localizer:
             # Lateral direction is (-sin_th, cos_th)
             self.x += 0.5 * lat_corr * (-sin_th)
             self.y += 0.5 * lat_corr * cos_th
-            self.var_cross = min(self.var_cross, 0.02 ** 2)
+            self.var_cross = min(self.var_cross, 0.02**2)
             applied = True
 
         if applied:
@@ -1117,7 +1127,7 @@ class Localizer:
         is_fog: bool = False,
     ) -> bool:
         """Global/local hypothesis search over grid when lost.
-        
+
         Grid: dx in [-3, 3] step 0.5m, dy in [-3, 3] step 0.5m, dth in [-8°, 8°] step 2°.
         Uses 60 rays for evaluation. Sharp peak accepted to clear is_lost.
         """
@@ -1176,17 +1186,22 @@ class Localizer:
         # score almost identically by construction, so they must not count as rivals.
         second_score = 0
         for score, cx, cy, cand_th in candidates[1:]:
-            if (abs(cx - bx) > 0.75 or abs(cy - by) > 0.75
-                    or abs(wrap_angle(cand_th - bth)) > math.radians(3.0)):
+            if (
+                abs(cx - bx) > 0.75
+                or abs(cy - by) > 0.75
+                or abs(wrap_angle(cand_th - bth)) > math.radians(3.0)
+            ):
                 second_score = score
                 break
 
         # Sharp distinct peak: inliers >= 35 and clearly better than the rest of the grid
-        if best_score >= 35 and (best_score >= second_score * 1.15 or best_score - second_score >= 6):
+        if best_score >= 35 and (
+            best_score >= second_score * 1.15 or best_score - second_score >= 6
+        ):
             best_hypothesis = (bx, by, bth)
             self.x, self.y, self.th = best_hypothesis
-            self.var_along = 0.2 ** 2
-            self.var_cross = 0.2 ** 2
+            self.var_along = 0.2**2
+            self.var_cross = 0.2**2
             self.var_th = np.radians(3.0) ** 2
             self.is_lost = False
             return True
@@ -1218,9 +1233,12 @@ class Localizer:
 
         if entering:
             self.is_lost = True
-        elif (self.sigma_cross < 0.4 and self.sigma_th < math.radians(5.0)
-              and (self.sigma_along < 2.0 or self._unconfirmed_dist == 0.0)
-              and self._low_inlier_ticks == 0):
+        elif (
+            self.sigma_cross < 0.4
+            and self.sigma_th < math.radians(5.0)
+            and (self.sigma_along < 2.0 or self._unconfirmed_dist == 0.0)
+            and self._low_inlier_ticks == 0
+        ):
             # The exit also accepts a *confirmed* along axis: sigma_along is a cumulative
             # bound, so without this the stale wide value would hold the platform stopped
             # even after the along position has been measured afresh.

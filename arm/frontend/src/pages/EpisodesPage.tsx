@@ -131,7 +131,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     if (episodesData && episodesData.episodes && episodesData.episodes.length > 0) {
       const headers = "Episode ID,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation";
       const rows = episodesData.episodes.map((ep) => {
-        const snap = ep.telemetrySnapshot || {};
+        const snap = (ep.telemetrySnapshot || {}) as Record<string, any>;
         const v = typeof snap.v === 'number' ? snap.v.toFixed(2) : '';
         const hum = typeof snap.hum === 'number' ? snap.hum.toFixed(2) : '';
         const obj = typeof snap.obj === 'number' ? snap.obj.toFixed(2) : '';

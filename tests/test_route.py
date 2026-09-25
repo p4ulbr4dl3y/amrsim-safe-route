@@ -4,6 +4,7 @@ Verifies Pure Pursuit tracking, speed zones, FB_HAZ forbidden zone exclusion,
 mission 'from' distance leg generation, lateral offset, A* replan, and obstacle stop.
 Conforms strictly to plan/04-marshrut-i-missii.md and isolation requirements.
 """
+
 import json
 import math
 import os
@@ -33,9 +34,23 @@ def load_test_map():
             [[187.5, 84.0], [192.5, 84.0], [192.5, 92.0], [187.5, 92.0]],
         ],
         "zones": [
-            {"id": "FB_HAZ", "type": "forbidden", "polygon": [[68.0, 154.0], [75.0, 154.0], [75.0, 160.0], [68.0, 160.0]]},
-            {"id": "SL_CROSS", "type": "speed_limit", "v_max": 0.8, "polygon": [[60.0, 108.0], [70.0, 108.0], [70.0, 128.0], [60.0, 128.0]]},
-            {"id": "SL_YARD", "type": "speed_limit", "v_max": 1.0, "polygon": [[105.0, 145.0], [160.0, 145.0], [160.0, 155.0], [105.0, 155.0]]},
+            {
+                "id": "FB_HAZ",
+                "type": "forbidden",
+                "polygon": [[68.0, 154.0], [75.0, 154.0], [75.0, 160.0], [68.0, 160.0]],
+            },
+            {
+                "id": "SL_CROSS",
+                "type": "speed_limit",
+                "v_max": 0.8,
+                "polygon": [[60.0, 108.0], [70.0, 108.0], [70.0, 128.0], [60.0, 128.0]],
+            },
+            {
+                "id": "SL_YARD",
+                "type": "speed_limit",
+                "v_max": 1.0,
+                "polygon": [[105.0, 145.0], [160.0, 145.0], [160.0, 155.0], [105.0, 155.0]],
+            },
         ],
         "points": {
             "warehouse": {"x": 51.5, "y": 150.0, "heading": math.pi, "tol": 0.2},
@@ -127,11 +142,13 @@ class TestRouteFollower(unittest.TestCase):
         self.assertLess(min(dists_to_from), 1.5)
 
     def test_pure_pursuit_rotation_and_speed_limits(self):
-        straight_path = np.array([
-            [100.0, 151.0],
-            [150.0, 151.0],
-            [200.0, 151.0],
-        ])
+        straight_path = np.array(
+            [
+                [100.0, 151.0],
+                [150.0, 151.0],
+                [200.0, 151.0],
+            ]
+        )
 
         # 1. In-place rotation when |alpha| > 0.8 rad:
         # Robot at (100, 151), path goes East (+X, angle 0), robot points North (th = pi/2 ~ 1.57 rad)
@@ -155,10 +172,12 @@ class TestRouteFollower(unittest.TestCase):
         self.assertAlmostEqual(w_str, 0.0, delta=1e-3)
 
     def test_pure_pursuit_braking_and_dock(self):
-        dock_path = np.array([
-            [217.5, 151.0],
-            [220.0, 158.5],
-        ])
+        dock_path = np.array(
+            [
+                [217.5, 151.0],
+                [220.0, 158.5],
+            ]
+        )
 
         # 1. Lookahead in dock zone (remaining distance <= 1.5m):
         # Target must be strictly the dock goal (220.0, 158.5) and v <= 0.15 m/s
@@ -169,13 +188,16 @@ class TestRouteFollower(unittest.TestCase):
         self.assertAlmostEqual(tgt_dock[1], 158.5)
 
         # 2. Terminal arrival within 0.10m:
-        cmd = self.rf.step((220.0, 158.45, math.pi / 2), mission={
-            "id": "dock_test",
-            "from": "warehouse",
-            "to": "shop_a",
-            "goal": [220.0, 158.5, math.pi / 2],
-            "reference_path": dock_path.tolist(),
-        })
+        cmd = self.rf.step(
+            (220.0, 158.45, math.pi / 2),
+            mission={
+                "id": "dock_test",
+                "from": "warehouse",
+                "to": "shop_a",
+                "goal": [220.0, 158.5, math.pi / 2],
+                "reference_path": dock_path.tolist(),
+            },
+        )
         self.assertEqual(cmd["status"], "arrived")
         self.assertTrue(cmd["arrived"])
         self.assertEqual(cmd["v"], 0.0)
@@ -268,8 +290,7 @@ class TestRouteFollower(unittest.TestCase):
         # boundary, so the margin is baked into the static grid.
         rf = self.rf
         ys, xs = np.nonzero(rf.static_free_grid)
-        pts = np.column_stack([rf.x_min + xs * rf.grid_res,
-                               rf.y_min + ys * rf.grid_res])
+        pts = np.column_stack([rf.x_min + xs * rf.grid_res, rf.y_min + ys * rf.grid_res])
         self.assertTrue(np.all(rf.is_drivable(pts, margin=0.2)))
 
         # A cell sitting on the northern aisle boundary (edge y=152.5) is not free.
@@ -312,8 +333,9 @@ class TestRouteFollower(unittest.TestCase):
         # Obstacle 2.5 m north of the centreline triggers tube avoidance, but
         # the straight line to the remaining reference is already clear.
         obstacle = (110.0, 97.0, 0.8, 30.0)
-        replanned = self.rf.replan_astar((80.0, 94.5, 0.0), ref_path, obstacle,
-                                         all_obstacles=[(110.0, 97.0, 0.8)])
+        replanned = self.rf.replan_astar(
+            (80.0, 94.5, 0.0), ref_path, obstacle, all_obstacles=[(110.0, 97.0, 0.8)]
+        )
         self.assertIsNotNone(replanned)
         pts = np.asarray(replanned, dtype=float)
         joined = np.isclose(pts[:, 0], 110.0) & np.isclose(pts[:, 1], 94.5)
@@ -389,6 +411,7 @@ class TestRouteFollower(unittest.TestCase):
 class TestRouteCoverage(unittest.TestCase):
     def test_priority_queue_empty_pop(self):
         from team_dreamteam_4_0.route import _PriorityQueue
+
         pq = _PriorityQueue()
         with self.assertRaises(IndexError):
             pq.get()
@@ -480,13 +503,18 @@ class TestRouteCoverage(unittest.TestCase):
 
     def test_import_fallback(self):
         import sys
+
         mod_name = "team.route"
         if mod_name in sys.modules:
             orig = sys.modules[mod_name]
             try:
                 with open("/Users/yegor/doc-1790342627/team/route.py", "r") as f:
                     code = f.read()
-                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/route.py", "__package__": ""}
+                globs = {
+                    "__name__": "__main__",
+                    "__file__": "/Users/yegor/doc-1790342627/team/route.py",
+                    "__package__": "",
+                }
                 team_path = "/Users/yegor/doc-1790342627/team"
                 if team_path not in sys.path:
                     sys.path.insert(0, team_path)

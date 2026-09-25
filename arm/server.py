@@ -8,15 +8,14 @@ for the AMR SafeRoute operator dashboard without external dependencies.
 from __future__ import annotations
 
 import argparse
-from http import HTTPStatus
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
 import os
-from pathlib import Path
 import subprocess
 import sys
-import time
+from http import HTTPStatus
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -166,7 +165,7 @@ def get_scenario_file(scenario_id: str) -> Path | None:
 
     # If backend/ was requested, map to team/ if present
     if str(scenario_id).startswith("backend/"):
-        mapped = ROOT_DIR / ("team/" + str(scenario_id)[len("backend/"):])
+        mapped = ROOT_DIR / ("team/" + str(scenario_id)[len("backend/") :])
         if mapped.is_file() and mapped.exists():
             return mapped
 
@@ -254,9 +253,9 @@ def run_simulation(
     log_path = OUT_DIR / f"{norm_id}.jsonl"
 
     if controller_path.startswith("team/"):
-        controller_path = "team_dreamteam_4_0/" + controller_path[len("team/"):]
+        controller_path = "team_dreamteam_4_0/" + controller_path[len("team/") :]
     elif controller_path.startswith("backend/"):
-        controller_path = "team_dreamteam_4_0/" + controller_path[len("backend/"):]
+        controller_path = "team_dreamteam_4_0/" + controller_path[len("backend/") :]
 
     env = os.environ.copy()
     amrsim_part_dir = str((ROOT_DIR / "amrsim-participants").resolve())
@@ -429,10 +428,14 @@ def compute_step_distribution(n: int, mean_ms: float, max_ms: float) -> list[dic
     weights = []
     for b in bins:
         x = max(0.5, float(b))
-        w = (1.0 / (x * sigma * math.sqrt(2 * math.pi))) * math.exp(-((math.log(x) - mu) ** 2) / (2 * sigma ** 2))
+        w = (1.0 / (x * sigma * math.sqrt(2 * math.pi))) * math.exp(
+            -((math.log(x) - mu) ** 2) / (2 * sigma**2)
+        )
         weights.append(w)
     total_w = sum(weights) or 1.0
-    return [{"bin": b, "count": max(1, int(round(n * (w / total_w))))} for b, w in zip(bins, weights)]
+    return [
+        {"bin": b, "count": max(1, int(round(n * (w / total_w))))} for b, w in zip(bins, weights)
+    ]
 
 
 # ==============================================================================
@@ -489,35 +492,43 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
         dest = m.get("to", "")
         hold = m.get("max_hold_dist") if m.get("max_hold_dist") is not None else 0.0
         delivered = m.get("delivered", True)
-        recent_events.append({
-            "id": f"e-m-{m_id}",
-            "title": f"AMR-1 · {'Доставка ' + m_id + ' завершена' if delivered else 'Таймаут доставки ' + m_id} ({POINT_LABELS.get(dest, dest)})",
-            "detail": f"Время {t_arr:.1f}с, удержание {hold:.3f}м" if delivered else f"Время истекло ({t_arr:.1f}с)",
-            "time": format_time(t_arr),
-            "status": "success" if delivered else "critical",
-        })
+        recent_events.append(
+            {
+                "id": f"e-m-{m_id}",
+                "title": f"AMR-1 · {'Доставка ' + m_id + ' завершена' if delivered else 'Таймаут доставки ' + m_id} ({POINT_LABELS.get(dest, dest)})",
+                "detail": f"Время {t_arr:.1f}с, удержание {hold:.3f}м"
+                if delivered
+                else f"Время истекло ({t_arr:.1f}с)",
+                "time": format_time(t_arr),
+                "status": "success" if delivered else "critical",
+            }
+        )
 
     # Add episodes as warnings/info
     for idx, ep in enumerate(episodes):
         ep_type = ep.get("type", "incident")
         cost = ep.get("cost", 0.0)
         t_st = ep.get("t_start", 0.0)
-        recent_events.append({
-            "id": f"e-ep-{idx}",
-            "title": f"AMR-1 · {CATEGORY_NAMES.get(ep_type, ep_type)} ({ep_type})",
-            "detail": f"t={t_st:.1f}с, штраф {cost:+.2f} pts, x={ep.get('x', 0):.1f}, y={ep.get('y', 0):.1f}",
-            "time": format_time(t_st),
-            "status": "warning" if cost < 0 else "info",
-        })
+        recent_events.append(
+            {
+                "id": f"e-ep-{idx}",
+                "title": f"AMR-1 · {CATEGORY_NAMES.get(ep_type, ep_type)} ({ep_type})",
+                "detail": f"t={t_st:.1f}с, штраф {cost:+.2f} pts, x={ep.get('x', 0):.1f}, y={ep.get('y', 0):.1f}",
+                "time": format_time(t_st),
+                "status": "warning" if cost < 0 else "info",
+            }
+        )
 
     # Add controller state/info event
-    recent_events.append({
-        "id": "e-sys-start",
-        "title": f"Система · Сценарий {norm_id} загружен",
-        "detail": f"Всего шагов: {len(raw_ticks)}, Seed: {report.get('seed', 7) if report else 7}",
-        "time": "00:00",
-        "status": "info",
-    })
+    recent_events.append(
+        {
+            "id": "e-sys-start",
+            "title": f"Система · Сценарий {norm_id} загружен",
+            "detail": f"Всего шагов: {len(raw_ticks)}, Seed: {report.get('seed', 7) if report else 7}",
+            "time": "00:00",
+            "status": "info",
+        }
+    )
 
     # Sort recent events by time descending
     recent_events.reverse()
@@ -568,7 +579,7 @@ def build_replay_view_model(scenario_id: str, seed: int = 7) -> dict:
     episodes_raw = report.get("score", {}).get("episodes", []) if report else []
     episodes_formatted = [
         {
-            "id": f"ep-{idx+1}",
+            "id": f"ep-{idx + 1}",
             "type": ep.get("type", "warning"),
             "category": CATEGORY_NAMES.get(ep.get("type", ""), ep.get("type", "")),
             "t_start": ep.get("t_start", 0.0),
@@ -642,24 +653,28 @@ def build_episodes_view_model(scenario_id: str) -> dict:
 
         severity = "critical" if cost <= -2.0 else "warning" if cost < 0 else "info"
 
-        episodes.append({
-            "id": f"ep-{idx+1}",
-            "severity": severity,
-            "type": ep_type,
-            "category": CATEGORY_NAMES.get(ep_type, "Предупреждение"),
-            "t_start": t_start,
-            "t_end": t_end,
-            "x": ep.get("x", 0.0),
-            "y": ep.get("y", 0.0),
-            "cost": cost,
-            "ruleExplanation": RULE_EXPLANATIONS.get(ep_type, f"Событие безопасности: {ep_type}"),
-            "telemetrySnapshot": telemetry,
-        })
+        episodes.append(
+            {
+                "id": f"ep-{idx + 1}",
+                "severity": severity,
+                "type": ep_type,
+                "category": CATEGORY_NAMES.get(ep_type, "Предупреждение"),
+                "t_start": t_start,
+                "t_end": t_end,
+                "x": ep.get("x", 0.0),
+                "y": ep.get("y", 0.0),
+                "cost": cost,
+                "ruleExplanation": RULE_EXPLANATIONS.get(
+                    ep_type, f"Событие безопасности: {ep_type}"
+                ),
+                "telemetrySnapshot": telemetry,
+            }
+        )
 
     # If scenario had few or no penalty episodes, extract mission events and telemetry highlights
     if len(episodes) < 4:
         # 1. Mission Milestones (Departure, Delivery/Timeout)
-        for m in (report.get("missions", []) if report else []):
+        for m in report.get("missions", []) if report else []:
             m_id = m.get("id", "m1")
             from_pt = POINT_LABELS.get(m.get("from", ""), m.get("from", ""))
             to_pt = POINT_LABELS.get(m.get("to", ""), m.get("to", ""))
@@ -669,53 +684,70 @@ def build_episodes_view_model(scenario_id: str) -> dict:
 
             # Departure
             tk_st = find_tick_at(t_st)
-            episodes.append({
-                "id": f"ep-m-start-{m_id}",
-                "severity": "info",
-                "type": "mission_start",
-                "category": "Старт миссии",
-                "t_start": round(t_st, 1),
-                "t_end": round(t_st + 1.0, 1),
-                "x": round(tk_st.get("x", 0.0) if tk_st else 0.0, 2),
-                "y": round(tk_st.get("y", 0.0) if tk_st else 0.0, 2),
-                "cost": 0.0,
-                "ruleExplanation": f"Старт доставки {m_id}: {from_pt} $\\rightarrow$ {to_pt}",
-                "telemetrySnapshot": {
-                    "v": round(tk_st.get("v", 0.0), 2) if tk_st else 0.0,
-                    "cv": round(tk_st.get("cv", 0.0), 2) if tk_st else 0.0,
-                    "hum": round(tk_st["hum"], 2) if tk_st and tk_st.get("hum") is not None else None,
-                    "obj": round(tk_st["obj"], 2) if tk_st and tk_st.get("obj") is not None else None,
-                    "pe_error": tk_st.get("pe_error", 0.0) if tk_st else 0.0,
-                    "status": "MOVING",
-                    "note": f"start_{m_id}",
-                },
-            })
+            episodes.append(
+                {
+                    "id": f"ep-m-start-{m_id}",
+                    "severity": "info",
+                    "type": "mission_start",
+                    "category": "Старт миссии",
+                    "t_start": round(t_st, 1),
+                    "t_end": round(t_st + 1.0, 1),
+                    "x": round(tk_st.get("x", 0.0) if tk_st else 0.0, 2),
+                    "y": round(tk_st.get("y", 0.0) if tk_st else 0.0, 2),
+                    "cost": 0.0,
+                    "ruleExplanation": f"Старт доставки {m_id}: {from_pt} $\\rightarrow$ {to_pt}",
+                    "telemetrySnapshot": {
+                        "v": round(tk_st.get("v", 0.0), 2) if tk_st else 0.0,
+                        "cv": round(tk_st.get("cv", 0.0), 2) if tk_st else 0.0,
+                        "hum": round(tk_st["hum"], 2)
+                        if tk_st and tk_st.get("hum") is not None
+                        else None,
+                        "obj": round(tk_st["obj"], 2)
+                        if tk_st and tk_st.get("obj") is not None
+                        else None,
+                        "pe_error": tk_st.get("pe_error", 0.0) if tk_st else 0.0,
+                        "status": "MOVING",
+                        "note": f"start_{m_id}",
+                    },
+                }
+            )
 
             # Arrival
             tk_arr = find_tick_at(t_arr)
             hold_dist = m.get("max_hold_dist")
-            hold_str = f", удержание $d \\le {hold_dist:.3f}\\,\\text{{м}}$" if hold_dist is not None else ""
-            episodes.append({
-                "id": f"ep-m-arr-{m_id}",
-                "severity": "success" if delivered else "critical",
-                "type": "mission_delivered" if delivered else "mission_timeout",
-                "category": "Доставка груза" if delivered else "Таймаут миссии",
-                "t_start": round(t_arr, 1),
-                "t_end": round(t_arr + 1.0, 1),
-                "x": round(tk_arr.get("x", 0.0) if tk_arr else 0.0, 2),
-                "y": round(tk_arr.get("y", 0.0) if tk_arr else 0.0, 2),
-                "cost": 0.0 if delivered else -40.0,
-                "ruleExplanation": f"Доставка {m_id} в {to_pt} завершена ({'успех, tol $\\le 0.20\\,\\text{м}$' if delivered else 'таймаут'}{hold_str})",
-                "telemetrySnapshot": {
-                    "v": round(tk_arr.get("v", 0.0), 2) if tk_arr else 0.0,
-                    "cv": round(tk_arr.get("cv", 0.0), 2) if tk_arr else 0.0,
-                    "hum": round(tk_arr["hum"], 2) if tk_arr and tk_arr.get("hum") is not None else None,
-                    "obj": round(tk_arr["obj"], 2) if tk_arr and tk_arr.get("obj") is not None else None,
-                    "pe_error": tk_arr.get("pe_error", 0.0) if tk_arr else 0.0,
-                    "status": "ARRIVED" if delivered else "TIMEOUT",
-                    "note": f"delivered_{m_id}" if delivered else f"timeout_{m_id}",
-                },
-            })
+            hold_str = (
+                f", удержание $d \\le {hold_dist:.3f}\\,\\text{{м}}$"
+                if hold_dist is not None
+                else ""
+            )
+            status_msg = r"успех, tol $\le 0.20\,\text{м}$" if delivered else "таймаут"
+            episodes.append(
+                {
+                    "id": f"ep-m-arr-{m_id}",
+                    "severity": "success" if delivered else "critical",
+                    "type": "mission_delivered" if delivered else "mission_timeout",
+                    "category": "Доставка груза" if delivered else "Таймаут миссии",
+                    "t_start": round(t_arr, 1),
+                    "t_end": round(t_arr + 1.0, 1),
+                    "x": round(tk_arr.get("x", 0.0) if tk_arr else 0.0, 2),
+                    "y": round(tk_arr.get("y", 0.0) if tk_arr else 0.0, 2),
+                    "cost": 0.0 if delivered else -40.0,
+                    "ruleExplanation": f"Доставка {m_id} в {to_pt} завершена ({status_msg}{hold_str})",
+                    "telemetrySnapshot": {
+                        "v": round(tk_arr.get("v", 0.0), 2) if tk_arr else 0.0,
+                        "cv": round(tk_arr.get("cv", 0.0), 2) if tk_arr else 0.0,
+                        "hum": round(tk_arr["hum"], 2)
+                        if tk_arr and tk_arr.get("hum") is not None
+                        else None,
+                        "obj": round(tk_arr["obj"], 2)
+                        if tk_arr and tk_arr.get("obj") is not None
+                        else None,
+                        "pe_error": tk_arr.get("pe_error", 0.0) if tk_arr else 0.0,
+                        "status": "ARRIVED" if delivered else "TIMEOUT",
+                        "note": f"delivered_{m_id}" if delivered else f"timeout_{m_id}",
+                    },
+                }
+            )
 
     # 2. Extract notable events from raw ticks (GNSS shadow, obstacles, pedestrians, map extra, stops)
     if len(episodes) < 6 and raw_ticks:
@@ -731,96 +763,104 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                 continue
 
             if "stop_person" in nt or (hum is not None and hum < 1.5):
-                episodes.append({
-                    "id": f"ep-safe-{added+1}",
-                    "severity": "success",
-                    "type": "stop_person",
-                    "category": "Защитный стоп",
-                    "t_start": round(t_curr, 1),
-                    "t_end": round(t_curr + 1.2, 1),
-                    "x": round(tk.get("x", 0.0), 2),
-                    "y": round(tk.get("y", 0.0), 2),
-                    "cost": 0.0,
-                    "ruleExplanation": RULE_EXPLANATIONS.get("stop_person"),
-                    "telemetrySnapshot": {
-                        "v": round(tk.get("v", 0.0), 2),
-                        "cv": round(tk.get("cv", 0.0), 2),
-                        "hum": round(hum, 2) if hum is not None else None,
-                        "obj": round(obj, 2) if obj is not None else None,
-                        "pe_error": tk.get("pe_error", 0.0),
-                        "status": tk.get("st", "waiting").upper(),
-                        "note": nt or "stop_person",
-                    },
-                })
+                episodes.append(
+                    {
+                        "id": f"ep-safe-{added + 1}",
+                        "severity": "success",
+                        "type": "stop_person",
+                        "category": "Защитный стоп",
+                        "t_start": round(t_curr, 1),
+                        "t_end": round(t_curr + 1.2, 1),
+                        "x": round(tk.get("x", 0.0), 2),
+                        "y": round(tk.get("y", 0.0), 2),
+                        "cost": 0.0,
+                        "ruleExplanation": RULE_EXPLANATIONS.get("stop_person"),
+                        "telemetrySnapshot": {
+                            "v": round(tk.get("v", 0.0), 2),
+                            "cv": round(tk.get("cv", 0.0), 2),
+                            "hum": round(hum, 2) if hum is not None else None,
+                            "obj": round(obj, 2) if obj is not None else None,
+                            "pe_error": tk.get("pe_error", 0.0),
+                            "status": tk.get("st", "waiting").upper(),
+                            "note": nt or "stop_person",
+                        },
+                    }
+                )
                 added += 1
             elif "gnss" in nt or tk.get("gnss") == 0:
-                episodes.append({
-                    "id": f"ep-gnss-{added+1}",
-                    "severity": "warning",
-                    "type": "gnss_outage",
-                    "category": "Тень GNSS",
-                    "t_start": round(t_curr, 1),
-                    "t_end": round(t_curr + 2.0, 1),
-                    "x": round(tk.get("x", 0.0), 2),
-                    "y": round(tk.get("y", 0.0), 2),
-                    "cost": 0.0,
-                    "ruleExplanation": RULE_EXPLANATIONS.get("gnss_outage"),
-                    "telemetrySnapshot": {
-                        "v": round(tk.get("v", 0.0), 2),
-                        "cv": round(tk.get("cv", 0.0), 2),
-                        "hum": round(hum, 2) if hum is not None else None,
-                        "obj": round(obj, 2) if obj is not None else None,
-                        "pe_error": tk.get("pe_error", 0.0),
-                        "status": tk.get("st", "moving").upper(),
-                        "note": nt or "gnss_outage",
-                    },
-                })
+                episodes.append(
+                    {
+                        "id": f"ep-gnss-{added + 1}",
+                        "severity": "warning",
+                        "type": "gnss_outage",
+                        "category": "Тень GNSS",
+                        "t_start": round(t_curr, 1),
+                        "t_end": round(t_curr + 2.0, 1),
+                        "x": round(tk.get("x", 0.0), 2),
+                        "y": round(tk.get("y", 0.0), 2),
+                        "cost": 0.0,
+                        "ruleExplanation": RULE_EXPLANATIONS.get("gnss_outage"),
+                        "telemetrySnapshot": {
+                            "v": round(tk.get("v", 0.0), 2),
+                            "cv": round(tk.get("cv", 0.0), 2),
+                            "hum": round(hum, 2) if hum is not None else None,
+                            "obj": round(obj, 2) if obj is not None else None,
+                            "pe_error": tk.get("pe_error", 0.0),
+                            "status": tk.get("st", "moving").upper(),
+                            "note": nt or "gnss_outage",
+                        },
+                    }
+                )
                 added += 1
             elif "map_extra" in nt or "bypass" in nt:
-                episodes.append({
-                    "id": f"ep-extra-{added+1}",
-                    "severity": "info",
-                    "type": "map_extra",
-                    "category": "Новый объект",
-                    "t_start": round(t_curr, 1),
-                    "t_end": round(t_curr + 0.8, 1),
-                    "x": round(tk.get("x", 0.0), 2),
-                    "y": round(tk.get("y", 0.0), 2),
-                    "cost": 0.0,
-                    "ruleExplanation": RULE_EXPLANATIONS.get("map_extra"),
-                    "telemetrySnapshot": {
-                        "v": round(tk.get("v", 0.0), 2),
-                        "cv": round(tk.get("cv", 0.0), 2),
-                        "hum": round(hum, 2) if hum is not None else None,
-                        "obj": round(obj, 2) if obj is not None else None,
-                        "pe_error": tk.get("pe_error", 0.0),
-                        "status": tk.get("st", "moving").upper(),
-                        "note": nt or "map_extra",
-                    },
-                })
+                episodes.append(
+                    {
+                        "id": f"ep-extra-{added + 1}",
+                        "severity": "info",
+                        "type": "map_extra",
+                        "category": "Новый объект",
+                        "t_start": round(t_curr, 1),
+                        "t_end": round(t_curr + 0.8, 1),
+                        "x": round(tk.get("x", 0.0), 2),
+                        "y": round(tk.get("y", 0.0), 2),
+                        "cost": 0.0,
+                        "ruleExplanation": RULE_EXPLANATIONS.get("map_extra"),
+                        "telemetrySnapshot": {
+                            "v": round(tk.get("v", 0.0), 2),
+                            "cv": round(tk.get("cv", 0.0), 2),
+                            "hum": round(hum, 2) if hum is not None else None,
+                            "obj": round(obj, 2) if obj is not None else None,
+                            "pe_error": tk.get("pe_error", 0.0),
+                            "status": tk.get("st", "moving").upper(),
+                            "note": nt or "map_extra",
+                        },
+                    }
+                )
                 added += 1
             elif obj is not None and obj < 1.0:
-                episodes.append({
-                    "id": f"ep-obj-{added+1}",
-                    "severity": "info",
-                    "type": "obstacle_close",
-                    "category": "Близость к препятствию",
-                    "t_start": round(t_curr, 1),
-                    "t_end": round(t_curr + 1.0, 1),
-                    "x": round(tk.get("x", 0.0), 2),
-                    "y": round(tk.get("y", 0.0), 2),
-                    "cost": 0.0,
-                    "ruleExplanation": RULE_EXPLANATIONS.get("obstacle_close"),
-                    "telemetrySnapshot": {
-                        "v": round(tk.get("v", 0.0), 2),
-                        "cv": round(tk.get("cv", 0.0), 2),
-                        "hum": round(hum, 2) if hum is not None else None,
-                        "obj": round(obj, 2) if obj is not None else None,
-                        "pe_error": tk.get("pe_error", 0.0),
-                        "status": tk.get("st", "moving").upper(),
-                        "note": nt or "obstacle_close",
-                    },
-                })
+                episodes.append(
+                    {
+                        "id": f"ep-obj-{added + 1}",
+                        "severity": "info",
+                        "type": "obstacle_close",
+                        "category": "Близость к препятствию",
+                        "t_start": round(t_curr, 1),
+                        "t_end": round(t_curr + 1.0, 1),
+                        "x": round(tk.get("x", 0.0), 2),
+                        "y": round(tk.get("y", 0.0), 2),
+                        "cost": 0.0,
+                        "ruleExplanation": RULE_EXPLANATIONS.get("obstacle_close"),
+                        "telemetrySnapshot": {
+                            "v": round(tk.get("v", 0.0), 2),
+                            "cv": round(tk.get("cv", 0.0), 2),
+                            "hum": round(hum, 2) if hum is not None else None,
+                            "obj": round(obj, 2) if obj is not None else None,
+                            "pe_error": tk.get("pe_error", 0.0),
+                            "status": tk.get("st", "moving").upper(),
+                            "note": nt or "obstacle_close",
+                        },
+                    }
+                )
                 added += 1
 
             if added >= 4:
@@ -834,58 +874,66 @@ def build_episodes_view_model(scenario_id: str) -> dict:
             t_curr = tk.get("t", 0.0)
             if any(abs(e["t_start"] - t_curr) < 15.0 for e in episodes):
                 continue
-            episodes.append({
-                "id": f"ep-chk-{len(episodes)+1}",
-                "severity": "info",
-                "type": "checkpoint",
-                "category": "Контрольная точка",
-                "t_start": round(t_curr, 1),
-                "t_end": round(t_curr + 1.0, 1),
-                "x": round(tk.get("x", 0.0), 2),
-                "y": round(tk.get("y", 0.0), 2),
-                "cost": 0.0,
-                "ruleExplanation": RULE_EXPLANATIONS.get("checkpoint"),
-                "telemetrySnapshot": {
-                    "v": round(tk.get("v", 0.0), 2),
-                    "cv": round(tk.get("cv", 0.0), 2),
-                    "hum": round(hum, 2) if hum is not None else None,
-                    "obj": round(obj, 2) if obj is not None else None,
-                    "pe_error": tk.get("pe_error", 0.0),
-                    "status": tk.get("st", "moving").upper(),
-                    "note": tk.get("nt", "waypoint"),
-                },
-            })
+            episodes.append(
+                {
+                    "id": f"ep-chk-{len(episodes) + 1}",
+                    "severity": "info",
+                    "type": "checkpoint",
+                    "category": "Контрольная точка",
+                    "t_start": round(t_curr, 1),
+                    "t_end": round(t_curr + 1.0, 1),
+                    "x": round(tk.get("x", 0.0), 2),
+                    "y": round(tk.get("y", 0.0), 2),
+                    "cost": 0.0,
+                    "ruleExplanation": RULE_EXPLANATIONS.get("checkpoint"),
+                    "telemetrySnapshot": {
+                        "v": round(tk.get("v", 0.0), 2),
+                        "cv": round(tk.get("cv", 0.0), 2),
+                        "hum": round(hum, 2) if hum is not None else None,
+                        "obj": round(obj, 2) if obj is not None else None,
+                        "pe_error": tk.get("pe_error", 0.0),
+                        "status": tk.get("st", "moving").upper(),
+                        "note": tk.get("nt", "waypoint"),
+                    },
+                }
+            )
 
     # If episodes list is still empty (e.g. simulation log not present or no events), add informative start/nominal event
     if not episodes:
-        episodes.append({
-            "id": "ep-nominal-1",
-            "severity": "info",
-            "type": "checkpoint",
-            "category": "Штатное движение",
-            "t_start": 0.0,
-            "t_end": 1.0,
-            "x": 0.0,
-            "y": 0.0,
-            "cost": 0.0,
-            "ruleExplanation": RULE_EXPLANATIONS.get("checkpoint", "Штатное движение по маршруту без нарушений."),
-            "telemetrySnapshot": {
-                "v": 0.0,
-                "cv": 0.0,
-                "hum": None,
-                "obj": None,
-                "pe_error": 0.0,
-                "status": "MOVING",
-                "note": "nominal_start",
-            },
-        })
+        episodes.append(
+            {
+                "id": "ep-nominal-1",
+                "severity": "info",
+                "type": "checkpoint",
+                "category": "Штатное движение",
+                "t_start": 0.0,
+                "t_end": 1.0,
+                "x": 0.0,
+                "y": 0.0,
+                "cost": 0.0,
+                "ruleExplanation": RULE_EXPLANATIONS.get(
+                    "checkpoint", "Штатное движение по маршруту без нарушений."
+                ),
+                "telemetrySnapshot": {
+                    "v": 0.0,
+                    "cv": 0.0,
+                    "hum": None,
+                    "obj": None,
+                    "pe_error": 0.0,
+                    "status": "MOVING",
+                    "note": "nominal_start",
+                },
+            }
+        )
 
     # Sort all episodes chronologically
     episodes.sort(key=lambda e: e.get("t_start", 0.0))
 
     fatal_count = 1 if score.get("fatal") else 0
     warnings_count = len([e for e in episodes if e.get("severity") in ("warning", "critical")])
-    rule_violations = len([e for e in episodes if e.get("type") in ("speed_limit", "forbidden_zone")])
+    rule_violations = len(
+        [e for e in episodes if e.get("type") in ("speed_limit", "forbidden_zone")]
+    )
 
     return {
         "scenario": norm_id,
@@ -927,25 +975,27 @@ def build_missions_view_model(scenario_id: str) -> dict:
         hold_dist_raw = m.get("max_hold_dist")
         max_hold_dist = round(hold_dist_raw, 4) if hold_dist_raw is not None else 0.0
 
-        missions.append({
-            "id": m_id,
-            "from": from_pt,
-            "to": to_pt,
-            "fromLabel": f"{from_pt} ({POINT_LABELS.get(from_pt, from_pt)})",
-            "toLabel": f"{to_pt} ({POINT_LABELS.get(to_pt, to_pt)})",
-            "status": "DELIVERED" if delivered else "TIMEOUT",
-            "t_start": round(t_start, 1),
-            "t_end": round(t_end, 1),
-            "t_arrival": round(t_arrival, 1),
-            "hold_duration_s": 1.0,
-            "hold_ticks": 10,
-            "max_hold_dist": max_hold_dist,
-            "tol": 0.20,
-            "deadline_s": deadline,
-            "safety_margin_s": safety_margin,
-            "reference_length_m": round(m.get("reference_length_m", 174.0), 3),
-            "actual_time_s": actual_time,
-        })
+        missions.append(
+            {
+                "id": m_id,
+                "from": from_pt,
+                "to": to_pt,
+                "fromLabel": f"{from_pt} ({POINT_LABELS.get(from_pt, from_pt)})",
+                "toLabel": f"{to_pt} ({POINT_LABELS.get(to_pt, to_pt)})",
+                "status": "DELIVERED" if delivered else "TIMEOUT",
+                "t_start": round(t_start, 1),
+                "t_end": round(t_end, 1),
+                "t_arrival": round(t_arrival, 1),
+                "hold_duration_s": 1.0,
+                "hold_ticks": 10,
+                "max_hold_dist": max_hold_dist,
+                "tol": 0.20,
+                "deadline_s": deadline,
+                "safety_margin_s": safety_margin,
+                "reference_length_m": round(m.get("reference_length_m", 174.0), 3),
+                "actual_time_s": actual_time,
+            }
+        )
 
     return {
         "scenario": norm_id,
@@ -992,13 +1042,15 @@ def build_analytics_view_model(scenario_id: str) -> dict:
             percentage = round((achieved / max_val * 100.0), 1) if max_val > 0 else 100.0
 
         percentage = min(100.0, max(0.0, percentage))
-        blocks.append({
-            "key": key,
-            "name": display_name,
-            "achieved": round(achieved, 2),
-            "max": round(max_val, 2),
-            "percentage": percentage,
-        })
+        blocks.append(
+            {
+                "key": key,
+                "name": display_name,
+                "achieved": round(achieved, 2),
+                "max": round(max_val, 2),
+                "percentage": percentage,
+            }
+        )
         radar_labels.append(display_name)
         radar_values.append(percentage / 100.0)
         radar_max.append(1.0)
@@ -1012,11 +1064,15 @@ def build_analytics_view_model(scenario_id: str) -> dict:
 
     sandbox_violations = report.get("sandbox_violations", []) if report else []
     stderr_tail_str = report.get("controller_stderr_tail", "") if report else ""
-    stderr_lines = [l for l in stderr_tail_str.splitlines() if l.strip()] if stderr_tail_str else [
-        f"[INFO] Sandbox verification passed for {norm_id}",
-        "[INFO] Controller isolation check: 0 disallowed imports",
-        "[INFO] Execution completed within compute budget",
-    ]
+    stderr_lines = (
+        [line for line in stderr_tail_str.splitlines() if line.strip()]
+        if stderr_tail_str
+        else [
+            f"[INFO] Sandbox verification passed for {norm_id}",
+            "[INFO] Controller isolation check: 0 disallowed imports",
+            "[INFO] Execution completed within compute budget",
+        ]
+    )
 
     return {
         "scenario": norm_id,
@@ -1053,7 +1109,9 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
         # Full CORS support
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+        self.send_header(
+            "Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With"
+        )
         super().end_headers()
 
     def do_OPTIONS(self):
@@ -1088,15 +1146,19 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                         seen.add(sc_id)
                         meta = SCENARIO_META.get(sc_id, {})
                         rep = get_scenario_report(sc_id)
-                        scenarios.append({
-                            "id": sc_id,
-                            "name": meta.get("title", f"{sc_id}.json"),
-                            "description": meta.get("description", "Сценарий тестирования AMR SafeRoute"),
-                            "type": "standard",
-                            "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
-                            "hasReport": rep is not None,
-                            "score": rep.get("score", {}).get("total") if rep else None,
-                        })
+                        scenarios.append(
+                            {
+                                "id": sc_id,
+                                "name": meta.get("title", f"{sc_id}.json"),
+                                "description": meta.get(
+                                    "description", "Сценарий тестирования AMR SafeRoute"
+                                ),
+                                "type": "standard",
+                                "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
+                                "hasReport": rep is not None,
+                                "score": rep.get("score", {}).get("total") if rep else None,
+                            }
+                        )
 
             # Team custom scenarios
             if TEAM_SCENARIOS_DIR.exists():
@@ -1106,15 +1168,19 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                         seen.add(sc_id)
                         meta = SCENARIO_META.get(sc_id, {})
                         rep = get_scenario_report(sc_id)
-                        scenarios.append({
-                            "id": sc_id,
-                            "name": meta.get("title", f"backend/{sc_id}.json"),
-                            "description": meta.get("description", "Собственный сценарий команды О4"),
-                            "type": "custom",
-                            "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
-                            "hasReport": rep is not None,
-                            "score": rep.get("score", {}).get("total") if rep else None,
-                        })
+                        scenarios.append(
+                            {
+                                "id": sc_id,
+                                "name": meta.get("title", f"backend/{sc_id}.json"),
+                                "description": meta.get(
+                                    "description", "Собственный сценарий команды О4"
+                                ),
+                                "type": "custom",
+                                "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
+                                "hasReport": rep is not None,
+                                "score": rep.get("score", {}).get("total") if rep else None,
+                            }
+                        )
 
             return self.send_json(scenarios)
 
@@ -1198,20 +1264,38 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
             ep_vm = build_episodes_view_model(sc_id)
             episodes = ep_vm.get("episodes", [])
 
-            lines = ["Episode ID,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation"]
+            lines = [
+                "Episode ID,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation"
+            ]
             for ep in episodes:
                 tk_snap = ep.get("telemetrySnapshot") or {}
-                v_val = f"{tk_snap.get('v', ''):.2f}" if isinstance(tk_snap.get('v'), (int, float)) else ""
-                hum_val = f"{tk_snap.get('hum', ''):.2f}" if isinstance(tk_snap.get('hum'), (int, float)) else ""
-                obj_val = f"{tk_snap.get('obj', ''):.2f}" if isinstance(tk_snap.get('obj'), (int, float)) else ""
-                pe_val = f"{tk_snap.get('pe_error', ''):.4f}" if isinstance(tk_snap.get('pe_error'), (int, float)) else ""
+                v_val = (
+                    f"{tk_snap.get('v', ''):.2f}"
+                    if isinstance(tk_snap.get("v"), (int, float))
+                    else ""
+                )
+                hum_val = (
+                    f"{tk_snap.get('hum', ''):.2f}"
+                    if isinstance(tk_snap.get("hum"), (int, float))
+                    else ""
+                )
+                obj_val = (
+                    f"{tk_snap.get('obj', ''):.2f}"
+                    if isinstance(tk_snap.get("obj"), (int, float))
+                    else ""
+                )
+                pe_val = (
+                    f"{tk_snap.get('pe_error', ''):.4f}"
+                    if isinstance(tk_snap.get("pe_error"), (int, float))
+                    else ""
+                )
                 cost_val = f"{ep.get('cost', 0.0):.2f}"
-                expl = str(ep.get('ruleExplanation', '')).replace('"', '""')
+                expl = str(ep.get("ruleExplanation", "")).replace('"', '""')
 
                 lines.append(
                     f"{ep.get('id')},{ep.get('type')},{ep.get('category')},{ep.get('severity', 'info')},"
                     f"{ep.get('t_start')},{ep.get('t_end')},{ep.get('x')},{ep.get('y')},"
-                    f"{v_val},{hum_val},{obj_val},{pe_val},{cost_val},\"{expl}\""
+                    f'{v_val},{hum_val},{obj_val},{pe_val},{cost_val},"{expl}"'
                 )
 
             csv_text = ("\ufeff" + "\n".join(lines)).encode("utf-8")
@@ -1263,7 +1347,11 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
             scenario = payload.get("scenario", "04_busy_yard")
             controller = payload.get("controller", "backend/controller.py")
             if controller == "team/controller.py" or controller.startswith("team/"):
-                controller = "backend/" + controller[len("team/"):] if controller.startswith("team/") else "backend/controller.py"
+                controller = (
+                    "backend/" + controller[len("team/") :]
+                    if controller.startswith("team/")
+                    else "backend/controller.py"
+                )
             seed = int(payload.get("seed", 7))
             cheat = bool(payload.get("cheatPose", False))
 
@@ -1298,7 +1386,9 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description="AMR SafeRoute Operator Station SDUI API Server")
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind (default: 0.0.0.0)")
+    parser.add_argument(
+        "--host", type=str, default="0.0.0.0", help="Host to bind (default: 0.0.0.0)"
+    )
     args = parser.parse_args()
 
     # Set working directory for SimpleHTTPRequestHandler static serving

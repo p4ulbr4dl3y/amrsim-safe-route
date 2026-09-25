@@ -3,8 +3,9 @@
 Strictly conforms to plan/03-vospriyatie-i-bezopasnost.md and isolation requirements
 (standard library math/typing and numpy only).
 """
+
 import math
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -85,24 +86,27 @@ def track_world_shift(tr: "Track") -> float:
 
 class Track:
     """Obstacle track maintained in pure odometry coordinates (ox, oy, oth).
-    
+
     Tracking in pure odometry prevents artificial position jumps caused by
     GNSS corrections or scan-matching pose updates.
     """
+
     __slots__ = (
         "track_id",
-        "ox", "oy",              # Centroid in pure odometry frame (m)
-        "hist",                  # History of (ox, oy) coordinates
-        "seen",                  # History of detection hits (1) and misses (0)
-        "dyn",                   # True (pedestrian), False (static/wall), None (unknown)
-        "class_label",           # "pedestrian", "wall_extra", "static_object", "unknown"
-        "still_ticks",           # Consecutive ticks without motion while robot still
-        "vx_odom", "vy_odom",    # Estimated velocity in odometry frame (m/s)
-        "pts",                   # Current points in robot frame (N, 2)
-        "length",                # Cluster length along principal axis (m)
-        "thickness",             # Cluster thickness 80th percentile across axis (m)
-        "coast_ticks",           # Ticks since last sensor detection
-        "confirmed",             # Latched: two adjacent detection hits seen at least once
+        "ox",
+        "oy",  # Centroid in pure odometry frame (m)
+        "hist",  # History of (ox, oy) coordinates
+        "seen",  # History of detection hits (1) and misses (0)
+        "dyn",  # True (pedestrian), False (static/wall), None (unknown)
+        "class_label",  # "pedestrian", "wall_extra", "static_object", "unknown"
+        "still_ticks",  # Consecutive ticks without motion while robot still
+        "vx_odom",
+        "vy_odom",  # Estimated velocity in odometry frame (m/s)
+        "pts",  # Current points in robot frame (N, 2)
+        "length",  # Cluster length along principal axis (m)
+        "thickness",  # Cluster thickness 80th percentile across axis (m)
+        "coast_ticks",  # Ticks since last sensor detection
+        "confirmed",  # Latched: two adjacent detection hits seen at least once
     )
 
     def __init__(self, track_id: int, ox: float, oy: float, pts: Optional[np.ndarray] = None):
@@ -132,7 +136,9 @@ class Track:
         pts = self.pts
         if pts is None or len(pts) == 0:
             return False
-        return float(np.hypot(pts[:, 0], pts[:, 1]).min()) < (PLATFORM_RADIUS_M - PLATFORM_BODY_MARGIN_M)
+        return float(np.hypot(pts[:, 0], pts[:, 1]).min()) < (
+            PLATFORM_RADIUS_M - PLATFORM_BODY_MARGIN_M
+        )
 
     def refresh_confirmed(self) -> bool:
         """Latch confirmation once `seen` holds two adjacent hits; never unset it.
@@ -159,7 +165,9 @@ class Track:
 
     @property
     def is_static_object(self) -> bool:
-        return self.class_label == "static_object" or (self.dyn is False and self.class_label != "wall_extra")
+        return self.class_label == "static_object" or (
+            self.dyn is False and self.class_label != "wall_extra"
+        )
 
     @property
     def is_unknown(self) -> bool:
@@ -168,7 +176,7 @@ class Track:
 
 def fit_cluster_geometry(pts: np.ndarray) -> Tuple[float, float]:
     """Calculate length and 80th-percentile thickness using PCA (SVD).
-    
+
     pts: (N, 2) array of 2D points in Cartesian plane.
     Returns:
       (length, thickness) in meters.
@@ -195,7 +203,7 @@ def fit_cluster_geometry(pts: np.ndarray) -> Tuple[float, float]:
 
 def is_wall_cluster(pts: np.ndarray) -> bool:
     """Determine if cluster geometry represents an unmapped wall or fence.
-    
+
     Criterion: length > 1.0 m and 80th-percentile thickness < 0.1 m.
     """
     if len(pts) < 3:
@@ -206,7 +214,7 @@ def is_wall_cluster(pts: np.ndarray) -> bool:
 
 def is_wall_continuation(pts: np.ndarray, wall_point_clouds: List[np.ndarray]) -> bool:
     """Determine if a short cluster continues an unmapped wall.
-    
+
     Criterion: cluster is closer than 0.6 m to a known wall cluster and its
     80th-percentile lateral deviation from the wall principal axis is < 0.15 m.
     """
@@ -235,7 +243,7 @@ def is_wall_continuation(pts: np.ndarray, wall_point_clouds: List[np.ndarray]) -
 
 class Perception:
     """Perception pipeline for AMR navigation.
-    
+
     - Isolates dynamic tracks into pure odometry frame (ox, oy, oth).
     - Clusters unexplained lidar returns (> 0.35 + sigma_pose shorter than map, > 0.4m from map wall).
     - Snow filtering: isolated single beams rejected.
@@ -288,7 +296,7 @@ class Perception:
         scan_inliers: int = 0,
     ) -> List[Track]:
         """Process lidar scan and update obstacle tracks and map discrepancies.
-        
+
         Args:
           ranges: 1D array of lidar ranges (360 beams, 1 deg step)
           rel_angles: 1D array of beam angles in robot frame (rad)
@@ -299,7 +307,7 @@ class Perception:
           is_fog: whether fog condition is active
           v_odom: current forward velocity from odometry (m/s)
           scan_inliers: number of scan-matching inliers from localizer
-          
+
         Returns:
           Active confirmed tracks.
         """
@@ -352,8 +360,12 @@ class Perception:
             for k in bad_idx:
                 prev_k = (k - 1) % n
                 next_k = (k + 1) % n
-                has_prev = bad[prev_k] and (math.hypot(px_all[k] - px_all[prev_k], py_all[k] - py_all[prev_k]) < 0.6)
-                has_next = bad[next_k] and (math.hypot(px_all[k] - px_all[next_k], py_all[k] - py_all[next_k]) < 0.6)
+                has_prev = bad[prev_k] and (
+                    math.hypot(px_all[k] - px_all[prev_k], py_all[k] - py_all[prev_k]) < 0.6
+                )
+                has_next = bad[next_k] and (
+                    math.hypot(px_all[k] - px_all[next_k], py_all[k] - py_all[next_k]) < 0.6
+                )
                 if not (has_prev or has_next):
                     # Lone ray: snow artifact
                     bad[k] = False
@@ -364,7 +376,13 @@ class Perception:
         clusters: List[List[int]] = []
 
         if bad.any():
-            start = int(np.argmax(breaks)) if breaks.any() else int(np.argmax(~finite)) if (~finite).any() else 0
+            start = (
+                int(np.argmax(breaks))
+                if breaks.any()
+                else int(np.argmax(~finite))
+                if (~finite).any()
+                else 0
+            )
             run: List[int] = []
             skipped = 0
 
@@ -390,10 +408,14 @@ class Perception:
                     nxt = [(start + j + d) % n for d in (1, 2)]
                     # Check if next beam resumes cluster within 0.6m
                     can_resume = not finite[k] or any(
-                        bad[q] and (math.hypot(
-                            r[q] * math.cos(rel[q]) - r[run[-1]] * math.cos(rel[run[-1]]),
-                            r[q] * math.sin(rel[q]) - r[run[-1]] * math.sin(rel[run[-1]])
-                        ) < 0.6)
+                        bad[q]
+                        and (
+                            math.hypot(
+                                r[q] * math.cos(rel[q]) - r[run[-1]] * math.cos(rel[run[-1]]),
+                                r[q] * math.sin(rel[q]) - r[run[-1]] * math.sin(rel[run[-1]]),
+                            )
+                            < 0.6
+                        )
                         for q in nxt
                     )
                     if can_resume:
@@ -431,18 +453,20 @@ class Perception:
             cluster_oy = oy + sin_oth * mean_px + cos_oth * mean_py
 
             length, thickness = fit_cluster_geometry(pts)
-            is_wall = (length > 1.0 and thickness < 0.10)
+            is_wall = length > 1.0 and thickness < 0.10
             if is_wall:
                 confirmed_wall_pts.append(pts)
 
-            detected_clusters.append({
-                "pts": pts,
-                "ox": cluster_ox,
-                "oy": cluster_oy,
-                "length": length,
-                "thickness": thickness,
-                "is_wall": is_wall,
-            })
+            detected_clusters.append(
+                {
+                    "pts": pts,
+                    "ox": cluster_ox,
+                    "oy": cluster_oy,
+                    "length": length,
+                    "thickness": thickness,
+                    "is_wall": is_wall,
+                }
+            )
 
         # Second pass: check wall continuations
         for c_dict in detected_clusters:
@@ -499,8 +523,11 @@ class Perception:
                 # frame, while a person whose momentary footprint looks like a thin
                 # wall piece does (plan/03:26-28). Otherwise the latched human class
                 # would be overwritten and the person would stop limiting speed.
-                if (c_dict["is_wall"] or c_dict["is_wall_piece"]) and tr.dyn is not True \
-                        and track_world_shift(tr) < PEDESTRIAN_SHIFT_M:
+                if (
+                    (c_dict["is_wall"] or c_dict["is_wall_piece"])
+                    and tr.dyn is not True
+                    and track_world_shift(tr) < PEDESTRIAN_SHIFT_M
+                ):
                     tr.class_label = "wall_extra"
                     tr.dyn = False
             else:
@@ -515,8 +542,11 @@ class Perception:
                     tr.dyn = False
                 else:
                     # Inherit pedestrian class if adjacent to a known dynamic track
-                    if any(other.is_pedestrian and math.hypot(other.ox - c_ox, other.oy - c_oy) < assoc_thresh
-                           for other in self.tracks):
+                    if any(
+                        other.is_pedestrian
+                        and math.hypot(other.ox - c_ox, other.oy - c_oy) < assoc_thresh
+                        for other in self.tracks
+                    ):
                         tr.dyn = True
                         tr.class_label = "pedestrian"
 
@@ -543,12 +573,14 @@ class Perception:
                     rx = cos_oth * rel_ox + sin_oth * rel_oy
                     ry = -sin_oth * rel_ox + cos_oth * rel_oy
                     # Synthesize approximate cluster footprint around predicted position
-                    tr.pts = np.array([
-                        [rx - 0.15, ry],
-                        [rx + 0.15, ry],
-                        [rx, ry - 0.15],
-                        [rx, ry + 0.15],
-                    ])
+                    tr.pts = np.array(
+                        [
+                            [rx - 0.15, ry],
+                            [rx + 0.15, ry],
+                            [rx, ry - 0.15],
+                            [rx, ry + 0.15],
+                        ]
+                    )
                 else:
                     tr.hist.append((tr.ox, tr.oy))
                     rel_ox = tr.ox - ox
@@ -624,9 +656,12 @@ class Perception:
 
                 if stable and slow_platform and tr.length <= COMPACT_CLUSTER_LENGTH_M:
                     fwd, lat = track_forward_lateral(tr)
-                    in_corridor = (0.0 < fwd < FRONTAL_CORRIDOR_FWD_M) and (abs(lat) < FRONTAL_CORRIDOR_LAT_M)
-                    required_ticks = (FRONTAL_STATIC_HISTORY_TICKS if in_corridor
-                                      else STATIC_HISTORY_TICKS)
+                    in_corridor = (0.0 < fwd < FRONTAL_CORRIDOR_FWD_M) and (
+                        abs(lat) < FRONTAL_CORRIDOR_LAT_M
+                    )
+                    required_ticks = (
+                        FRONTAL_STATIC_HISTORY_TICKS if in_corridor else STATIC_HISTORY_TICKS
+                    )
                     if tr.still_ticks >= required_ticks:
                         tr.class_label = "static_object"
                         tr.dyn = False
@@ -637,7 +672,8 @@ class Perception:
         # 9. Pruning stale tracks
         # Keep track if seen recently, or if pedestrian coasting <= 10 ticks
         self.tracks = [
-            tr for tr in self.tracks
+            tr
+            for tr in self.tracks
             if (sum(tr.seen[-6:]) > 0) or (tr.is_pedestrian and tr.coast_ticks <= 10)
         ]
 
@@ -666,7 +702,12 @@ class Perception:
 
         # Sensed missing walls: finite rays longer than map by > 1.2m when scan match is reliable
         if scan_inliers >= 40:
-            overshoot = (exp_ranges < 15.0) & np.isfinite(ranges) & (ranges < 19.5) & (ranges > exp_ranges + 1.2)
+            overshoot = (
+                (exp_ranges < 15.0)
+                & np.isfinite(ranges)
+                & (ranges < 19.5)
+                & (ranges > exp_ranges + 1.2)
+            )
             if overshoot.any():
                 over_indices = np.flatnonzero(overshoot)
                 # Count rays penetrating each segment in the current tick

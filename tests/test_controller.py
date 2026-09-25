@@ -21,6 +21,7 @@ This is the regression guard for the bug where the clamp was applied only inside
 `if self.localizer.is_lost:`: the `lost` branch always exports 0.0, which made the
 0.6 and 0.4 tiers dead code.
 """
+
 import math
 import unittest
 
@@ -28,7 +29,6 @@ import numpy as np
 
 from team_dreamteam_4_0.controller import Controller
 from team_dreamteam_4_0.geom import raycast
-
 
 # A 120 m straight corridor: south wall at y = 0, north wall at y = 4.  The
 # mission sends the platform from x = 5 to x = 110 along the centre line, so the
@@ -54,15 +54,19 @@ SYNTH_MAP = {
 SYNTH_CONFIG = {
     "dt": 0.1,
     "robot": {"v_max": 1.39, "w_max": 0.8},
-    "lidar": {"beams": 360, "angle_min_deg": 0.0, "angle_increment_deg": 1.0,
-              "max_range": 20.0},
+    "lidar": {"beams": 360, "angle_min_deg": 0.0, "angle_increment_deg": 1.0, "max_range": 20.0},
 }
 
 SYNTH_MISSION = {
-    "id": "m1", "index": 0, "count": 1,
-    "from": "a", "to": "b",
-    "goal": [110.0, 2.0, 0.0], "tol": 0.2,
-    "t_start": 0.0, "deadline_s": 300.0,
+    "id": "m1",
+    "index": 0,
+    "count": 1,
+    "from": "a",
+    "to": "b",
+    "goal": [110.0, 2.0, 0.0],
+    "tol": 0.2,
+    "t_start": 0.0,
+    "deadline_s": 300.0,
     "reference_path": [[5.0, 2.0], [110.0, 2.0]],
 }
 
@@ -71,8 +75,9 @@ START = (5.0, 2.0, 0.0)
 
 def make_obs(ctrl, t=0.0):
     """One clean observation for the standing platform at the start pose."""
-    ranges = raycast(START[0], START[1], START[2] + ctrl.rel_angles,
-                     ctrl.building_segs, max_range=20.0)
+    ranges = raycast(
+        START[0], START[1], START[2] + ctrl.rel_angles, ctrl.building_segs, max_range=20.0
+    )
     ranges = np.where(np.isfinite(ranges), ranges, np.nan)
     return {
         "t": t,
@@ -84,7 +89,7 @@ def make_obs(ctrl, t=0.0):
     }
 
 
-def drive_with_uncertainty(var_along, var_cross, var_theta=0.01 ** 2, ticks=3):
+def drive_with_uncertainty(var_along, var_cross, var_theta=0.01**2, ticks=3):
     """Run `ticks` controller steps with the requested pose variances.
 
     The wrapper sets the variances right before the production
@@ -120,7 +125,7 @@ class TestLostSpeedCap(unittest.TestCase):
 
     def test_sigma_along_over_2m_caps_to_0_6(self):
         """sigma_along > 2 m (cross narrow) -> v <= 0.6 while still driving."""
-        cmd, loc = drive_with_uncertainty(var_along=2.5 ** 2, var_cross=0.1 ** 2)
+        cmd, loc = drive_with_uncertainty(var_along=2.5**2, var_cross=0.1**2)
         self.assertFalse(loc.is_lost, "a wide along bound with a narrow cross axis is not lost")
         self.assertGreater(loc.sigma_along, 2.0)
         self.assertAlmostEqual(loc.lost_speed_limit, 0.6)
@@ -130,7 +135,7 @@ class TestLostSpeedCap(unittest.TestCase):
 
     def test_sigma_cross_over_0_4m_caps_to_0_4(self):
         """sigma_cross > 0.4 m -> v <= 0.4, still not lost."""
-        cmd, loc = drive_with_uncertainty(var_along=0.5 ** 2, var_cross=0.5 ** 2)
+        cmd, loc = drive_with_uncertainty(var_along=0.5**2, var_cross=0.5**2)
         self.assertFalse(loc.is_lost)
         self.assertGreater(loc.sigma_cross, 0.4)
         self.assertAlmostEqual(loc.lost_speed_limit, 0.4)
@@ -140,7 +145,8 @@ class TestLostSpeedCap(unittest.TestCase):
     def test_sigma_theta_over_5deg_caps_to_0_4(self):
         """sigma_theta > 5 deg also selects the 0.4 tier (plan/02:137)."""
         cmd, loc = drive_with_uncertainty(
-            var_along=0.5 ** 2, var_cross=0.1 ** 2, var_theta=math.radians(6.0) ** 2)
+            var_along=0.5**2, var_cross=0.1**2, var_theta=math.radians(6.0) ** 2
+        )
         self.assertFalse(loc.is_lost)
         self.assertGreater(math.degrees(loc.sigma_th), 5.0)
         self.assertAlmostEqual(loc.lost_speed_limit, 0.4)
@@ -148,7 +154,7 @@ class TestLostSpeedCap(unittest.TestCase):
 
     def test_sigma_cross_over_0_8m_stops_and_reports_lost(self):
         """sigma_cross > 0.8 m -> stop, status `lost` (existing behaviour preserved)."""
-        cmd, loc = drive_with_uncertainty(var_along=0.5 ** 2, var_cross=0.9 ** 2)
+        cmd, loc = drive_with_uncertainty(var_along=0.5**2, var_cross=0.9**2)
         self.assertTrue(loc.is_lost)
         self.assertEqual(loc.lost_speed_limit, 0.0)
         self.assertEqual(cmd["v"], 0.0)
@@ -157,7 +163,7 @@ class TestLostSpeedCap(unittest.TestCase):
 
     def test_healthy_pose_leaves_the_command_untouched(self):
         """The 1.39 healthy export is a no-op: the route candidate survives."""
-        cmd, loc = drive_with_uncertainty(var_along=0.1 ** 2, var_cross=0.1 ** 2)
+        cmd, loc = drive_with_uncertainty(var_along=0.1**2, var_cross=0.1**2)
         self.assertFalse(loc.is_lost)
         self.assertEqual(loc.lost_speed_limit, 1.39)
         self.assertGreater(cmd["v"], 1.0)
@@ -169,16 +175,20 @@ class TestLostSpeedCap(unittest.TestCase):
         original = loc._check_lost_status
 
         def healthy_check():
-            loc.var_along = 0.1 ** 2
-            loc.var_cross = 0.1 ** 2
-            loc.var_th = 0.01 ** 2
+            loc.var_along = 0.1**2
+            loc.var_cross = 0.1**2
+            loc.var_th = 0.01**2
             loc._unconfirmed_dist = 0.0
             original()
 
         loc._check_lost_status = healthy_check
         ctrl.route.step = lambda **kwargs: {
-            "v": 0.2, "w": 0.0, "remaining_dist": 50.0,
-            "arrived": False, "status": "moving", "note": "",
+            "v": 0.2,
+            "w": 0.0,
+            "remaining_dist": 50.0,
+            "arrived": False,
+            "status": "moving",
+            "note": "",
         }
         cmd = ctrl.step(make_obs(ctrl, t=0.0))
         self.assertLessEqual(cmd["v"], 0.2 + 1e-9)
@@ -216,6 +226,7 @@ class TestControllerUnits(unittest.TestCase):
 
     def test_track_world_xy(self):
         """_track_world_xy converts odom-frame track to world coordinates."""
+
         class DummyTrack:
             ox = 10.0
             oy = 5.0
@@ -273,11 +284,6 @@ class TestControllerUnits(unittest.TestCase):
         self.assertEqual(res2["status"], "arrived")
         self.assertEqual(res2["note"], "dock")
 
-    def test_perception_removed_segments_and_obstacles(self):
-        """Removed segments mask and confirmed tracks feeding static obstacles."""
-        ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
-
-        # Add removed segment id
     def test_perception_removed_segments_and_obstacles(self):
         """Removed segments mask and confirmed tracks feeding static obstacles."""
         ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
@@ -346,8 +352,8 @@ class TestControllerUnits(unittest.TestCase):
 
     def test_import_fallback(self):
         """Import fallback executes cleanly."""
-        import importlib
         import sys
+
         # Emulate importing controller without parent package
         mod_name = "team.controller"
         if mod_name in sys.modules:
@@ -356,7 +362,11 @@ class TestControllerUnits(unittest.TestCase):
                 # Compile and exec with __package__ = ""
                 with open("/Users/yegor/doc-1790342627/team/controller.py", "r") as f:
                     code = f.read()
-                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/controller.py", "__package__": ""}
+                globs = {
+                    "__name__": "__main__",
+                    "__file__": "/Users/yegor/doc-1790342627/team/controller.py",
+                    "__package__": "",
+                }
                 # sys.path has team directory
                 team_path = "/Users/yegor/doc-1790342627/team"
                 if team_path not in sys.path:
@@ -371,9 +381,10 @@ class TestControllerUnits(unittest.TestCase):
         recovered = []
         ctrl.localizer.try_recover = lambda **kwargs: recovered.append(kwargs)
         # Ensure is_lost remains True during update_scan/gnss
-        orig_check = ctrl.localizer._check_lost_status
+
         def force_lost():
             ctrl.localizer.is_lost = True
+
         ctrl.localizer._check_lost_status = force_lost
         ctrl.localizer.is_lost = True
 
@@ -386,7 +397,10 @@ class TestControllerUnits(unittest.TestCase):
         """route_note overrides map_missing or map_extra safety note."""
         ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
         ctrl.route.step = lambda **kwargs: {
-            "v": 0.5, "w": 0.0, "remaining_dist": 10.0, "note": "offset dy=0.3"
+            "v": 0.5,
+            "w": 0.0,
+            "remaining_dist": 10.0,
+            "note": "offset dy=0.3",
         }
         ctrl.safety.evaluate = lambda **kwargs: (0.5, 0.0, "moving", "map_extra")
 
@@ -397,4 +411,3 @@ class TestControllerUnits(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

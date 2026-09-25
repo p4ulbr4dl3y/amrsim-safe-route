@@ -10,9 +10,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DEFAULT_SCENARIOS = [
@@ -195,7 +195,6 @@ def format_table(
         table_data.append(row)
 
     # Summary row
-    avg_total = total_score_sum / len(rows) if rows else 0.0
     summary_row = [
         "AVERAGE / TOTAL",
         f"{sum(int(r['missions'].split('/')[0]) for r in rows)}/{sum(int(r['missions'].split('/')[1]) for r in rows)}",
@@ -306,7 +305,8 @@ def main() -> None:
         help="Allowed drop tolerance for regression check (default: 0.05)",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Verbose simulation output",
     )

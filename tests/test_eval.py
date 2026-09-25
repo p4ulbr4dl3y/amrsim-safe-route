@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import runpy
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import eval as amr_eval
 from eval import (
-    DEFAULT_SCENARIOS,
     check_regressions,
     extract_metrics,
     format_table,
@@ -198,7 +197,9 @@ def test_format_table_with_baseline_and_flags():
     assert "BaseΔ" in tbl
 
     # Baseline with no overlapping scenarios
-    tbl_no_match = format_table(rows, baseline_summary={"scenarios": {"other_scen": {"total": 50.0}}})
+    tbl_no_match = format_table(
+        rows, baseline_summary={"scenarios": {"other_scen": {"total": 50.0}}}
+    )
     assert tbl_no_match is not None
 
 
@@ -237,7 +238,9 @@ def test_run_scenario_success(tmp_path, monkeypatch):
     controller_path.write_text("{}", encoding="utf-8")
 
     def mock_run(cmd, env, capture_output, text):
-        report_file.write_text(json.dumps({"scenario": "mock", "score": {"total": 100}}), encoding="utf-8")
+        report_file.write_text(
+            json.dumps({"scenario": "mock", "score": {"total": 100}}), encoding="utf-8"
+        )
         proc = MagicMock()
         proc.returncode = 0
         proc.stdout = "sim stdout"

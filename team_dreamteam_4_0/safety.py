@@ -3,6 +3,7 @@
 Strictly conforms to plan/03-vospriyatie-i-bezopasnost.md, plan/01-schet-i-ploshchadka.md,
 and scoring thresholds (standard library math/typing and numpy only).
 """
+
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -17,14 +18,14 @@ except ImportError:
 
 
 # Platform and safety constants
-R_PLATFORM = 0.9         # Platform radius (m)
-R_PEDESTRIAN = 0.3       # Pedestrian radius (m)
-DECEL_NORMAL = 1.2       # Normal service deceleration (m/s^2)
-DT = 0.1                 # Simulation step (s)
-V_MAX_DEFAULT = 1.39     # Maximum vehicle speed (m/s)
+R_PLATFORM = 0.9  # Platform radius (m)
+R_PEDESTRIAN = 0.3  # Pedestrian radius (m)
+DECEL_NORMAL = 1.2  # Normal service deceleration (m/s^2)
+DT = 0.1  # Simulation step (s)
+V_MAX_DEFAULT = 1.39  # Maximum vehicle speed (m/s)
 
-SLOW_PERSON_GAP = 3.3    # Current clearance below which a human caps v at <= 0.22 m/s
-SLOW_PERSON_V = 0.22     # Speed cap next to a person/unknown (plan/03:55)
+SLOW_PERSON_GAP = 3.3  # Current clearance below which a human caps v at <= 0.22 m/s
+SLOW_PERSON_V = 0.22  # Speed cap next to a person/unknown (plan/03:55)
 # The scoring penalty starts at clearance < 3.0 m and |v| > 0.28 m/s, but a command of 0.22
 # does not become the true speed instantly: the platform decelerates at 1.2 m/s^2, so from
 # 0.95 m/s it needs ~0.6 s (6 ticks) to fall under 0.28. While it is still braking the gap
@@ -38,22 +39,22 @@ SLOW_PERSON_V = 0.22     # Speed cap next to a person/unknown (plan/03:55)
 # so that a distant person can never throttle the platform; within the current 1.39 m/s limit
 # the cap is a guard only (it binds above ~1.43 m/s), so the calibrated behaviour below is
 # exactly K * v_now.
-SLOW_PERSON_MARGIN_K = 0.28    # s: extra gap per m/s of current speed (braking-ramp cover)
+SLOW_PERSON_MARGIN_K = 0.28  # s: extra gap per m/s of current speed (braking-ramp cover)
 SLOW_PERSON_MARGIN_MAX = 0.40  # m: hard cap on the anticipatory margin
-SLOW_PERSON_MIN_PTS = 4        # a person-like cluster: a lone snow return is never this wide
+SLOW_PERSON_MIN_PTS = 4  # a person-like cluster: a lone snow return is never this wide
 # The 2 s clearance prediction answers "would this body enter the circle" (plan/03:47). Using
 # the already-limited v_odom understates the risk: once the slow cap has collapsed the speed to
 # 0.22 m/s the prediction looks safe, the stop never fires, and the platform may crawl for a
 # long time inside a stream of pedestrians instead of waiting for it to clear. Predict with the
 # speed the path follower actually asked for (never less than the current speed).
 STOP_PREDICT_WITH_CANDIDATE = True
-STOP_PREDICT_MIN_SPEED = 0.5   # m/s: only while the platform is really rolling fast
-STOP_GAP = 0.8           # Current or predicted clearance below which v = 0
+STOP_PREDICT_MIN_SPEED = 0.5  # m/s: only while the platform is really rolling fast
+STOP_GAP = 0.8  # Current or predicted clearance below which v = 0
 # A static object whose honest gap (no 0.3 m pedestrian radius subtracted) falls
 # below this is close enough that a misclassification would matter: safety applies
 # the human limits to it anyway (task I.5).
 STATIC_OBJECT_NEAR_GAP = 1.5
-ESTOP_GAP = 1.2          # Confirmed cluster distance enabling emergency braking
+ESTOP_GAP = 1.2  # Confirmed cluster distance enabling emergency braking
 
 
 def calculate_clearance(
@@ -61,11 +62,11 @@ def calculate_clearance(
     is_pedestrian: bool = True,
 ) -> float:
     """Calculate clearance from AMR perimeter to obstacle perimeter.
-    
+
     AMR radius = 0.9 m.
     Pedestrian radius = 0.3 m (subtracted for pedestrians and unknown obstacles).
     For walls/fences and static objects, only AMR radius is subtracted.
-    
+
     Returns:
       clearance in meters (can be <= 0 at contact).
     """
@@ -85,16 +86,16 @@ def predict_ttc_clearance(
     dt_step: float = 0.2,
 ) -> Tuple[float, float]:
     """Predict minimum clearance to track over a 2.0 s horizon with 0.2 s steps.
-    
+
     Considers platform velocity along heading and track velocity in pure odometry frame.
-    
+
     Args:
       track: obstacle Track instance
       v_platform: forward speed of platform (m/s)
       oth: AMR heading in pure odometry frame (rad)
       horizon_s: prediction horizon (default 2.0)
       dt_step: time step for prediction (default 0.2)
-      
+
     Returns:
       (min_predicted_clearance, time_to_min_clearance)
     """
@@ -141,7 +142,7 @@ def determine_status(
     allow_slowed: bool = False,
 ) -> str:
     """Determine AMR operational status.
-    
+
     Conforms to scoring rules:
     - Status MUST be 'moving' whenever |v_odom| >= 0.05 to prevent status_mismatch (-2).
     - Status 'arrived' when dock condition is met.
@@ -174,7 +175,7 @@ def determine_status(
 
 class SafetyGovernor:
     """Safety governor enforcing clearance, speed limits, corridor braking, and notes.
-    
+
     Limits speed according to plan/03 (hardest limit wins):
     1. Predicted clearance to pedestrian/unknown over 2 s < 0.8 m -> v = 0. While the platform
        is still rolling fast (>= STOP_PREDICT_MIN_SPEED) the prediction uses the speed the path
@@ -194,7 +195,7 @@ class SafetyGovernor:
     8. estop (2.5 m/s^2) only when a confirmed cluster is closer than 1.2 m, the gap closes and
        the normal 1.2 m/s^2 brake cannot stop in time. Never above 1.5 m (false estop = -1).
     """
-    
+
     NOTE_ORDER = (
         "blocked_wheels",
         "stop_person",
@@ -264,7 +265,7 @@ class SafetyGovernor:
         sigma_cross: float = 0.0,
     ) -> Tuple[float, float, str, str]:
         """Evaluate safety limits and determine safe command (v, w), status, and note.
-        
+
         Args:
           v_cand: candidate forward velocity from path follower (m/s)
           w_cand: candidate angular velocity from path follower (rad/s)
@@ -283,7 +284,7 @@ class SafetyGovernor:
           perception_note: existing note from perception (e.g. map_missing/map_extra)
           remaining_dist: remaining distance to dock, metres
           sigma_cross: lateral pose sigma, reported in the `lost s_lat=` note
-          
+
         Returns:
           (v_safe, w_safe, status, note)
         """
@@ -346,7 +347,7 @@ class SafetyGovernor:
         person_stop = False
         person_slow = False
         person_slow_cl = math.inf
-        front_hit = False          # a cluster is directly ahead inside the corridor
+        front_hit = False  # a cluster is directly ahead inside the corridor
         # True-contact flag: the shortest *centre-to-point* distance over every cluster.
         # The braking path is about translation, but the hull is a 0.9 m disc, so an
         # in-place turn is safe while the nearest point stays outside the disc. This is
@@ -486,7 +487,9 @@ class SafetyGovernor:
                 with np.errstate(invalid="ignore"):
                     px = r * np.cos(rel)
                     py = r * np.sin(rel)
-                    corridor_hit = np.isfinite(r) & (px > 0.0) & (px < reach) & (np.abs(py) < R_PLATFORM + 0.1)
+                    corridor_hit = (
+                        np.isfinite(r) & (px > 0.0) & (px < reach) & (np.abs(py) < R_PLATFORM + 0.1)
+                    )
                     # Three adjacent beams: real obstacle, not snowflake
                     three_hit = corridor_hit & np.roll(corridor_hit, 1) & np.roll(corridor_hit, -1)
                     if three_hit.any():
@@ -501,12 +504,14 @@ class SafetyGovernor:
         if self._prev_min_cl is not None and math.isfinite(self._prev_min_cl):
             closing = min_overall_clearance < self._prev_min_cl - 0.005
         stopping_normal = (v_now * v_now) / (2.0 * DECEL_NORMAL) + v_now * self.dt
-        if (math.isfinite(min_overall_clearance)
-                and min_overall_clearance < ESTOP_GAP
-                and min_overall_clearance < stopping_normal
-                and front_hit
-                and v_now > 0.05
-                and closing):
+        if (
+            math.isfinite(min_overall_clearance)
+            and min_overall_clearance < ESTOP_GAP
+            and min_overall_clearance < stopping_normal
+            and front_hit
+            and v_now > 0.05
+            and closing
+        ):
             is_estop = True
             v_lim = 0.0
             if stop_reason is None:
@@ -547,7 +552,7 @@ class SafetyGovernor:
                 notes["dock"] = "dock"
 
         # 11. Status determination
-        is_slowed = (v_safe <= 0.35 and v_safe > 0.0)
+        is_slowed = v_safe <= 0.35 and v_safe > 0.0
         is_stopped_flag = (stop_reason is not None) or (v_safe == 0.0 and w_safe == 0.0)
 
         # Simulator status: strictly 'moving' whenever |v_odom| >= 0.05
