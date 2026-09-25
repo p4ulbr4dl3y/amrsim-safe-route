@@ -264,6 +264,72 @@ class TestLocalizer(unittest.TestCase):
         self.assertAlmostEqual(loc.x, 0.1)
         self.assertFalse(loc.scale_locked)
 
+    def test_scale_calibration_with_nonzero_start_heading(self):
+        """Calibration must work on a route that does not start along +x (03 starts at -90 deg).
+
+        The scan displacement is measured in world axes while (ox, oy, oth) is the pure
+        wheel frame whose heading starts at 0 -- on 01/02/04 the platform starts at
+        theta = 0, so the frames coincide and the difference is invisible. Projecting the
+        odometry delta onto the scan delta without rotating between frames makes the
+        along-motion estimate collapse (the dot product of two perpendicular vectors), so
+        _scale_lidar_dist never reaches 25 m and the scale silently stays at 1.0.
+        """
+        segs = np.array([
+            [95.0, 0.0, 95.0, 120.0],
+            [105.0, 0.0, 105.0, 120.0],
+            [95.0, 60.0, 105.0, 60.0],
+            [95.0, 10.0, 105.0, 10.0],
+        ])
+        heading = -math.pi / 2.0
+        loc = Localizer((100.0, 55.0, heading), building_segs=segs)
+        true_y = 55.0
+        locked_at = None
+        for k in range(420):
+            loc.predict(0.103, 0.0, 0.0, heading, 0.0, 0.1)  # odom over-reports by 3%
+            true_y -= 0.1                                      # true motion is due south
+            ranges = raycast(100.0, true_y, heading + ANGLES, segs, max_range=19.0)
+            self.assertTrue(loc.update_scan(ranges, ANGLES, segs, is_fog=False))
+            loc.update_gnss(100.0, true_y, True, 0.9)
+            if loc.scale_locked:
+                locked_at = k
+                break
+
+        self.assertIsNotNone(locked_at, "scale was never calibrated at a -90 deg start heading")
+        self.assertGreaterEqual(
+            loc._scale_lidar_dist, 25.0,
+            "the world-frame scan path must accumulate, not collapse onto a lateral axis")
+        self.assertAlmostEqual(loc.scale, 1.03, delta=0.01)
+
+    def test_scale_gate_opens_on_sparse_far_facade(self):
+        """A far facade with less than 80 inliers must still be able to calibrate.
+
+        On 03 the north passage has no mapped wall nearer than ~14 m (the lidar itself
+        clamps at 5.5 m in fog), so a match never reaches the 80-inlier bar that used to
+        enclose the whole accumulation block. The facade end is nevertheless a mapped
+        longitudinal landmark (plan/02:63-81) and the pose is anchored by a GNSS fix
+        inside the 1.5 m gate, so the along-track displacement is a measurement and the
+        scale has to freeze before the fog bank.
+        """
+        segs = np.array([[10.0, 15.0, 100.0, 15.0], [10.0, 15.0, 10.0, 35.0]])
+        loc = Localizer((-30.0, 0.0, 0.0), building_segs=segs)
+        true_x = -30.0
+        max_inliers = 0
+        locked_at = None
+        for k in range(700):
+            loc.predict(0.103, 0.0, 0.0, 0.0, 0.0, 0.1)  # odom over-reports by 3%
+            true_x += 0.1
+            ranges = raycast(true_x, 0.0, ANGLES, segs, max_range=19.0)
+            loc.update_scan(ranges, ANGLES, segs, is_fog=False)
+            loc.update_gnss(true_x, 0.0, True, 0.9)
+            max_inliers = max(max_inliers, loc.scan_inliers)
+            if loc.scale_locked and locked_at is None:
+                locked_at = k
+                break
+
+        self.assertLess(max_inliers, 80, "the fixture must exercise the sparse-match route")
+        self.assertIsNotNone(locked_at, "a sparse far-facade match never opened the gate")
+        self.assertAlmostEqual(loc.scale, 1.03, delta=0.015)
+
     # ------------------------------------------------------------------ plan/02:133
 
     def test_variance_axes_at_side_wall(self):

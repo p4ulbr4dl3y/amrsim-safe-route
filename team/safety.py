@@ -26,6 +26,29 @@ V_MAX_DEFAULT = 1.39     # Maximum vehicle speed (m/s)
 
 SLOW_PERSON_GAP = 3.3    # Current clearance below which a human caps v at <= 0.22 m/s
 SLOW_PERSON_V = 0.22     # Speed cap next to a person/unknown (plan/03:55)
+# The scoring penalty starts at clearance < 3.0 m and |v| > 0.28 m/s, but a command of 0.22
+# does not become the true speed instantly: the platform decelerates at 1.2 m/s^2, so from
+# 0.95 m/s it needs ~0.6 s (6 ticks) to fall under 0.28. While it is still braking the gap
+# keeps closing, and a person walking towards the platform closes it faster still. Engaged at
+# the bare 3.3 m threshold the speed is therefore still ~0.35 m/s when the true gap crosses
+# 3.0 m: a one-tick `person_near_fast` episode (-0.2, measured on 01/03/04). The margin below
+# is added to the engagement gap for a person-like cluster so the speed is already <= 0.28 by
+# the time the gap reaches 3.0 m. It is a fraction of the ground covered while the service
+# brake releases the ramp (0.28 s per 1 m/s of current speed: ~0.27 m at 0.95 m/s, ~0.39 m at
+# cruise), calibrated as the smallest value that removes every observed episode. It is capped
+# so that a distant person can never throttle the platform; within the current 1.39 m/s limit
+# the cap is a guard only (it binds above ~1.43 m/s), so the calibrated behaviour below is
+# exactly K * v_now.
+SLOW_PERSON_MARGIN_K = 0.28    # s: extra gap per m/s of current speed (braking-ramp cover)
+SLOW_PERSON_MARGIN_MAX = 0.40  # m: hard cap on the anticipatory margin
+SLOW_PERSON_MIN_PTS = 4        # a person-like cluster: a lone snow return is never this wide
+# The 2 s clearance prediction answers "would this body enter the circle" (plan/03:47). Using
+# the already-limited v_odom understates the risk: once the slow cap has collapsed the speed to
+# 0.22 m/s the prediction looks safe, the stop never fires, and the platform may crawl for a
+# long time inside a stream of pedestrians instead of waiting for it to clear. Predict with the
+# speed the path follower actually asked for (never less than the current speed).
+STOP_PREDICT_WITH_CANDIDATE = True
+STOP_PREDICT_MIN_SPEED = 0.5   # m/s: only while the platform is really rolling fast
 STOP_GAP = 0.8           # Current or predicted clearance below which v = 0
 # A static object whose honest gap (no 0.3 m pedestrian radius subtracted) falls
 # below this is close enough that a misclassification would matter: safety applies
@@ -155,11 +178,16 @@ class SafetyGovernor:
     """Safety governor enforcing clearance, speed limits, corridor braking, and notes.
     
     Limits speed according to plan/03 (hardest limit wins):
-    1. Predicted clearance to pedestrian/unknown over 2 s < 0.8 m -> v = 0.
+    1. Predicted clearance to pedestrian/unknown over 2 s < 0.8 m -> v = 0. While the platform
+       is still rolling fast (>= STOP_PREDICT_MIN_SPEED) the prediction uses the speed the path
+       follower asked for, not the v_odom our own slow cap may have just collapsed, so the crawl
+       limit cannot suppress a stop that is genuinely needed (see STOP_PREDICT_WITH_CANDIDATE).
     2. Current clearance to pedestrian/unknown < 0.8 m -> v = 0, held until the predicted
        clearance exceeds 3.3 m (no "wait and go" timeout for dynamic/unknown tracks).
-    3. Current clearance to pedestrian/unknown < 3.3 m -> v <= 0.22 (scoring penalty starts at
-       3.0 m / 0.28 m/s, so this leaves margin).
+    3. Current clearance to a person-like pedestrian/unknown < 3.3 m, plus an anticipatory
+       margin that grows with the current speed (SLOW_PERSON_MARGIN_K*|v_odom|, capped), caps
+       v at <= 0.22 (scoring penalty starts at 3.0 m / 0.28 m/s, so this leaves margin for the
+       1.2 m/s^2 brake ramp and for the person walking towards the platform).
     4. Three adjacent lidar returns in corridor |y| < 1.0 m inside braking distance -> v = 0.
     5. Unmapped wall (is_wall/map_extra) and static object in the corridor -> treated as an
        obstacle in the clearance and in the corridor test, never ignored.
@@ -343,10 +371,24 @@ class SafetyGovernor:
 
             if is_human:
                 ped_ahead = (pts[:, 0] > 0.0) & (pts[:, 0] < 4.5) & (np.abs(pts[:, 1]) < 1.8)
+                person_like = len(pts) >= SLOW_PERSON_MIN_PTS
+                slow_gap = SLOW_PERSON_GAP
+                if person_like:
+                    slow_gap += min(SLOW_PERSON_MARGIN_K * v_now, SLOW_PERSON_MARGIN_MAX)
+                # While the platform is still rolling fast the prediction uses the speed the
+                # path follower asked for, not the already-limited v_odom. Predicting with a
+                # speed that our own slow cap has just collapsed would hide a genuinely closing
+                # person: the stop would never fire and the platform would crawl for a long
+                # time inside a stream of pedestrians instead of waiting for it to clear
+                # (measured on 03 seed 21). Once the platform is already slow (<= 0.5 m/s) the
+                # plan's own thresholds apply unchanged, so a 2.5 m gap stays a 0.22 m/s cap.
 
                 # A. Current or predicted (2 s horizon) clearance < 0.8 m -> stop
+                v_pred = v_now
+                if STOP_PREDICT_WITH_CANDIDATE and v_now >= STOP_PREDICT_MIN_SPEED:
+                    v_pred = max(v_now, abs(v_cand))
                 pred_cl, _ = predict_ttc_clearance(
-                    tr, v_platform=v_now, oth=oth, horizon_s=2.0, dt_step=0.2
+                    tr, v_platform=v_pred, oth=oth, horizon_s=2.0, dt_step=0.2
                 )
                 if pred_cl < human_pred_min:
                     human_pred_min = pred_cl
@@ -356,8 +398,14 @@ class SafetyGovernor:
                     notes["stop_person"] = f"stop_person d={max(0.0, min(cl, pred_cl)):.1f}"
                     v_lim = 0.0
                     person_stop = True
-                # B. Person ahead in corridor within 4.5 m, or current clearance < 3.3 m
-                elif ped_ahead.any() or cl < SLOW_PERSON_GAP:
+                # B. Person ahead in corridor within 4.5 m, or clearance below the engagement
+                #    gap. The engagement gap is the plan's 3.3 m plus an anticipatory margin on
+                #    a person-like cluster: the platform cannot drop to 0.22 m/s instantly, and
+                #    without the margin the true 3.0 m / 0.28 m/s scoring line is crossed while
+                #    the brake is still releasing speed (one-tick `person_near_fast`). A lone or
+                #    paired snow return (few points) is not person-like and gets no margin, so
+                #    snow never throttles the platform (plan/03:18, plan/03:55).
+                elif ped_ahead.any() or cl < slow_gap:
                     person_slow = True
                     if cl < person_slow_cl:
                         person_slow_cl = cl

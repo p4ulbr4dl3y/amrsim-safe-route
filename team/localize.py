@@ -503,17 +503,22 @@ class Localizer:
                 if last_normals is not None and len(last_normals) > 0:
                     self._update_variances_from_walls(last_normals, last_weights)
 
-                # Odometry scale accumulation (plan/02:99-108): >80 inliers, no wheel
-                # block, and either a recent GNSS fix inside the 1.5 m gate or the scan
-                # holding a mapped corner / segment end, which makes the along-track
-                # scan displacement a measurement instead of the prediction.
+                # Odometry scale accumulation (plan/02:99-108): no wheel block, and the
+                # scan has to carry along-track information. A GNSS fix inside the 1.5 m
+                # gate already anchors the pose, so any accepted match may be accumulated
+                # with it -- that is what keeps a far facade from blocking calibration: on
+                # 03 the north passage has no mapped wall nearer than ~14 m (the lidar
+                # itself clamps at 5.5 m in fog), so the match never reaches 80 inliers
+                # even though its end face and the facade bays are perfectly visible
+                # landmarks (plan/02:63-81). Without GNSS the plan's stricter bar holds:
+                # a dense match *and* the angle/landmark evidence.
                 gnss_recent = self.last_gnss_accepted or self._gnss_fix_ticks <= 50
-                if not self.scale_locked and inliers_count > 80:
+                if not self.scale_locked:
                     longitudinal = (self._scan_has_angle(last_normals)
                                     or self._scan_holds_landmark(
                                         r_all, rel_all, d_prev, d_next, finite_all,
                                         near_segs_arr))
-                    if gnss_recent or longitudinal:
+                    if gnss_recent or (inliers_count > 80 and longitudinal):
                         self._accumulate_scale(
                             prev_ox, prev_oy, cur_x - prev_x, cur_y - prev_y)
                 self._pending_odom_step = 0.0
@@ -799,9 +804,9 @@ class Localizer:
 
         plan/02:99-108: s = odom_path / lidar_path over at least 25 m of scan-confirmed
         travel. Both paths are measured over exactly the same interval between two
-        accepted scan matches, in the pure odometry frame, and only the along-motion
-        projection of the scan displacement is used so lateral scan/GNSS corrections do
-        not inflate the lidar path.
+        accepted scan matches -- the odometry odometer delta in its own frame, rotated
+        into world axes -- and only the along-motion projection of the scan displacement
+        is used so lateral scan/GNSS corrections do not inflate the lidar path.
         """
         if self.scale_locked:
             return
@@ -812,7 +817,20 @@ class Localizer:
         if odom_len <= 1e-6:
             return
 
-        lidar_step = (scan_dx * odom_dx + scan_dy * odom_dy) / odom_len
+        # Both displacements live in different frames and the difference is a constant:
+        # odometry (ox, oy, oth) is the pure wheel frame whose heading starts at 0, while
+        # the scan displacement is taken in world axes and the pose heading starts at
+        # initial_pose[2]. On 01/02/04 the platform starts at theta = 0 so the two frames
+        # coincide, but 03 starts at -90 deg and the raw dot product then projects a
+        # sideways odometry delta onto a downhill scan delta -- it collapses to ~0 (or
+        # flips sign), _scale_lidar_dist never reaches 25 m and the scale stays at 1.0.
+        rot = self.th - self.oth
+        c_rot = math.cos(rot)
+        s_rot = math.sin(rot)
+        w_odom_dx = c_rot * odom_dx - s_rot * odom_dy
+        w_odom_dy = s_rot * odom_dx + c_rot * odom_dy
+
+        lidar_step = (scan_dx * w_odom_dx + scan_dy * w_odom_dy) / odom_len
         if lidar_step <= 0.0:
             return
 

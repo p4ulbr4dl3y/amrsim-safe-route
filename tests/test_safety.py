@@ -8,6 +8,10 @@ from team.perceive import Track
 from team.safety import (
     R_PEDESTRIAN,
     R_PLATFORM,
+    SLOW_PERSON_GAP,
+    SLOW_PERSON_MARGIN_K,
+    SLOW_PERSON_MARGIN_MAX,
+    SLOW_PERSON_MIN_PTS,
     SafetyGovernor,
     calculate_clearance,
     determine_status,
@@ -669,6 +673,85 @@ class TestSafety(unittest.TestCase):
         self.assertIn("lost s_lat=0.0", note)
         _, _, _, note_sig = self._eval([], v_odom=0.0, is_lost=True, sigma_cross=0.4)
         self.assertIn("lost s_lat=0.4", note_sig)
+    # --- O: the anticipatory gap lets the normal brake beat the 3.0 m / 0.28 m/s line ---
+
+    def _cluster(self, clearance, npts, label="pedestrian", dyn=True, moving=0.0):
+        """A lidar-like cluster of `npts` points at a given pedestrian clearance.
+
+        Points are placed beyond 4.5 m so the cluster is out of the forward pedestrian
+        corridor and only the distance rules can act on it.
+        """
+        raw = clearance + R_PLATFORM + R_PEDESTRIAN
+        tr = Track(track_id=1, ox=raw, oy=0.0)
+        tr.pts = np.array([[raw, 0.05 * (i - npts // 2)] for i in range(npts)], dtype=float)
+        tr.class_label = label
+        tr.dyn = dyn
+        tr.vx_odom = moving
+        return tr, raw
+
+    def _band_mid(self, v_odom):
+        """A clearance halfway into the anticipatory band for the given speed."""
+        margin = min(SLOW_PERSON_MARGIN_K * v_odom, SLOW_PERSON_MARGIN_MAX)
+        self.assertGreater(margin, 0.0)
+        return SLOW_PERSON_GAP + 0.5 * margin
+
+    def test_anticipatory_slow_gap_scales_with_speed(self):
+        # Task O. The scoring line is 3.0 m / 0.28 m/s, but the normal brake is limited to
+        # 1.2 m/s^2: from cruise it needs several ticks to reach 0.28 m/s while the person keeps
+        # closing. A person-like cluster just above the bare 3.3 m clearance must therefore
+        # already be capped to <= 0.22 m/s, otherwise a one-tick `person_near_fast` remains.
+        v_odom = 0.5
+        tr, raw = self._cluster(self._band_mid(v_odom), SLOW_PERSON_MIN_PTS)
+        self.assertGreater(raw, 4.5)
+        v_safe, _, _, note = self._eval([tr], v_cand=v_odom, v_odom=v_odom)
+        self.assertLessEqual(v_safe, 0.22)
+        self.assertGreater(v_safe, 0.0)
+        self.assertIn("slow_person", note)
+
+    def test_no_anticipatory_slow_at_crawl_speed(self):
+        # The margin is proportional to the current speed, so the same clearance is *outside*
+        # the band of a crawling platform: at 0.1 m/s the platform keeps the route's speed and
+        # the new regime does not throttle it on an empty road.
+        cl = self._band_mid(0.5)
+        self.assertGreater(cl, SLOW_PERSON_GAP + min(SLOW_PERSON_MARGIN_K * 0.1, SLOW_PERSON_MARGIN_MAX))
+        tr, _ = self._cluster(cl, SLOW_PERSON_MIN_PTS)
+        v_safe, _, _, note = self._eval([tr], v_cand=0.5, v_odom=0.1)
+        self.assertAlmostEqual(v_safe, 0.5)
+        self.assertNotIn("slow_person", note)
+        self.assertNotIn("stop_person", note)
+
+    def test_snow_phantom_gets_no_anticipatory_slow(self):
+        # plan/03:18, plan/03:55: a lone or paired snow return is not a person and must never be
+        # treated as one. At the very clearance where a person-like cluster is capped, a
+        # sub-`SLOW_PERSON_MIN_PTS` cluster keeps full speed: snow must not make the platform
+        # crawl. (Confirmed tracks only reach safety, so this is the only snow exposure.)
+        cl = self._band_mid(0.5)
+        for npts in (1, SLOW_PERSON_MIN_PTS - 1):
+            snow, _ = self._cluster(cl, npts, label="unknown", dyn=None)
+            v_safe, _, _, note = self._eval([snow], v_cand=0.5, v_odom=0.5)
+            self.assertAlmostEqual(v_safe, 0.5, msg=f"npts={npts}")
+            self.assertNotIn("slow_person", note)
+            self.assertNotIn("stop_person", note)
+
+    def test_fast_rolling_stop_prediction_uses_candidate_speed(self):
+        # While the platform still rolls fast, the 2 s prediction uses the speed the path
+        # follower asked for, not the v_odom our own slow cap is collapsing. Predicting with the
+        # collapsed speed would look safe, the stop would never fire, and the platform would
+        # crawl for a long time inside a stream of pedestrians instead of waiting for it to
+        # clear (measured on 03 seed 21). Here the slow prediction stays above STOP_GAP while
+        # the intended one does not, so the platform must stop.
+        cl = SLOW_PERSON_GAP + 0.08
+        tr, _ = self._cluster(cl, SLOW_PERSON_MIN_PTS, moving=-0.3)
+        v_stop, _, _, note = self._eval([tr], v_cand=1.2, v_odom=0.6)
+        self.assertEqual(v_stop, 0.0)
+        self.assertIn("stop_person", note)
+        # At crawl speed the plan's own thresholds apply unchanged: the same geometry stays a
+        # 0.22 m/s cap, never a stop.
+        v_slow, _, _, note_slow = self._eval([tr], v_cand=0.5, v_odom=0.4)
+        self.assertLessEqual(v_slow, 0.22)
+        self.assertGreater(v_slow, 0.0)
+        self.assertNotIn("stop_person", note_slow)
+        self.assertIn("slow_person", note_slow)
 
 
 if __name__ == "__main__":
