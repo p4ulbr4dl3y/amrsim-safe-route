@@ -226,6 +226,37 @@ class TestLocalizer(unittest.TestCase):
             loc.update_scan(ranges, ANGLES, segs, is_fog=False)
         self.assertEqual(loc.scale, frozen)
 
+    def test_scale_gate_needs_gnss_or_landmark(self):
+        """Without a GNSS fix the scale accumulates only while a mapped landmark is held.
+
+        plan/02:99-108 allows calibration when "GNSS is in the gate OR the scan holds
+        both ends of a segment". Two parallel facades ending at x=25 have no corner
+        normals (the old normal-spread test stays false), but their silhouettes are the
+        segment ends the plan names in plan/02:63-81 -- so the gate must open on them.
+        """
+        open_end = np.array([[-5.0, 2.0, 25.0, 2.0], [-5.0, 0.0, 25.0, 0.0]])
+        loc = Localizer((20.0, 1.0, 0.0), building_segs=open_end)
+        self.assertGreater(len(loc.landmarks), 0)
+        true_x = 20.0
+        for _ in range(20):
+            loc.predict(0.1, 0.0, 0.0, 0.0, 0.0, 0.1)
+            true_x += 0.1
+            ranges = raycast(true_x, 1.0, ANGLES, open_end, max_range=19.0)
+            self.assertTrue(loc.update_scan(ranges, ANGLES, open_end, is_fog=False))
+        self.assertGreater(loc._scale_lidar_dist, 0.5)
+
+        # Identical geometry with the ends 180 m away: nothing observes the along-track
+        # axis, so the accumulator must stay empty (the gate must not become a no-op).
+        closed = np.array([[-200.0, 2.0, 200.0, 2.0], [-200.0, 0.0, 200.0, 0.0]])
+        loc2 = Localizer((20.0, 1.0, 0.0), building_segs=closed)
+        true_x = 20.0
+        for _ in range(20):
+            loc2.predict(0.1, 0.0, 0.0, 0.0, 0.0, 0.1)
+            true_x += 0.1
+            ranges = raycast(true_x, 1.0, ANGLES, closed, max_range=19.0)
+            self.assertTrue(loc2.update_scan(ranges, ANGLES, closed, is_fog=False))
+        self.assertEqual(loc2._scale_lidar_dist, 0.0)
+
     def test_scale_ignored_before_calibration(self):
         loc = Localizer((0.0, 0.0, 0.0))
         loc.predict(0.1, 0.0, 0.0, 0.0, 0.0, 0.1)
@@ -331,6 +362,29 @@ class TestLocalizer(unittest.TestCase):
         self.assertTrue(loc2.update_scan(ranges2, ANGLES, long_wall, is_fog=False))
         self.assertGreater(abs(loc2.x - 1.9), 0.3)   # still unobservable
         self.assertLess(abs(loc2.y - 1.0), 0.05)     # normal held by the facade
+
+    def test_landmark_association_requires_mapped_corner(self):
+        """The scale gate accepts a corner only when it really is a mapped landmark.
+
+        plan/02:63-81: the angular feature must lie on a mapped wall (residual < 0.35 m)
+        and associate to a landmark within 2 m. A lone snow speck in free space fails
+        both tests, so it cannot open the calibration gate.
+        """
+        segs = np.array([[0.0, 4.0, 40.0, 4.0]])
+        loc = Localizer((0.0, 0.0, 0.0), building_segs=segs)
+        n = len(ANGLES)
+        inf = np.full(n, np.inf)
+
+        def holds(range_value):
+            r = np.full(n, np.nan)
+            r[90] = range_value
+            return loc._scan_holds_landmark(
+                r, ANGLES, inf, inf, np.isfinite(r), segs)
+
+        # Beam 90 returns the mapped west end of the wall (0, 4): a real landmark.
+        self.assertTrue(holds(4.0))
+        # Beam 90 returns a speck at 1.3 m, 2.7 m off the wall: not a mapped corner.
+        self.assertFalse(holds(1.3))
 
     # ------------------------------------------------------------------ plan/02:149
 

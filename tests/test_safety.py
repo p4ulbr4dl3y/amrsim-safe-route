@@ -628,6 +628,40 @@ class TestSafety(unittest.TestCase):
         self.assertNotIn("stop_person", note_last)
         self.assertNotIn("slow_person", note_last)
 
+    def test_static_object_one_metre_gap_limits_speed(self):
+        # Task I.5: a static object at an honest gap of 1.0 m (< 1.5 m guard) gets the
+        # human speed cap. At rest the 2 s prediction stays above STOP_GAP, so v <= 0.22.
+        obj = self._track(1.9, 0.0, "static_object", False)  # honest gap 1.0 m
+        self.assertAlmostEqual(calculate_clearance(obj.pts, is_pedestrian=False), 1.0, places=3)
+        v_safe, _, _, note = self._eval([obj], v_cand=1.39, v_odom=0.0)
+        self.assertGreater(v_safe, 0.0)
+        self.assertLessEqual(v_safe, 0.22)
+        self.assertNotIn("stop_person", note)
+
+        # The same 1.0 m object while the platform is still rolling: the 2 s prediction
+        # closes the gap below 0.8 m, so the guard stops instead of crawling.
+        v_moving, _, _, _ = self._eval([obj], v_cand=1.39, v_odom=0.3)
+        self.assertEqual(v_moving, 0.0)
+
+    def test_static_object_inside_guard_below_stop_gap_stops(self):
+        # Honest gap 0.7 m < STOP_GAP: even from rest the platform must hold v = 0.
+        obj = self._track(1.6, 0.0, "static_object", False)  # honest gap 0.7 m
+        v_safe, _, _, note = self._eval([obj], v_cand=1.39, v_odom=0.0)
+        self.assertEqual(v_safe, 0.0)
+        self.assertIn("stop_object", note)
+
+    def test_static_object_guard_edge_and_walls(self):
+        # Just outside the 1.5 m guard the object stays permissive (1.6 m honest gap).
+        obj_ok = self._track(2.5, 0.0, "static_object", False)  # honest gap 1.6 m
+        v_ok, _, _, _ = self._eval([obj_ok], v_cand=1.39, v_odom=0.0)
+        self.assertGreater(v_ok, 0.22)
+
+        # The near-miss guard is object-only: a wall with the same honest gap keeps the
+        # object rules (outside the swept corridor and the braking reach -> permissive).
+        wall = self._track(1.8, 0.4, "wall_extra", False)  # honest gap 0.944 m < 1.5 m
+        v_wall, _, _, _ = self._eval([wall], v_cand=1.39, v_odom=0.0)
+        self.assertAlmostEqual(v_wall, 1.39)
+
     def test_sigma_cross_optional_and_reported(self):
         # sigma_cross is an optional keyword (default 0.0) reported in the lost note; controller
         # passes the lateral pose sigma for 'lost s_lat='.

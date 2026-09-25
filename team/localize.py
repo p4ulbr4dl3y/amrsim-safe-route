@@ -504,13 +504,18 @@ class Localizer:
                     self._update_variances_from_walls(last_normals, last_weights)
 
                 # Odometry scale accumulation (plan/02:99-108): >80 inliers, no wheel
-                # block, and either a recent GNSS fix inside the 1.5 m gate or an actual
-                # angle in the scan holding both ends of a segment.
+                # block, and either a recent GNSS fix inside the 1.5 m gate or the scan
+                # holding a mapped corner / segment end, which makes the along-track
+                # scan displacement a measurement instead of the prediction.
                 gnss_recent = self.last_gnss_accepted or self._gnss_fix_ticks <= 50
-                if (not self.scale_locked and inliers_count > 80
-                        and (gnss_recent or self._scan_has_angle(last_normals))):
-                    self._accumulate_scale(
-                        prev_ox, prev_oy, cur_x - prev_x, cur_y - prev_y)
+                if not self.scale_locked and inliers_count > 80:
+                    longitudinal = (self._scan_has_angle(last_normals)
+                                    or self._scan_holds_landmark(
+                                        r_all, rel_all, d_prev, d_next, finite_all,
+                                        near_segs_arr))
+                    if gnss_recent or longitudinal:
+                        self._accumulate_scale(
+                            prev_ox, prev_oy, cur_x - prev_x, cur_y - prev_y)
                 self._pending_odom_step = 0.0
 
                 # Longitudinal landmarks: update the weak (tangential) axis only.
@@ -543,6 +548,48 @@ class Localizer:
         # below cos(30 deg) as soon as the spread exceeds 30 deg.
         r_len = math.hypot(float(np.cos(2.0 * ang).mean()), float(np.sin(2.0 * ang).mean()))
         return r_len < 0.866
+
+    def _scan_holds_landmark(
+        self,
+        r_all: np.ndarray,
+        rel_all: np.ndarray,
+        d_prev: np.ndarray,
+        d_next: np.ndarray,
+        finite_all: np.ndarray,
+        segs: np.ndarray,
+    ) -> bool:
+        """True when a scan corner sits on a mapped longitudinal landmark (plan/02:63-81).
+
+        ``_scan_has_angle`` only looks at the spread of wall normals, so a robot driving
+        past the end of a long facade sees "one wall" even though the silhouette of that
+        facade's end is a perfectly good along-track reference. The plan names exactly
+        that reference -- segment ends of buildings and pole centres -- and its
+        association rule is 2 m. Here the same angular feature the landmark layer uses
+        (neighbouring returns jumping by > 1.5 m) must land on a mapped wall
+        (residual < 0.35 m) and be within 2 m of a mapped landmark. A snow speck fails
+        both tests, so this cannot open the gate on an unobservable straight.
+        """
+        lm = self.landmarks
+        if lm is None or len(lm) == 0 or segs is None or len(segs) == 0 or len(r_all) == 0:
+            return False
+        finite = finite_all & np.isfinite(r_all)
+        jump = finite & ((d_prev > 1.5) | (d_next > 1.5))
+        idx = np.flatnonzero(jump)
+        if len(idx) == 0:
+            return False
+
+        ang = self.th + rel_all[idx]
+        wx = self.x + r_all[idx] * np.cos(ang)
+        wy = self.y + r_all[idx] * np.sin(ang)
+        on_wall = np.atleast_1d(point_to_segs_displacement(wx, wy, segs).dists) < 0.35
+        if not on_wall.any():
+            return False
+        wx = wx[on_wall]
+        wy = wy[on_wall]
+        for k in range(len(wx)):
+            if float(np.min(np.hypot(lm[:, 0] - wx[k], lm[:, 1] - wy[k]))) < 2.0:
+                return True
+        return False
 
     def _register_scan_health(self, is_fog: bool) -> None:
         """Count consecutive ticks with too few scan inliers (plan/02:141).
