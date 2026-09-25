@@ -55,9 +55,12 @@ class Controller:
 
         # Building wall segments
         self.building_segs = box_segs(map_.get("buildings", []))
+        # Poles are tiny mapped polygons (max side < 1 m, plan/02:68) used as
+        # longitudinal landmarks by the localizer.
+        self.pole_centers = self._extract_pole_centers(map_.get("buildings", []))
 
         # Subsystems
-        self.localizer = Localizer(initial_pose=initial_pose)
+        self.localizer = self._make_localizer(initial_pose)
         self.perception = Perception(dt=self.dt)
         self.route = RouteFollower(map_dict=map_, config=config)
         self.safety = SafetyGovernor(v_top=self.v_top, dt=self.dt)
@@ -75,6 +78,45 @@ class Controller:
         self.arrived_hold_ticks: int = 0
         self.visited_from: bool = False
         self.truth_pose: Optional[List[float]] = None
+        self.last_recover_t: float = -1e9
+
+    @staticmethod
+    def _extract_pole_centers(buildings: Any) -> np.ndarray:
+        """Collect centers of small mapped polygons (poles, plan/02:68).
+
+        A polygon qualifies as a pole when its longest side is shorter than 1 m.
+        Returns an (N, 2) float array, empty when no such polygons exist.
+        """
+        centers: List[List[float]] = []
+        for b in buildings or []:
+            poly = b.get("polygon") if isinstance(b, dict) else b
+            if poly is None or len(poly) < 3:
+                continue
+            try:
+                pts = np.asarray(poly, dtype=float)
+            except (TypeError, ValueError):
+                continue
+            if pts.ndim != 2 or pts.shape[0] < 3 or pts.shape[1] < 2:
+                continue
+            closed = np.vstack([pts[:, :2], pts[:1, :2]])
+            sides = np.hypot(np.diff(closed[:, 0]), np.diff(closed[:, 1]))
+            if sides.size == 0 or float(sides.max()) >= 1.0:
+                continue
+            centers.append([float(pts[:, 0].mean()), float(pts[:, 1].mean())])
+        if not centers:
+            return np.empty((0, 2), dtype=float)
+        return np.asarray(centers, dtype=float)
+
+    def _make_localizer(self, initial_pose: List[float]) -> "Localizer":
+        """Build the Localizer with map landmarks, tolerating the older signature."""
+        try:
+            return Localizer(
+                initial_pose=initial_pose,
+                building_segs=self.building_segs,
+                pole_centers=self.pole_centers,
+            )
+        except TypeError:
+            return Localizer(initial_pose=initial_pose)
 
     def set_truth(self, pose: List[float]) -> None:
         """Ground truth hook for local --cheat benchmarking only."""
@@ -114,6 +156,16 @@ class Controller:
 
         self.localizer.update_scan(ranges, rel_angles, active_segs, is_fog=is_fog)
 
+        # 2b. Lost-pose recovery: standing platform re-searches the map (plan/02:135+).
+        v_odom = dx_odom / self.dt
+        if self.localizer.is_lost and abs(v_odom) < 0.04:
+            now_t = float(obs.get("t", 0.0))
+            if now_t - self.last_recover_t >= 1.0:
+                self.last_recover_t = now_t
+                recover = getattr(self.localizer, "try_recover", None)
+                if callable(recover):
+                    recover(ranges=ranges, rel_angles=rel_angles, segs=active_segs)
+
         # 3. GNSS update with innovation gating
         gnss = obs.get("gnss", {})
         raw_x = gnss.get("x")
@@ -134,7 +186,6 @@ class Controller:
 
         pose = self.localizer.pose
         odom_pose = self.localizer.odom_pose
-        v_odom = dx_odom / self.dt
         w_odom = dth_odom / self.dt
 
         # 4. Mission management & dock snap
@@ -147,17 +198,17 @@ class Controller:
                 self.arrived_hold_ticks = 0
                 self.visited_from = False
 
-            # Check from pick-up proximity (must be within 2.0m during mission)
+            # Check from pick-up proximity (plan/02:125: filter was within 1.5m during mission)
             from_key = mission.get("from")
             if isinstance(from_key, str) and "points" in self.map:
                 pt_info = self.map["points"].get(from_key, {})
                 fx, fy = float(pt_info.get("x", 0.0)), float(pt_info.get("y", 0.0))
                 d_from = math.hypot(pose[0] - fx, pose[1] - fy)
-                if d_from < 1.8:
+                if d_from < 1.5:
                     self.visited_from = True
             elif isinstance(from_key, (list, tuple)) and len(from_key) >= 2:
                 d_from = math.hypot(pose[0] - from_key[0], pose[1] - from_key[1])
-                if d_from < 1.8:
+                if d_from < 1.5:
                     self.visited_from = True
 
             # Dock snap near terminal goal
@@ -208,6 +259,13 @@ class Controller:
                 r_obs = max(0.4, 0.5 * min(2.0, trk.length))
                 static_obs.append((wx, wy, r_obs))
 
+        # Map discrepancies (map_extra / wall_extra) must feed the route obstacle
+        # layer too, otherwise an unmapped map patch is crossed head-on (audit gap 9).
+        for ex, ey, er in self.perception.get_extra_obstacles():
+            if any(math.hypot(ex - sx, ey - sy) < 0.35 for sx, sy, _ in static_obs):
+                continue
+            static_obs.append((float(ex), float(ey), float(er)))
+
         # 6. Route follower step
         route_cmd = self.route.step(
             pose=pose,
@@ -221,12 +279,18 @@ class Controller:
         rem_dist = float(route_cmd.get("remaining_dist", 99.0))
         route_note = route_cmd.get("note") or ""
 
-        # Check arrival threshold at terminal dock
+        # Lost-orientation speed cap (plan/02:135+): the frozen SafetyGovernor
+        # signature has no lost argument, so clamp the candidate here.
+        if self.localizer.is_lost:
+            v_cand = min(v_cand, float(getattr(self.localizer, "lost_speed_limit", 1.39)))
+
+        # Check arrival threshold at terminal dock (plan/02:121-127)
         if mission is not None and len(self.route.active_path) >= 2:
             terminal_pt = self.route.active_path[-1]
             dist_to_dock = math.hypot(pose[0] - terminal_pt[0], pose[1] - terminal_pt[1])
             is_route_arrived = bool(route_cmd.get("arrived", False) or route_cmd.get("status") == "arrived")
-            if (dist_to_dock <= 0.12 or is_route_arrived) and abs(v_odom) < 0.04:
+            if ((dist_to_dock <= 0.10 or is_route_arrived)
+                    and abs(v_odom) < 0.04 and self.visited_from):
                 self.arrived = True
                 self.arrived_hold_ticks = 1
                 return {
@@ -257,13 +321,20 @@ class Controller:
             remaining_dist=rem_dist,
         )
 
-        # Combine notes
-        combined_note = safety_note or route_note or ""
+        # Combine notes: active safety reasons outrank route notes, but a stale
+        # map_missing/map_extra could hide an active avoidance note (audit gap 15).
+        if route_note and safety_note in ("map_missing", "map_extra"):
+            combined_note = route_note
+        else:
+            combined_note = safety_note or route_note or ""
+
+        # Status follows measured odometry while the platform is still rolling (plan/03:86-90).
+        final_status = "moving" if abs(v_odom) > 0.04 else status
 
         return {
             "v": float(v_safe),
             "w": float(w_safe),
-            "status": status,
+            "status": final_status,
             "pose_est": [float(pose[0]), float(pose[1]), float(pose[2])],
             "note": combined_note,
         }

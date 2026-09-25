@@ -198,7 +198,9 @@ class TestRouteFollower(unittest.TestCase):
         pose = (100.0, 151.0, 0.0)
 
         cmd = self.rf.step(pose, mission=mission, obstacles=[obstacle])
-        self.assertEqual(cmd["note"], "offset")
+        # plan/03:110, plan/04:45: note carries the actual lateral shift in m.
+        self.assertTrue(cmd["note"].startswith("offset dy="))
+        self.assertAlmostEqual(float(cmd["note"].split("=", 1)[1]), -0.6, places=1)
         self.assertEqual(cmd["status"], "moving")
 
         # Verify active path shifts southward (y < 151.0) and maintains gap > 1.1m
@@ -260,6 +262,128 @@ class TestRouteFollower(unittest.TestCase):
         self.assertEqual(cmd["v"], 0.0)
         self.assertEqual(cmd["status"], "waiting")
         self.assertEqual(cmd["note"], "stop_object")
+
+    def test_grid_free_cells_respect_boundary_margin(self):
+        # plan/04:40: a free A* cell must keep a 0.2 m margin from the aisle
+        # boundary, so the margin is baked into the static grid.
+        rf = self.rf
+        ys, xs = np.nonzero(rf.static_free_grid)
+        pts = np.column_stack([rf.x_min + xs * rf.grid_res,
+                               rf.y_min + ys * rf.grid_res])
+        self.assertTrue(np.all(rf.is_drivable(pts, margin=0.2)))
+
+        # A cell sitting on the northern aisle boundary (edge y=152.5) is not free.
+        ci, cj = rf._coord_to_cell(100.0, 152.5)
+        self.assertFalse(rf.static_free_grid[ci, cj])
+
+    def test_astar_grid_excludes_forbidden_and_keeps_margin(self):
+        # plan/04:28,40: FB_HAZ is cut out of the free grid and A* must detour
+        # around it while every routed centre stays inside drivable space.
+        fb_haz = np.array([[68.0, 154.0], [75.0, 154.0], [75.0, 160.0], [68.0, 160.0]])
+        path = self.rf.plan_path((65.0, 155.0), (80.0, 151.0))
+        self.assertIsNotNone(path)
+        pts = np.asarray(path, dtype=float)
+        self.assertTrue(np.all(self.rf.is_drivable(pts, margin=0.2)))
+        self.assertFalse(np.any(inside_polygon(pts, fb_haz)))
+        # The straight cut through FB_HAZ is impossible -> a real detour.
+        self.assertGreater(len(path), 2)
+
+    def test_offset_prefers_roomy_side_on_west_exit(self):
+        # plan/04:38: the western exit (reference x=66) must shift west, never
+        # east into the ~0.6 m strip; the roomy-side rule picks it.
+        ref_path = [[66.0, 100.0], [66.0, 140.0]]
+        mission = {
+            "id": "m_west",
+            "from": [66.0, 100.0],
+            "to": [66.0, 140.0],
+            "reference_path": ref_path,
+        }
+        obstacle = {"x": 68.0, "y": 120.0, "r": 0.4}
+        cmd = self.rf.step((66.0, 100.0, math.pi / 2), mission=mission, obstacles=[obstacle])
+        self.assertTrue(cmd["note"].startswith("offset dy="))
+        dy = float(cmd["note"].split("=", 1)[1])
+        self.assertGreater(dy, 0.0)  # west = +left-normal for a northbound leg
+        self.assertLess(min(p[0] for p in self.rf.active_path), 66.0)
+
+    def test_astar_rejoins_reference_on_clear_line_of_sight(self):
+        # plan/04:40: re-join the reference as soon as the straight line to it
+        # is clear, instead of a fixed +5 m.
+        ref_path = np.array([[80.0, 94.5], [140.0, 94.5]])
+        # Obstacle 2.5 m north of the centreline triggers tube avoidance, but
+        # the straight line to the remaining reference is already clear.
+        obstacle = (110.0, 97.0, 0.8, 30.0)
+        replanned = self.rf.replan_astar((80.0, 94.5, 0.0), ref_path, obstacle,
+                                         all_obstacles=[(110.0, 97.0, 0.8)])
+        self.assertIsNotNone(replanned)
+        pts = np.asarray(replanned, dtype=float)
+        joined = np.isclose(pts[:, 0], 110.0) & np.isclose(pts[:, 1], 94.5)
+        self.assertEqual(int(joined.sum()), 1)
+        fixed_5m = np.isclose(pts[:, 0], 115.0) & np.isclose(pts[:, 1], 94.5)
+        self.assertFalse(bool(fixed_5m.any()))
+
+    def test_replan_throttled_to_two_seconds(self):
+        # plan/04:41: retry the A* replan at most once every 2 s.
+        ref_path = [[80.0, 94.5], [140.0, 94.5]]
+        mission = {
+            "id": "m_throttle",
+            "from": [80.0, 94.5],
+            "to": [140.0, 94.5],
+            "t_start": 0.0,
+            "deadline_s": 500.0,
+            "reference_path": ref_path,
+        }
+        wall = [
+            {"x": 110.0, "y": 92.0, "r": 0.8},
+            {"x": 110.0, "y": 93.5, "r": 0.8},
+            {"x": 110.0, "y": 95.0, "r": 0.8},
+            {"x": 110.0, "y": 96.5, "r": 0.8},
+        ]
+        pose = (80.0, 94.5, 0.0)
+
+        cmd0 = self.rf.step(pose, mission=mission, obstacles=wall, current_time=0.0)
+        self.assertEqual(cmd0["note"], "stop_object")
+        self.assertAlmostEqual(self.rf.last_replan_t, 0.0)
+
+        cmd1 = self.rf.step(pose, mission=mission, obstacles=wall, current_time=1.0)
+        self.assertEqual(cmd1["note"], "stop_object")
+        self.assertAlmostEqual(self.rf.last_replan_t, 0.0)  # no new attempt
+
+        cmd2 = self.rf.step(pose, mission=mission, obstacles=wall, current_time=2.0)
+        self.assertEqual(cmd2["note"], "stop_object")
+        self.assertAlmostEqual(self.rf.last_replan_t, 2.0)  # retried after 2 s
+
+    def test_final_approach_on_deadline_skips_extra_stop(self):
+        # plan/04:55: below 8 s to the deadline, within 2 m of the goal and a
+        # clear corridor -> dock at the allowed speed without extra stops.
+        ref_path = [[80.0, 94.5], [100.0, 94.5], [80.0, 94.5]]
+        obstacle = {"x": 90.0, "y": 97.0, "r": 0.8}
+        pose = (80.5, 94.5, 0.0)
+
+        far = {
+            "id": "m_far",
+            "from": [80.0, 94.5],
+            "to": [80.0, 94.5],
+            "t_start": 0.0,
+            "deadline_s": 100.0,
+            "reference_path": ref_path,
+        }
+        cmd_far = self.rf.step(pose, mission=far, obstacles=[obstacle], current_time=0.0)
+        self.assertFalse(self.rf.final_approach)
+        self.assertTrue(cmd_far["note"].startswith("offset dy="))
+
+        near_rf = RouteFollower(self.map_dict)
+        near = {
+            "id": "m_near",
+            "from": [80.0, 94.5],
+            "to": [80.0, 94.5],
+            "t_start": 0.0,
+            "deadline_s": 5.0,
+            "reference_path": ref_path,
+        }
+        cmd_near = near_rf.step(pose, mission=near, obstacles=[obstacle], current_time=0.0)
+        self.assertTrue(near_rf.final_approach)
+        self.assertEqual(cmd_near["status"], "moving")
+        self.assertIsNone(cmd_near["note"])
 
 
 if __name__ == "__main__":

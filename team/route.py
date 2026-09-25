@@ -77,8 +77,13 @@ class RouteFollower:
     - Speed zone limits (checking current, +3.0m ahead, -1.5m behind) capped at v_zone - 0.05.
     - FB_HAZ forbidden zone strictly excluded from drivable area.
     - Automatic generation of initial leg to 'from' point if distance > 1.5m.
-    - Lateral shift avoidance (0.2m steps, gap > 1.1m, margin >= 0.2m to drivable boundary).
-    - Grid A* fallback (0.5m grid) with line-of-sight shortcutting.
+    - Lateral shift avoidance (0.2m steps, gap > 1.1m, margin >= 0.2m to drivable boundary),
+      shifted towards the roomy side of the aisle first (plan/04:36-39).
+    - Grid A* fallback (0.5m grid, free cells keep a 0.2m boundary margin,
+      forbidden zones cut out) re-joining the reference on clear line of sight.
+    - A* replan throttled to once per 2 s; safe stop otherwise.
+    - Deadline-aware final approach (< 8 s left, < 2 m to goal, clear corridor).
+    - note strings: 'offset dy=<m>', 'replan', 'stop_object'.
     - Safe stop (v = 0, status waiting, note=stop_object) if corridor blocked.
     """
 
@@ -98,6 +103,9 @@ class RouteFollower:
 
         # 2D Grid settings for A*
         self.grid_res = 0.5
+        # Plan/04:40: a free cell must stay at least 0.2 m away from the
+        # drivable boundary, so the margin is baked into the static grid.
+        self.grid_margin = 0.2
         self._init_grid()
 
         # Mission and path tracking state
@@ -114,6 +122,13 @@ class RouteFollower:
         # Replan throttling
         self.last_replan_t: float = -10.0
         self.replan_interval: float = 2.0  # seconds
+
+        # Deadline / final-approach state (plan/04:51-57)
+        self.t_start: Optional[float] = None
+        self.deadline_s: Optional[float] = None
+        self.time_left: Optional[float] = None
+        self.final_approach: bool = False
+        self.last_offset_dy: float = 0.0
 
     def _parse_map(self, m: Dict[str, Any]) -> None:
         if "drivable" in m:
@@ -162,6 +177,17 @@ class RouteFollower:
             in_f |= inside_polygon(pts, poly)
 
         free_mask = in_d & (~in_f)
+
+        # Plan/04:40: free cell = inside a drivable aisle with a 0.2 m margin
+        # to its boundary, outside forbidden zones and outside map walls.
+        # Only the cheap in_d candidates are re-checked with the margin.
+        margin = float(getattr(self, "grid_margin", 0.2))
+        if margin > 0.0:
+            cand = np.flatnonzero(free_mask)
+            if cand.size:
+                ok = np.asarray(self.is_drivable(pts[cand], margin=margin), dtype=bool)
+                free_mask[cand[~ok]] = False
+
         self.static_free_grid = free_mask.reshape((self.ny, self.nx))
 
     def is_drivable(self, x: Union[float, np.ndarray],
@@ -253,6 +279,15 @@ class RouteFollower:
         self.last_s = 0.0
         self.note = None
         self.last_replan_t = -10.0
+        self.last_offset_dy = 0.0
+
+        # Deadline bookkeeping (plan/04:51-57)
+        t_start = mission.get("t_start")
+        self.t_start = float(t_start) if t_start is not None else None
+        deadline = mission.get("deadline_s")
+        self.deadline_s = float(deadline) if deadline is not None else None
+        self.time_left = None
+        self.final_approach = False
 
         # Check pickup point distance
         from_xy = self.get_point_xy(mission.get("from"), fallback=ref_path[0])
@@ -315,19 +350,41 @@ class RouteFollower:
                 return False
         return True
 
+    def _lateral_clearance(self, point: Tuple[float, float],
+                           normal: np.ndarray, max_dist: float = 3.0) -> float:
+        """Largest shift along `normal` that keeps a 0.2 m drivable margin.
+
+        Used to pick the roomy side of an aisle (plan/04:36-39): the northern
+        aisle has 2.6 m to the south and only 0.6 m to the north, the western
+        exit has 0.6 m to the east, the southern aisle is symmetric.
+        """
+        step = 0.2
+        travelled = 0.0
+        while travelled + step <= max_dist + 1e-9:
+            dist = travelled + step
+            if not self.is_drivable(point[0] + dist * normal[0],
+                                    point[1] + dist * normal[1], margin=0.2):
+                break
+            travelled = dist
+        return travelled
+
     def _line_free(self, p1: Tuple[float, float], p2: Tuple[float, float],
                    obs_circles: List[Tuple[float, float, float]],
                    margin: float = 0.2) -> bool:
-        """Check if straight segment between p1 and p2 is clear."""
+        """Check if straight segment between p1 and p2 is clear (vectorised)."""
         dist = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
         steps = max(2, int(math.ceil(dist / 0.25)))
-        xs = np.linspace(p1[0], p2[0], steps)
-        ys = np.linspace(p1[1], p2[1], steps)
+        ts = np.linspace(0.0, 1.0, steps)
+        pts = np.column_stack([p1[0] + ts * (p2[0] - p1[0]),
+                               p1[1] + ts * (p2[1] - p1[1])])
 
-        for x, y in zip(xs, ys):
-            if not self.is_drivable(x, y, margin=margin):
-                return False
-            if not self._is_clear_of_obstacles(x, y, obs_circles):
+        if not bool(np.all(self.is_drivable(pts, margin=margin))):
+            return False
+
+        for ox, oy, r in obs_circles:
+            # Same 0.9 + 0.35 inflation used by the grid search.
+            req_dist = 0.9 + 0.35 + r
+            if bool(np.any(np.hypot(pts[:, 0] - ox, pts[:, 1] - oy) < req_dist)):
                 return False
         return True
 
@@ -548,13 +605,22 @@ class RouteFollower:
         p1 = path[idx]
         d_lat_obs = (ox - p1[0]) * normal[0] + (oy - p1[1]) * normal[1]
 
-        # Candidate lateral shifts in 0.2m increments
-        # If obstacle is to the left (d_lat_obs >= 0), prefer shifting right (negative shift)
-        base_shifts = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4]
-        if d_lat_obs >= 0.0:
-            candidates = [-s for s in base_shifts] + base_shifts
+        # Plan/04:36-39: shift towards the roomy side of the aisle first
+        # (northern aisle -> south, western exit -> west, southern aisle ->
+        # either side); only a symmetric aisle falls back to moving away from
+        # the obstacle.
+        t_obs = (s_obs - cum_lens[idx]) / max(1e-6, L)
+        p_obs = p1 + t_obs * diffs[idx]
+        c_plus = self._lateral_clearance((float(p_obs[0]), float(p_obs[1])), normal)
+        c_minus = self._lateral_clearance((float(p_obs[0]), float(p_obs[1])), -normal)
+        if abs(c_plus - c_minus) < 0.05:
+            prefer = -1.0 if d_lat_obs >= 0.0 else 1.0
         else:
-            candidates = base_shifts + [-s for s in base_shifts]
+            prefer = 1.0 if c_plus > c_minus else -1.0
+
+        # Candidate lateral shifts in 0.2m increments
+        base_shifts = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4]
+        candidates = [prefer * s for s in base_shifts] + [-prefer * s for s in base_shifts]
 
         s_ramp_in = max(current_s, s_obs - 4.5)
         s_plat_in = s_obs - 2.0
@@ -609,6 +675,7 @@ class RouteFollower:
                 prefix = [path[j] for j in range(len(path)) if cum_lens[j] < s_ramp_in - 0.1]
                 suffix = [path[j] for j in range(len(path)) if cum_lens[j] > s_ramp_out + 0.1]
                 new_path = prefix + pts_shifted + suffix
+                self.last_offset_dy = float(delta)
                 return np.asarray(new_path, dtype=float)
 
         return None
@@ -629,14 +696,28 @@ class RouteFollower:
         cum_lens = np.concatenate([[0.0], np.cumsum(seg_lens)])
         total_len = cum_lens[-1]
 
-        # Goal is downstream of obstacle on reference path
+        start_pt = (current_pose[0], current_pose[1])
+
+        # Plan/04:40: re-join the remaining reference as soon as the straight
+        # line from the current pose to it is clear, instead of a fixed 5 m.
         s_goal = min(total_len, s_obs + 5.0)
+        s_cap = min(total_len, s_obs + 40.0)
+        s_try = s_obs
+        while s_try <= s_cap + 1e-9:
+            idx_t = int(np.searchsorted(cum_lens, s_try) - 1)
+            idx_t = max(0, min(len(seg_lens) - 1, idx_t))
+            tau_t = (s_try - cum_lens[idx_t]) / max(1e-6, seg_lens[idx_t])
+            cand_pt = path[idx_t] + tau_t * diffs[idx_t]
+            if self._line_free(start_pt, (float(cand_pt[0]), float(cand_pt[1])), obs_list):
+                s_goal = float(s_try)
+                break
+            s_try += 0.5
+
         g_idx = np.searchsorted(cum_lens, s_goal) - 1
         g_idx = max(0, min(len(seg_lens) - 1, g_idx))
         tau = (s_goal - cum_lens[g_idx]) / max(1e-6, seg_lens[g_idx])
         p_goal = tuple(path[g_idx] + tau * diffs[g_idx])
 
-        start_pt = (current_pose[0], current_pose[1])
         bypass = self._astar_search(start_pt, p_goal, obstacles=obs_list)
         if bypass is None:
             return None
@@ -794,9 +875,24 @@ class RouteFollower:
         # Current progress along active path
         curr_progress = self._get_path_progress(self.active_path, x, y, self.last_s)
 
+        # Deadline / final approach (plan/04:55): with less than 8 s left, less
+        # than 2 m to the goal and an empty corridor, dock at the allowed speed
+        # without adding extra stops.
+        t0 = self.t_start if self.t_start is not None else current_time
+        self.time_left = None if self.deadline_s is None else self.deadline_s - (current_time - t0)
+        self.final_approach = bool(
+            self.time_left is not None and self.time_left < 8.0 and dist_to_goal < 2.0
+        )
+
         # Obstacle avoidance in reference tube (0.9 + 0.35m) or clearance gap < 1.1m
         parsed_obstacles = self._parse_obstacles(obstacles)
         obs_ahead = self.check_obstacles_in_tube(self.active_path, parsed_obstacles, curr_progress)
+
+        if obs_ahead is not None and self.final_approach:
+            # Straight to the dock on the allowed speed, no avoidance stop.
+            if self._line_free((x, y), (float(goal_pt[0]), float(goal_pt[1])),
+                               parsed_obstacles):
+                obs_ahead = None
 
         if obs_ahead is not None:
             # 1. Try lateral offset
@@ -804,18 +900,34 @@ class RouteFollower:
                                                 all_obstacles=parsed_obstacles)
             if shifted is not None:
                 self.active_path = shifted
-                self.note = "offset"
+                self.note = "offset dy=%.1f" % self.last_offset_dy
                 self.last_s = self._get_path_progress(self.active_path, x, y, 0.0)
             else:
-                # 2. Try local A* replan
-                replanned = self.replan_astar(pose, self.active_path, obs_ahead,
-                                              all_obstacles=parsed_obstacles)
-                if replanned is not None:
-                    self.active_path = replanned
-                    self.note = "replan"
-                    self.last_s = 0.0
+                # 2. Try local A*, throttled to once per 2 s (plan/04:41)
+                can_replan = (current_time - self.last_replan_t) >= self.replan_interval
+                if can_replan:
+                    self.last_replan_t = float(current_time)
+                    replanned = self.replan_astar(pose, self.active_path, obs_ahead,
+                                                  all_obstacles=parsed_obstacles)
+                    if replanned is not None:
+                        self.active_path = replanned
+                        self.note = "replan"
+                        self.last_s = 0.0
+                    else:
+                        # 3. No path found -> safe stop, retry after 2 s
+                        self.note = "stop_object"
+                        return {
+                            "v": 0.0,
+                            "w": 0.0,
+                            "status": "waiting",
+                            "note": "stop_object",
+                            "arrived": False,
+                            "hold_count": 0,
+                        }
+                elif self.note == "replan":
+                    # Keep following the existing bypass until the next window.
+                    pass
                 else:
-                    # 3. No path found -> safe stop
                     self.note = "stop_object"
                     return {
                         "v": 0.0,
@@ -826,8 +938,7 @@ class RouteFollower:
                         "hold_count": 0,
                     }
         else:
-            if self.note in ("offset", "replan", "stop_object"):
-                self.note = None
+            self.note = None
 
         # Evaluate speed limit zones
         v_zone_limit = self.check_speed_zones(x, y, th)
