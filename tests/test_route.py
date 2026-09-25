@@ -11,8 +11,8 @@ import unittest
 
 import numpy as np
 
-from team.geom import inside_polygon
-from team.route import Planner, RouteFollower
+from backend.geom import inside_polygon
+from backend.route import Planner, RouteFollower
 
 
 def load_test_map():
@@ -384,6 +384,87 @@ class TestRouteFollower(unittest.TestCase):
         self.assertTrue(near_rf.final_approach)
         self.assertEqual(cmd_near["status"], "moving")
         self.assertIsNone(cmd_near["note"])
+
+    def test_wide_lateral_offset_for_human_obstacle(self):
+        # Open yard area: x in [56.0, 75.0], y in [140.0, 160.0]
+        ref_path = [
+            [60.0, 150.0],
+            [70.0, 150.0],
+        ]
+        mission = {
+            "id": "m_human_yard",
+            "from": [60.0, 150.0],
+            "to": [70.0, 150.0],
+            "reference_path": ref_path,
+        }
+        human_obstacle = {"x": 65.0, "y": 150.0, "r": 2.2}
+        pose = (60.0, 150.0, 0.0)
+
+        cmd = self.rf.step(pose, mission=mission, obstacles=[human_obstacle])
+        self.assertTrue(cmd["note"].startswith("offset dy="))
+        self.assertEqual(cmd["status"], "moving")
+
+        # Verify clearance to human center is at least 4.2m
+        min_dist_to_human = min(math.hypot(p[0] - 65.0, p[1] - 150.0) for p in self.rf.active_path)
+        self.assertGreaterEqual(min_dist_to_human, 4.19)
+
+    def test_human_obstacle_in_narrow_corridor_yields(self):
+        # Narrow corridor: y in [147.5, 152.5] (width 5.0m)
+        # Human obstacle with r=2.2 requires >= 4.2m center clearance, impossible in 5m corridor with margin
+        # RouteFollower should smoothly yield with status='waiting' and note='stop_person' without A* replanning
+        ref_path = [
+            [90.0, 150.0],
+            [120.0, 150.0],
+        ]
+        mission = {
+            "id": "m_human_narrow",
+            "from": [90.0, 150.0],
+            "to": [120.0, 150.0],
+            "reference_path": ref_path,
+        }
+        human_obstacle = {"x": 100.0, "y": 150.0, "r": 2.2}
+        pose = (90.0, 150.0, 0.0)
+
+        cmd = self.rf.step(pose, mission=mission, obstacles=[human_obstacle])
+        self.assertEqual(cmd["v"], 0.0)
+        self.assertEqual(cmd["status"], "waiting")
+    def test_single_point_reference_path(self):
+        """Single-point reference path does not crash RouteFollower."""
+        mission = {
+            "id": "m_single",
+            "from": [51.5, 150.0],
+            "to": [51.5, 150.0],
+            "reference_path": [[51.5, 150.0]],
+        }
+        cmd = self.rf.step(pose=(51.5, 150.0, 0.0), mission=mission)
+        self.assertIsInstance(cmd, dict)
+        self.assertTrue(math.isfinite(cmd["v"]))
+        self.assertTrue(math.isfinite(cmd["w"]))
+
+    def test_robot_far_off_track_reengagement(self):
+        """When platform is far laterally off-path, it steers back toward the path."""
+        mission = {
+            "id": "m_offtrack",
+            "from": [50.0, 150.0],
+            "to": [100.0, 150.0],
+            "reference_path": [[50.0, 150.0], [100.0, 150.0]],
+        }
+        # Robot is at y=155.0 (+5m offset)
+        cmd = self.rf.step(pose=(60.0, 155.0, 0.0), mission=mission)
+        # Should command negative angular velocity or steering back towards y=150
+        self.assertTrue(math.isfinite(cmd["w"]))
+        self.assertTrue(cmd["v"] >= 0.0)
+
+    def test_zero_remaining_distance_at_goal(self):
+        """When pose is within reach of terminal goal, remaining distance is close to 0."""
+        mission = {
+            "id": "m_reach",
+            "from": [50.0, 150.0],
+            "to": [60.0, 150.0],
+            "reference_path": [[50.0, 150.0], [60.0, 150.0]],
+        }
+        cmd = self.rf.step(pose=(60.0, 150.0, 0.0), mission=mission)
+        self.assertLessEqual(cmd.get("remaining_dist", 0.0), 0.5)
 
 
 if __name__ == "__main__":

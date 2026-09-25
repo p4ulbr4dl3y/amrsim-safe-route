@@ -619,13 +619,21 @@ class RouteFollower:
             prefer = 1.0 if c_plus > c_minus else -1.0
 
         # Candidate lateral shifts in 0.2m increments
-        base_shifts = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4]
+        # Human obstacles (r >= 1.5) require wider bypass arc up to 3.5 m
+        if r >= 1.5:
+            base_shifts = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, 3.5, 3.8, 4.0, 4.2, 4.4, 4.6, 4.8, 5.0]
+            ramp_dist = 6.0
+            plat_dist = 2.5
+        else:
+            base_shifts = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4]
+            ramp_dist = 4.5
+            plat_dist = 2.0
         candidates = [prefer * s for s in base_shifts] + [-prefer * s for s in base_shifts]
 
-        s_ramp_in = max(current_s, s_obs - 4.5)
-        s_plat_in = s_obs - 2.0
-        s_plat_out = s_obs + 2.0
-        s_ramp_out = min(total_len, s_obs + 4.5)
+        s_ramp_in = max(current_s, s_obs - ramp_dist)
+        s_plat_in = s_obs - plat_dist
+        s_plat_out = s_obs + plat_dist
+        s_ramp_out = min(total_len, s_obs + ramp_dist)
 
         for delta in candidates:
             # Sample the shifted section
@@ -903,6 +911,19 @@ class RouteFollower:
                 self.note = "offset dy=%.1f" % self.last_offset_dy
                 self.last_s = self._get_path_progress(self.active_path, x, y, 0.0)
             else:
+                ox, oy, o_r, s_obs = obs_ahead
+                if o_r >= 1.5:
+                    # Obstacle is human and corridor is too narrow for wide lateral bypass.
+                    # Do not trigger A* replan; stop smoothly and yield to the person.
+                    self.note = "stop_person"
+                    return {
+                        "v": 0.0,
+                        "w": 0.0,
+                        "status": "waiting",
+                        "note": "stop_person",
+                        "arrived": False,
+                        "hold_count": 0,
+                    }
                 # 2. Try local A*, throttled to once per 2 s (plan/04:41)
                 can_replan = (current_time - self.last_replan_t) >= self.replan_interval
                 if can_replan:

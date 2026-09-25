@@ -307,17 +307,21 @@ class Controller:
         # allowed to act as a phantom person and freeze the mission.
         active_tracks = self._active_tracks()
 
-        # Extract confirmed static obstacles for route planner
-        static_obs: List[Tuple[float, float, float]] = []
+        # Extract confirmed static and standing human obstacles for route planner
+        route_obs: List[Tuple[float, float, float]] = []
         confirmed_xy: List[Tuple[float, float]] = []
         for trk in active_tracks:
-            if trk.is_pedestrian or trk.is_unknown:
-                continue
             wx, wy = self._track_world_xy(trk, pose, odom_pose)
             confirmed_xy.append((wx, wy))
             if trk.is_static_object and not trk.is_wall:
                 r_obs = max(0.4, 0.5 * min(2.0, trk.length))
-                static_obs.append((wx, wy, r_obs))
+                route_obs.append((wx, wy, r_obs))
+            elif trk.is_pedestrian or trk.is_unknown:
+                # Standing or stationary human: route planner can bypass laterally with wide margin
+                ped_speed = getattr(trk, "speed", math.hypot(trk.vx_odom, trk.vy_odom))
+                if ped_speed < 0.25:
+                    r_human = 2.2  # Effective radius: 0.9 + 2.2 + 1.1 = 4.2 m center clearance
+                    route_obs.append((wx, wy, r_human))
 
         # Map discrepancies (map_extra / wall_extra) must feed the route obstacle
         # layer too, otherwise an unmapped map patch is crossed head-on (audit gap 9).
@@ -326,15 +330,15 @@ class Controller:
         for ex, ey, er in self.perception.get_extra_obstacles():
             if not any(math.hypot(ex - cx, ey - cy) < 0.35 for cx, cy in confirmed_xy):
                 continue
-            if any(math.hypot(ex - sx, ey - sy) < 0.35 for sx, sy, _ in static_obs):
+            if any(math.hypot(ex - sx, ey - sy) < 0.35 for sx, sy, _ in route_obs):
                 continue
-            static_obs.append((float(ex), float(ey), float(er)))
+            route_obs.append((float(ex), float(ey), float(er)))
 
         # 6. Route follower step
         route_cmd = self.route.step(
             pose=pose,
             mission=mission,
-            obstacles=static_obs,
+            obstacles=route_obs,
             current_time=float(obs.get("t", 0.0)),
         )
 

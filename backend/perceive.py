@@ -156,6 +156,30 @@ class Track:
     def is_unknown(self) -> bool:
         return self.dyn is None and self.class_label == "unknown"
 
+    @property
+    def speed(self) -> float:
+        """Estimated obstacle speed in odometry/world frame (m/s)."""
+        return float(math.hypot(self.vx_odom, self.vy_odom))
+
+    @property
+    def heading(self) -> float:
+        """Estimated direction of motion in odometry frame (rad)."""
+        return float(math.atan2(self.vy_odom, self.vx_odom))
+
+    def velocity_robot_frame(self, oth: float) -> Tuple[float, float]:
+        """Obstacle velocity transformed into robot body frame (vx_r, vy_r).
+
+        vx_r: forward component (+X forward).
+              > 0 means pedestrian moving away/forward along heading (попутно).
+              < 0 means pedestrian moving towards robot (навстречу).
+        vy_r: lateral component (+Y left).
+        """
+        cos_o = math.cos(oth)
+        sin_o = math.sin(oth)
+        vx_r = cos_o * self.vx_odom + sin_o * self.vy_odom
+        vy_r = -sin_o * self.vx_odom + cos_o * self.vy_odom
+        return float(vx_r), float(vy_r)
+
 
 def fit_cluster_geometry(pts: np.ndarray) -> Tuple[float, float]:
     """Calculate length and 80th-percentile thickness using PCA (SVD).
@@ -484,8 +508,24 @@ class Perception:
                 dy = c_oy - tr.oy
                 inst_vx = dx / self.dt
                 inst_vy = dy / self.dt
-                tr.vx_odom = 0.6 * tr.vx_odom + 0.4 * inst_vx
-                tr.vy_odom = 0.6 * tr.vy_odom + 0.4 * inst_vy
+
+                # Clamp unreasonable jumps (> 3.5 m/s) from clustering association noise
+                inst_spd = math.hypot(inst_vx, inst_vy)
+                if inst_spd > 3.5:
+                    scale = 3.5 / inst_spd
+                    inst_vx *= scale
+                    inst_vy *= scale
+
+                if len(tr.hist) <= 1:
+                    tr.vx_odom = inst_vx
+                    tr.vy_odom = inst_vy
+                else:
+                    tr.vx_odom = 0.65 * tr.vx_odom + 0.35 * inst_vx
+                    tr.vy_odom = 0.65 * tr.vy_odom + 0.35 * inst_vy
+
+                if math.hypot(tr.vx_odom, tr.vy_odom) < 0.04:
+                    tr.vx_odom = 0.0
+                    tr.vy_odom = 0.0
 
                 tr.ox = c_ox
                 tr.oy = c_oy

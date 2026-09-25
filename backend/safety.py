@@ -24,7 +24,7 @@ DECEL_ESTOP = 2.5        # Emergency deceleration (m/s^2)
 DT = 0.1                 # Simulation step (s)
 V_MAX_DEFAULT = 1.39     # Maximum vehicle speed (m/s)
 
-SLOW_PERSON_GAP = 3.3    # Current clearance below which a human caps v at <= 0.22 m/s
+SLOW_PERSON_GAP = 3.0    # Scoring THRESH["prox_gap"] = 3.0 (v <= 0.22 required when clearance < 3.0)
 SLOW_PERSON_V = 0.22     # Speed cap next to a person/unknown (plan/03:55)
 STOP_GAP = 0.8           # Current or predicted clearance below which v = 0
 # A static object whose honest gap (no 0.3 m pedestrian radius subtracted) falls
@@ -33,6 +33,14 @@ STOP_GAP = 0.8           # Current or predicted clearance below which v = 0
 STATIC_OBJECT_NEAR_GAP = 1.5
 ESTOP_GAP = 1.2          # Confirmed cluster distance enabling emergency braking
 ESTOP_SAFE_GAP = 1.5     # False estop penalty threshold (scoring THRESH["estop_gap"])
+
+# Predictive pedestrian adaptation constants
+PED_DETECT_HORIZON_M = 8.0   # Horizon for early predictive speed adjustment (m)
+PED_CORRIDOR_LAT_M = 1.4     # Half-width of direct swept path corridor (m)
+PED_SAFE_SIDE_LAT_M = 1.6    # Lateral clearance where a standing human is safely to the side (m)
+STOP_PERSON_DIST_M = 4.4     # Center-to-center distance for smooth stopping ahead of human
+STOP_PERSON_GAP = 3.2        # Clearance for smooth stopping ahead of human (4.4 - 1.2 = 3.2m)
+PASS_STANDING_SAFE_V = 0.55  # Safe speed when passing standing human at clearance >= 3.0m (m/s)
 
 
 def calculate_clearance(
@@ -319,6 +327,7 @@ class SafetyGovernor:
 
         min_overall_clearance = math.inf
         human_pred_min = math.inf
+        blocking_human_pred = math.inf
         person_stop = False
         person_slow = False
         person_slow_cl = math.inf
@@ -342,25 +351,172 @@ class SafetyGovernor:
                 front_brake_hit = True
 
             if is_human:
-                ped_ahead = (pts[:, 0] > 0.0) & (pts[:, 0] < 4.5) & (np.abs(pts[:, 1]) < 1.8)
+                fwd = float(pts[:, 0].mean())
+                lat = float(pts[:, 1].mean())
+                abs_lat = abs(lat)
 
-                # A. Current or predicted (2 s horizon) clearance < 0.8 m -> stop
+                # Velocity in robot body frame
+                if hasattr(tr, "velocity_robot_frame"):
+                    vx_r, vy_r = tr.velocity_robot_frame(oth)
+                else:
+                    cos_oth = math.cos(oth)
+                    sin_oth = math.sin(oth)
+                    vx_r = cos_oth * tr.vx_odom + sin_oth * tr.vy_odom
+                    vy_r = -sin_oth * tr.vx_odom + cos_oth * tr.vy_odom
+
+                ped_speed = getattr(tr, "speed", math.hypot(tr.vx_odom, tr.vy_odom))
+                is_standing = (ped_speed < 0.20)
+                is_oncoming = (vx_r < -0.15)
+                is_sameway = (vx_r > 0.15)
+
+                # Check if pedestrian is moving laterally across the robot's forward path
+                is_crossing = False
+                if not is_standing and abs(vy_r) >= 0.15:
+                    if fwd > 0.2:
+                        if abs_lat < 2.2:
+                            is_crossing = True
+                        elif lat * vy_r < 0.0:
+                            t_cross = -lat / vy_r
+                            if 0.0 <= t_cross <= 4.0:
+                                fwd_at_cross = fwd + vx_r * t_cross
+                                if 0.2 <= fwd_at_cross <= 7.0:
+                                    is_crossing = True
+
+                # Check if moving pedestrian is walking towards/facing the platform
+                is_ped_facing_robot = False
+                if not is_standing and ped_speed > 0.15:
+                    is_ped_facing_robot = (vx_r * (-fwd) + vy_r * (-lat)) > 0.0
+
+                # Relative forward velocity: closing rate
+                v_closing = v_now - vx_r
+
+                # Predictive TTC clearance over 2 s horizon
                 pred_cl, _ = predict_ttc_clearance(
                     tr, v_platform=v_now, oth=oth, horizon_s=2.0, dt_step=0.2
                 )
                 if pred_cl < human_pred_min:
                     human_pred_min = pred_cl
 
-                if cl < STOP_GAP or pred_cl < STOP_GAP:
+                # Path corridor classification
+                in_path = (fwd > -0.5) and (abs_lat < PED_CORRIDOR_LAT_M)
+                near_path = (fwd > -0.5) and (abs_lat < 2.0)
+                is_safe_side = (abs_lat >= PED_SAFE_SIDE_LAT_M)
+
+                # Track whether this human is actively blocking the forward path
+                if (in_path or near_path or is_crossing or is_ped_facing_robot) and (fwd > 0.0):
+                    if pred_cl < blocking_human_pred:
+                        blocking_human_pred = pred_cl
+
+                # 1. Hard stopping condition: current clearance dangerously close (< 0.8 m)
+                if cl < STOP_GAP:
                     stop_reason = "stop_person"
-                    notes["stop_person"] = f"stop_person d={max(0.0, min(cl, pred_cl)):.1f}"
+                    notes["stop_person"] = f"stop_person d={max(0.0, cl):.1f}"
                     v_lim = 0.0
                     person_stop = True
-                # B. Person ahead in corridor within 4.5 m, or current clearance < 3.3 m
-                elif ped_ahead.any() or cl < SLOW_PERSON_GAP:
-                    person_slow = True
-                    if cl < person_slow_cl:
-                        person_slow_cl = cl
+                elif is_crossing:
+                    # 2. Crossing pedestrian: yield by stopping early at safe distance (3.5 - 4.8 m)
+                    if fwd <= 4.8 or cl <= 3.4 or pred_cl < 2.5:
+                        stop_reason = "stop_person"
+                        notes["stop_person"] = f"stop_person d={max(0.0, cl):.1f}"
+                        v_lim = 0.0
+                        person_stop = True
+                    else:
+                        person_slow = True
+                        if cl < person_slow_cl:
+                            person_slow_cl = cl
+                        v_lim = min(v_lim, 0.22 + (fwd - 4.8) / (PED_DETECT_HORIZON_M - 4.8) * (0.80 - 0.22))
+                elif is_oncoming and (in_path or near_path):
+                    # 3. Oncoming pedestrian: early, smooth stop at safe distance (stop when <= 3.5m or ttc < 1.5s)
+                    ttc = max(0.0, fwd - 1.2) / max(0.2, v_closing)
+                    if cl <= 2.2 or fwd <= 3.5 or ttc < 1.5 or pred_cl < STOP_GAP:
+                        stop_reason = "stop_person"
+                        notes["stop_person"] = f"stop_person d={max(0.0, min(cl, pred_cl)):.1f}"
+                        v_lim = 0.0
+                        person_stop = True
+                    else:
+                        person_slow = True
+                        if cl < person_slow_cl:
+                            person_slow_cl = cl
+                        v_lim = min(v_lim, 0.22 + (fwd - 4.8) / (PED_DETECT_HORIZON_M - 4.8) * (0.80 - 0.22))
+                elif is_standing and is_safe_side:
+                    # 4. Standing person off to the side (user request: pass smoothly without stopping)
+                    if cl <= SLOW_PERSON_GAP + 1e-4:
+                        person_slow = True
+                        if cl < person_slow_cl:
+                            person_slow_cl = cl
+                        v_lim = min(v_lim, SLOW_PERSON_V)
+                    elif cl < 6.0:
+                        person_slow = True
+                        if cl < person_slow_cl:
+                            person_slow_cl = cl
+                        v_lim = min(v_lim, PASS_STANDING_SAFE_V)
+                elif is_standing and in_path:
+                    # 5. Standing person directly in path on trajectory: stop smoothly ahead of time
+                    if cl <= 1.2 or fwd <= 2.2:
+                        stop_reason = "stop_person"
+                        notes["stop_person"] = f"stop_person d={max(0.0, cl):.1f}"
+                        v_lim = 0.0
+                        person_stop = True
+                    else:
+                        person_slow = True
+                        if cl < person_slow_cl:
+                            person_slow_cl = cl
+                        if cl <= SLOW_PERSON_GAP + 1e-4:
+                            v_lim = min(v_lim, SLOW_PERSON_V)
+                        elif cl <= 5.0:
+                            v_lim = min(v_lim, 0.22 + (cl - SLOW_PERSON_GAP) / (5.0 - SLOW_PERSON_GAP) * (0.65 - 0.22))
+                        elif cl <= PED_DETECT_HORIZON_M:
+                            v_lim = min(v_lim, 0.65 + (cl - 5.0) / (PED_DETECT_HORIZON_M - 5.0) * (1.20 - 0.65))
+                elif is_sameway and (in_path or near_path):
+                    # 6. Same-way pedestrian: match speed with safe following buffer
+                    if cl <= 1.2 or fwd <= 2.2:
+                        stop_reason = "stop_person"
+                        notes["stop_person"] = f"stop_person d={max(0.0, cl):.1f}"
+                        v_lim = 0.0
+                        person_stop = True
+                    else:
+                        person_slow = True
+                        if cl < person_slow_cl:
+                            person_slow_cl = cl
+                        if cl <= SLOW_PERSON_GAP + 1e-4:
+                            v_lim = min(v_lim, min(SLOW_PERSON_V, max(0.15, vx_r)))
+                        elif cl < 5.0:
+                            v_target = max(0.22, min(v_cand, vx_r + 0.15 * (cl - SLOW_PERSON_GAP)))
+                            v_lim = min(v_lim, v_target)
+                        elif cl < PED_DETECT_HORIZON_M:
+                            v_lim = min(v_lim, max(vx_r + 0.3, 1.10))
+                else:
+                    # 7. General / crossing pedestrian or unknown track
+                    if is_ped_facing_robot and cl < 3.3:
+                        # Moving platform inside 4.0m would force attentive pedestrian to yield. Stop to let them pass.
+                        stop_reason = "stop_person"
+                        notes["stop_person"] = f"stop_person d={max(0.0, cl):.1f}"
+                        v_lim = 0.0
+                        person_stop = True
+                    elif fwd <= -0.5:
+                        # Pedestrian is behind the robot - only slow if clearance breaches scoring prox_gap (3.0m)
+                        if cl <= SLOW_PERSON_GAP + 1e-4:
+                            person_slow = True
+                            if cl < person_slow_cl:
+                                person_slow_cl = cl
+                            v_lim = min(v_lim, SLOW_PERSON_V)
+                    else:
+                        ped_ahead = (pts[:, 0] > 0.0) & (pts[:, 0] < 4.8) & (np.abs(pts[:, 1]) < 2.0)
+                        if pred_cl < STOP_GAP:
+                            stop_reason = "stop_person"
+                            notes["stop_person"] = f"stop_person d={max(0.0, min(cl, pred_cl)):.1f}"
+                            v_lim = 0.0
+                            person_stop = True
+                        elif ped_ahead.any() or cl <= SLOW_PERSON_GAP + 1e-4:
+                            person_slow = True
+                            if cl < person_slow_cl:
+                                person_slow_cl = cl
+                            v_lim = min(v_lim, SLOW_PERSON_V)
+                        elif fwd > 0.0 and fwd < 6.0 and abs_lat < 1.8:
+                            person_slow = True
+                            if cl < person_slow_cl:
+                                person_slow_cl = cl
+                            v_lim = min(v_lim, 0.45 + (fwd - 4.5) / 1.5 * (1.10 - 0.45))
             else:
                 # Confirmed static object (is_static_object) or unmapped wall (is_wall): the
                 # human limits above never apply here. Two stop conditions only (plan/03:56,
@@ -399,15 +555,19 @@ class SafetyGovernor:
                         v_lim = 0.0
 
         if person_slow and not person_stop:
-            v_lim = min(v_lim, SLOW_PERSON_V)
-            notes["slow_person"] = f"slow_person d={max(0.0, person_slow_cl):.1f}"
+            if "slow_person" not in notes and not stop_reason:
+                notes["slow_person"] = f"slow_person d={max(0.0, person_slow_cl):.1f}"
 
         # 5. Person-stop latch (replaces the forbidden timeout). While held, v stays 0 until
-        #    the predicted clearance to every human track is greater than 3.3 m. A brief guard
+        #    the blocking pedestrian clears the path (> 2.5 m or steps aside). A brief guard
         #    keeps the brake applied through fog dropout (plan/03:20), never resumes motion.
         saw_human = math.isfinite(human_pred_min)
-        if saw_human:
-            self._last_human_pred = human_pred_min
+        saw_blocking = math.isfinite(blocking_human_pred)
+
+        if saw_blocking:
+            self._last_human_pred = blocking_human_pred
+            self._lost_human_ticks = 0
+        elif saw_human:
             self._lost_human_ticks = 0
 
         if person_stop and not self._person_hold:
@@ -418,8 +578,9 @@ class SafetyGovernor:
             if not saw_human:
                 self._lost_human_ticks += 1
                 if self._lost_human_ticks <= 10:
-                    human_pred_min = self._last_human_pred
-            if human_pred_min > SLOW_PERSON_GAP:
+                    blocking_human_pred = self._last_human_pred
+
+            if blocking_human_pred > 3.0 or (not saw_human and self._lost_human_ticks > 10):
                 self._person_hold = False
                 self._person_note = ""
             else:

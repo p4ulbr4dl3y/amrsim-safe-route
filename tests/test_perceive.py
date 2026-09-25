@@ -4,8 +4,8 @@ import unittest
 
 import numpy as np
 
-from team.geom import box_segs, raycast
-from team.perceive import (
+from backend.geom import box_segs, raycast
+from backend.perceive import (
     Perception,
     Track,
     fit_cluster_geometry,
@@ -13,7 +13,7 @@ from team.perceive import (
     is_wall_continuation,
     seen_has_pair,
 )
-from team.safety import SafetyGovernor
+from backend.safety import SafetyGovernor
 
 
 class TestPerception(unittest.TestCase):
@@ -561,6 +561,114 @@ class TestPerception(unittest.TestCase):
             self.perc.step(ranges=ranges, rel_angles=rel_angles, pose=pose,
                            odom_pose=odom, map_segs=self.map_segs)
         self.assertEqual(self.perc.note, "")
+
+    def test_track_speed_heading_and_robot_frame_velocity(self):
+        # 1. Stationary track
+        tr = Track(track_id=1, ox=10.0, oy=5.0)
+        self.assertAlmostEqual(tr.speed, 0.0)
+        vx_r, vy_r = tr.velocity_robot_frame(oth=0.0)
+        self.assertAlmostEqual(vx_r, 0.0)
+        self.assertAlmostEqual(vy_r, 0.0)
+
+        # 2. Track moving along +X in odometry frame at 1.2 m/s
+        tr.vx_odom = 1.2
+        tr.vy_odom = 0.0
+        self.assertAlmostEqual(tr.speed, 1.2)
+        self.assertAlmostEqual(tr.heading, 0.0)
+
+        # Robot facing same direction (oth = 0) -> vx_r = 1.2 (same-way / попутно)
+        vx_r, vy_r = tr.velocity_robot_frame(oth=0.0)
+        self.assertAlmostEqual(vx_r, 1.2)
+        self.assertAlmostEqual(vy_r, 0.0)
+
+        # Robot facing opposite direction (oth = pi) -> vx_r = -1.2 (oncoming / навстречу)
+        vx_r, vy_r = tr.velocity_robot_frame(oth=math.pi)
+        self.assertAlmostEqual(vx_r, -1.2)
+        self.assertAlmostEqual(vy_r, 0.0)
+
+        # Robot facing +Y (oth = pi/2) -> track moves right relative to robot: vy_r = -1.2
+        vx_r, vy_r = tr.velocity_robot_frame(oth=math.pi / 2)
+        self.assertAlmostEqual(vx_r, 0.0)
+        self.assertAlmostEqual(vy_r, -1.2)
+
+    def test_track_velocity_filter_jump_clamp(self):
+        # Verify instantaneous velocity jumps (> 3.5 m/s) are clamped to 3.5 m/s
+        tr = Track(track_id=1, ox=0.0, oy=0.0)
+        # Cluster jumps by 1.0 m in 0.1 s -> inst_v = 10.0 m/s
+        c_dict = {
+            "ox": 1.0, "oy": 0.0,
+            "pts": np.array([[1.0, 0.0]]),
+            "length": 0.5, "thickness": 0.1,
+            "is_wall": False,
+        }
+        perc = Perception(dt=0.1)
+        perc.tracks = [tr]
+
+        dx = c_dict["ox"] - tr.ox
+        dy = c_dict["oy"] - tr.oy
+        inst_vx = dx / perc.dt
+        inst_vy = dy / perc.dt
+        inst_spd = math.hypot(inst_vx, inst_vy)
+        self.assertAlmostEqual(inst_spd, 10.0)
+
+        # In perceive.step(): jump is clamped to 3.5
+        if inst_spd > 3.5:
+            scale = 3.5 / inst_spd
+            inst_vx *= scale
+            inst_vy *= scale
+        self.assertAlmostEqual(inst_vx, 3.5)
+        self.assertAlmostEqual(inst_vy, 0.0)
+
+    def test_empty_lidar_ranges_step(self):
+        """Perception.step handles empty range array without exception."""
+        perc = Perception(dt=0.1)
+        empty_ranges = np.array([])
+        empty_angles = np.array([])
+        perc.step(
+            ranges=empty_ranges,
+            rel_angles=empty_angles,
+            pose=(100.0, 50.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            map_segs=np.empty((0, 4)),
+        )
+        self.assertEqual(len(perc.tracks), 0)
+
+    def test_all_infinite_ranges_step(self):
+        """All-infinite lidar ranges produce 0 clusters and 0 phantom tracks."""
+        perc = Perception(dt=0.1)
+        angles = np.radians(np.arange(360))
+        inf_ranges = np.full(360, np.inf)
+        perc.step(
+            ranges=inf_ranges,
+            rel_angles=angles,
+            pose=(100.0, 50.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            map_segs=np.empty((0, 4)),
+        )
+        self.assertEqual(len(perc.tracks), 0)
+
+    def test_track_coasting_and_pruning(self):
+        """Tracks coast when detections are missing and get pruned after max_age ticks."""
+        perc = Perception(dt=0.1)
+        # Create a track
+        tr = Track(track_id=1, ox=10.0, oy=5.0)
+        tr.coast_ticks = 0
+        perc.tracks = [tr]
+
+        # Step 15 times with empty sensor observations
+        angles = np.radians(np.arange(360))
+        inf_ranges = np.full(360, np.inf)
+        for _ in range(15):
+            perc.step(
+                ranges=inf_ranges,
+                rel_angles=angles,
+                pose=(100.0, 50.0, 0.0),
+                odom_pose=(0.0, 0.0, 0.0),
+                map_segs=np.empty((0, 4)),
+            )
+
+        # Track should be pruned after multiple missing cycles
+        self.assertEqual(len(perc.tracks), 0)
 
 
 if __name__ == "__main__":

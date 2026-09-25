@@ -4,8 +4,8 @@ import unittest
 
 import numpy as np
 
-from team.geom import box_segs, raycast
-from team.localize import Localizer
+from backend.geom import box_segs, raycast
+from backend.localize import Localizer
 
 
 ANGLES = np.radians(np.arange(360))
@@ -415,6 +415,65 @@ class TestLocalizer(unittest.TestCase):
             ranges = raycast(true_x, 50.0, ANGLES, segs, max_range=20.0)
             loc.update_scan(ranges, ANGLES, segs, is_fog=False)
             self.assertFalse(loc.blocked_wheels)
+
+    def test_degenerate_zero_and_infinite_ranges(self):
+        """All-inf or all-nan ranges do not corrupt EKF state with NaNs."""
+        loc = Localizer((100.0, 50.0, 0.0))
+        segs = corridor_segs()
+        inf_ranges = np.full(360, np.inf)
+
+        loc.predict(0.1, 0.0, 0.0, 0.0, 0.0, 0.1)
+        loc.update_scan(inf_ranges, ANGLES, segs, is_fog=False)
+
+        self.assertTrue(math.isfinite(loc.x))
+        self.assertTrue(math.isfinite(loc.y))
+        self.assertTrue(math.isfinite(loc.th))
+
+    def test_imu_heading_full_wrap_360(self):
+        """IMU heading crossing +/- pi wrap boundary maintains continuous smooth yaw."""
+        loc = Localizer((100.0, 50.0, 3.10))
+        loc.predict(0.0, 0.0, 0.0, 3.10, 0.0, 0.1)
+
+        # Cross +pi to -pi
+        loc.predict(0.0, 0.0, 0.0, -3.10, 0.0, 0.1)
+        self.assertTrue(-math.pi <= loc.th <= math.pi)
+        self.assertAlmostEqual(abs(loc.th), 3.10, delta=0.1)
+
+    def test_gnss_outlier_rejection_innovation_gate(self):
+        """A sudden 10m GNSS jump is gated and does not pull the estimated pose."""
+        loc = Localizer((100.0, 50.0, 0.0))
+        segs = corridor_segs()
+        ranges = raycast(100.0, 50.0, ANGLES, segs, max_range=20.0)
+        loc.update_scan(ranges, ANGLES, segs, is_fog=False)
+
+        # GNSS jump to (110.0, 50.0)
+        accepted = loc.update_gnss(110.0, 50.0, gnss_valid=True, gnss_hdop=1.0)
+        self.assertFalse(accepted)
+        # Position should remain anchored near 100.0
+        self.assertAlmostEqual(loc.x, 100.0, delta=0.5)
+
+    def test_try_recover_refuses_when_moving(self):
+        """try_recover refuses to run if platform is moving (v_odom > 0.04)."""
+        loc = Localizer((100.0, 50.0, 0.0))
+        loc.is_lost = True
+        segs = corridor_segs()
+        ranges = raycast(100.0, 50.0, ANGLES, segs, max_range=20.0)
+
+        # Moving: should refuse
+        res = loc.try_recover(ranges, ANGLES, segs, stopped=False)
+        self.assertFalse(res)
+        self.assertTrue(loc.is_lost)
+
+    def test_dock_snap_tolerance_guard(self):
+        """dock_snap refuses to snap if platform is far (> 1.5 m) from the dock."""
+        loc = Localizer((100.0, 50.0, 0.0))
+        segs = corridor_segs()
+        ranges = raycast(100.0, 50.0, ANGLES, segs, max_range=20.0)
+
+        # Goal is far away at (200.0, 150.0)
+        loc.dock_snap(ranges, ANGLES, [200.0, 150.0, 0.0], segs)
+        # Pose must not jump to dock
+        self.assertAlmostEqual(loc.x, 100.0, delta=0.1)
 
 
 if __name__ == "__main__":

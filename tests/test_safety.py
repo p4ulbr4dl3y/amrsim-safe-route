@@ -4,8 +4,8 @@ import unittest
 
 import numpy as np
 
-from team.perceive import Track
-from team.safety import (
+from backend.perceive import Track
+from backend.safety import (
     R_PEDESTRIAN,
     R_PLATFORM,
     SafetyGovernor,
@@ -669,6 +669,170 @@ class TestSafety(unittest.TestCase):
         self.assertIn("lost s_lat=0.0", note)
         _, _, _, note_sig = self._eval([], v_odom=0.0, is_lost=True, sigma_cross=0.4)
         self.assertIn("lost s_lat=0.4", note_sig)
+
+    def test_early_slowdown_oncoming_pedestrian(self):
+        # 1. Oncoming pedestrian 7.0m ahead moving towards robot at -1.0 m/s: early deceleration
+        ped_far = self._track(7.0, 0.0, "pedestrian", True)
+        ped_far.vx_odom = -1.0
+        v_far, _, _, note_far = self._eval([ped_far], v_cand=1.39, v_odom=0.8)
+        self.assertLessEqual(v_far, 0.85)
+        self.assertGreater(v_far, 0.0)
+
+        # 2. Oncoming pedestrian 5.0m ahead moving towards robot: decelerates further
+        ped_mid = self._track(5.0, 0.0, "pedestrian", True)
+        ped_mid.vx_odom = -1.0
+        v_mid, _, _, _ = self._eval([ped_mid], v_cand=1.39, v_odom=0.5)
+        self.assertLessEqual(v_mid, 0.50)
+        self.assertGreater(v_mid, 0.0)
+
+        # 3. Oncoming pedestrian 2.0m ahead (closing fast): safe stop
+        ped_close = self._track(2.0, 0.0, "pedestrian", True)
+        ped_close.vx_odom = -1.0
+        v_close, _, _, note_close = self._eval([ped_close], v_cand=1.39, v_odom=0.3)
+        self.assertEqual(v_close, 0.0)
+        self.assertIn("stop_person", note_close)
+
+    def test_same_way_pedestrian_speed_matching(self):
+        # 1. Same-way pedestrian 4.5m ahead walking at 0.8 m/s: robot matches speed with safe buffer
+        ped_ahead = self._track(4.5, 0.0, "pedestrian", True)
+        ped_ahead.vx_odom = 0.8
+        v_match, _, _, _ = self._eval([ped_ahead], v_cand=1.39, v_odom=0.8)
+        self.assertLessEqual(v_match, 1.05)
+        self.assertGreaterEqual(v_match, 0.70)
+
+        # 2. Same-way pedestrian 3.5m ahead (clearance < 3.0m): caps at <= 0.22 to prevent proximity penalty
+        ped_near = self._track(3.5, 0.0, "pedestrian", True)
+        ped_near.vx_odom = 0.8
+        v_near, _, _, _ = self._eval([ped_near], v_cand=1.39, v_odom=0.5)
+        self.assertLessEqual(v_near, 0.22)
+        self.assertGreater(v_near, 0.0)
+
+        # 3. Same-way pedestrian <= 2.2m: safe stop behind
+        ped_stop = self._track(2.0, 0.0, "pedestrian", True)
+        ped_stop.vx_odom = 0.8
+        v_stop, _, _, _ = self._eval([ped_stop], v_cand=1.39, v_odom=0.2)
+        self.assertEqual(v_stop, 0.0)
+
+    def test_standing_pedestrian_safe_side_pass(self):
+        # 1. Standing pedestrian at lateral distance 2.0m (clearance ~2.0m < 3.3m):
+        # Robot continues moving smoothly at safe crawl without stopping!
+        ped_side = self._track(2.5, 2.0, "pedestrian", True)
+        ped_side.vx_odom = 0.0
+        ped_side.vy_odom = 0.0
+        v_side, _, status, note = self._eval([ped_side], v_cand=1.39, v_odom=0.2)
+        self.assertLessEqual(v_side, 0.22)
+        self.assertGreater(v_side, 0.0)
+        self.assertEqual(status, "moving")
+        self.assertNotIn("stop_person", note)
+
+        # 2. Standing pedestrian with wide clearance (lateral 2.5m, clearance >= 3.3m):
+        # Robot passes at safe speed up to 0.55 m/s
+        ped_wide = self._track(4.5, 2.5, "pedestrian", True)
+        ped_wide.vx_odom = 0.0
+        ped_wide.vy_odom = 0.0
+        v_wide, _, _, _ = self._eval([ped_wide], v_cand=1.39, v_odom=0.5)
+        self.assertLessEqual(v_wide, 0.55)
+        self.assertGreaterEqual(v_wide, 0.40)
+
+    def test_standing_pedestrian_in_path_smooth_stop(self):
+        # 1. Standing pedestrian directly in path 2.2m ahead: stops smoothly ahead of time
+        ped_path = self._track(2.2, 0.0, "pedestrian", True)
+        ped_path.vx_odom = 0.0
+        ped_path.vy_odom = 0.0
+        v_stop, _, _, note = self._eval([ped_path], v_cand=1.39, v_odom=0.2)
+        self.assertEqual(v_stop, 0.0)
+        self.assertIn("stop_person", note)
+
+        # 2. Standing pedestrian 4.0m ahead in path: decelerates smoothly before stopping
+        ped_mid = self._track(4.0, 0.0, "pedestrian", True)
+        ped_mid.vx_odom = 0.0
+        ped_mid.vy_odom = 0.0
+        v_mid, _, _, _ = self._eval([ped_mid], v_cand=1.39, v_odom=0.4)
+        self.assertLessEqual(v_mid, 0.55)
+        self.assertGreater(v_mid, 0.0)
+
+    def test_person_hold_releases_when_path_cleared(self):
+        gov = SafetyGovernor(v_top=1.39, dt=0.1)
+
+        # Step 1: Human blocks direct path at (2.0, 0.0) -> robot stops and sets person hold
+        human = self._track(2.0, 0.0, "pedestrian", True)
+        v_stop, _, _, note_stop = self._eval([human], v_cand=1.39, v_odom=0.0, gov=gov)
+        self.assertEqual(v_stop, 0.0)
+        self.assertIn("stop_person", note_stop)
+        self.assertTrue(gov._person_hold)
+
+        # Step 2: Human steps aside to safe lateral clearance (2.0, 2.0)
+        human_aside = self._track(2.0, 2.0, "pedestrian", True)
+        human_aside.vx_odom = 0.0
+        human_aside.vy_odom = 0.0
+        v_resume, _, _, _ = self._eval([human_aside], v_cand=1.39, v_odom=0.0, gov=gov)
+        # Person hold must release and robot resumes motion at safe crawl!
+        self.assertFalse(gov._person_hold)
+        self.assertGreater(v_resume, 0.0)
+        self.assertLessEqual(v_resume, 0.22)
+
+
+    def test_crossing_pedestrian_early_stop(self):
+        # Crossing pedestrian 4.0m ahead moving across our lane (y=-2.0, vy=1.0 m/s towards lat=0)
+        ped_cross = self._track(4.0, -2.0, "pedestrian", True)
+        ped_cross.vx_odom = 0.0
+        ped_cross.vy_odom = 1.0
+        v_stop, _, _, note = self._eval([ped_cross], v_cand=1.39, v_odom=0.3)
+        self.assertEqual(v_stop, 0.0)
+        self.assertIn("stop_person", note)
+
+    def test_pedestrian_behind_not_throttled_when_safe_clearance(self):
+        # Pedestrian is behind the robot at (-3.0, 3.0) -> clearance = hypot(3, 3) - 1.2 = 3.04 m >= 3.0 m
+        # Robot is driving away forward -> speed should not be capped at 0.22 m/s
+        ped_behind = self._track(-3.0, 3.0, "pedestrian", True)
+        v_safe, _, _, _ = self._eval([ped_behind], v_cand=1.39, v_odom=0.8)
+        self.assertGreater(v_safe, 0.5)
+
+    def test_facing_pedestrian_stops_within_yield_zone(self):
+        # Attentive pedestrian walking towards platform within 4.0m center distance
+        # To prevent pedestrian freeze, robot must stop completely (v=0.0)
+        ped_facing = self._track(2.5, 0.0, "pedestrian", True)
+        ped_facing.vx_odom = -1.0
+        ped_facing.vy_odom = 0.0
+        v_stop, _, _, note = self._eval([ped_facing], v_cand=1.39, v_odom=0.2)
+        self.assertEqual(v_stop, 0.0)
+        self.assertIn("stop_person", note)
+
+    def test_zero_length_points_clearance(self):
+        """calculate_clearance on empty array returns inf."""
+        empty_pts = np.empty((0, 2), dtype=float)
+        cl = calculate_clearance(empty_pts, is_pedestrian=True)
+        self.assertEqual(cl, math.inf)
+
+    def test_extreme_velocity_clamping(self):
+        """Candidate velocities exceeding top platform bounds are strictly clamped."""
+        v_safe, _, _, _ = self._eval([], v_cand=100.0, v_odom=0.0)
+        self.assertLessEqual(v_safe, 1.39)
+
+        v_safe_rev, _, _, _ = self._eval([], v_cand=-100.0, v_odom=0.0)
+        self.assertGreaterEqual(v_safe_rev, -0.5)
+
+    def test_status_moving_enforcement_at_speed(self):
+        """Status MUST be 'moving' whenever |v_odom| >= 0.05 m/s."""
+        st = determine_status(v_odom=0.06, is_lost=False, is_arrived=False)
+        self.assertEqual(st, "moving")
+        st_rev = determine_status(v_odom=-0.10, is_lost=False, is_arrived=False)
+        self.assertEqual(st_rev, "moving")
+
+    def test_predict_ttc_with_zero_relative_velocity(self):
+        """Zero relative velocity does not cause division by zero or NaN in TTC."""
+        tr = Track(track_id=99, ox=5.0, oy=0.0)
+        tr.pts = np.array([[5.0, 0.0]])
+        tr.vx_odom = 0.0
+        cl, min_t = predict_ttc_clearance(
+            track=tr,
+            v_platform=0.0,
+            oth=0.0,
+            horizon_s=2.0,
+            dt_step=0.2,
+        )
+        self.assertTrue(math.isfinite(cl))
+        self.assertTrue(math.isfinite(min_t))
 
 
 if __name__ == "__main__":

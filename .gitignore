@@ -45,3 +45,9 @@ htmlcov/
 # Reports and outputs
 out/
 results/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+page design/

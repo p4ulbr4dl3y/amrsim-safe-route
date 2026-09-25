@@ -56,7 +56,7 @@ def run_scenario(
     curr_pythonpath = env.get("PYTHONPATH", "")
     if amrsim_part_dir not in curr_pythonpath:
         env["PYTHONPATH"] = (
-            f"{amrsim_part_dir}:{curr_pythonpath}" if curr_pythonpath else amrsim_part_dir
+            f"{amrsim_part_dir}{os.pathsep}{curr_pythonpath}" if curr_pythonpath else amrsim_part_dir
         )
 
     cmd = [
@@ -334,6 +334,9 @@ def main() -> None:
         ctrl_label = controller_path.parent.name or "controller"
 
     results: List[Dict[str, Any]] = []
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     print(f"Evaluating controller: {controller_path} (seed={args.seed})")
     print(f"Scenarios: {len(args.scenarios)}")
