@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiClient } from '../api/client';
 import { MapCanvas, MapLayersConfig } from '../components/MapCanvas';
-import { TickData, MapData, ScenarioItem } from '../types';
+import { TickData, MapData, ScenarioItem, ReplayMissionData } from '../types';
 import { 
   Play, Pause, SkipBack, SkipForward, ChevronLeft, ChevronRight, 
   ChevronDown, User, Layers, RefreshCw
@@ -24,6 +24,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
   const [ticks, setTicks] = useState<TickData[]>([]);
   const [mapData, setMapData] = useState<MapData | undefined>(undefined);
   const [episodes, setEpisodes] = useState<any[]>([]);
+  const [missions, setMissions] = useState<ReplayMissionData[]>([]);
   const [totalTicks, setTotalTicks] = useState(3410);
   const [currentTickIndex, setCurrentTickIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -85,6 +86,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
       setTicks(vm.ticks);
       setMapData(vm.mapData);
       setEpisodes(vm.episodes);
+      setMissions(vm.missions || []);
       setTotalTicks(vm.totalTicks);
 
       // Поиск такта при передаче t в параметрах URL
@@ -204,6 +206,13 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
   };
 
   const historyTicks = ticks.slice(0, currentTickIndex + 1);
+
+  // Активная миссия: по идентификатору текущего такта, иначе первая из лога
+  const activeMission = missions.find((m) => m.id === currentTick.m) || missions[0];
+  const missionId = currentTick.m || activeMission?.id || '—';
+  const missionTimeLeft = activeMission
+    ? Math.max(0, activeMission.t_start + activeMission.deadline_s - currentTick.t)
+    : null;
 
   // Форматирование времени в виде мм:сс.д
   const formatTime = (secs: number) => {
@@ -512,10 +521,19 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
               ТЕКУЩЕЕ ЗАДАНИЕ
             </span>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 font-mono text-xs">
-              <div className="font-bold text-slate-900 text-sm">{currentTick.m || 'm1'}</div>
+              <div className="font-bold text-slate-900 text-sm">{missionId}</div>
               <div className="text-slate-600 text-[11px] mt-1">
-                Склад → Цех А <span className="text-slate-400">·</span>{' '}
-                {Math.max(0, 200.7 - currentTick.t).toFixed(1)} s left
+                {activeMission ? (
+                  <>
+                    <span>
+                      {activeMission.fromLabel} → {activeMission.toLabel}
+                    </span>{' '}
+                    <span className="text-slate-400">·</span>{' '}
+                    <span>{missionTimeLeft !== null ? missionTimeLeft.toFixed(1) : '0.0'} s left</span>
+                  </>
+                ) : (
+                  <span className="text-slate-400">данные миссии недоступны</span>
+                )}
               </div>
             </div>
           </div>

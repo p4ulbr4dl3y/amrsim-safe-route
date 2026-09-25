@@ -113,7 +113,9 @@ def test_view_models_build_successfully():
 
 
 def test_episodes_never_empty_for_any_scenario():
-    """Verify that build_episodes_view_model populates informative events even for clean scenarios."""
+    """Проверка контракта эпизодов: непустой список, поле source и нулевые вехи миссий."""
+    valid_sources = {"report", "mission", "telemetry", "checkpoint"}
+
     for sc_id in ALL_SCENARIO_IDS:
         ep_vm = build_episodes_view_model(sc_id)
         episodes = ep_vm.get("episodes", [])
@@ -129,6 +131,72 @@ def test_episodes_never_empty_for_any_scenario():
             assert "x" in ep
             assert "y" in ep
             assert "cost" in ep
+            assert "source" in ep, f"Episode without source for {sc_id}: {ep}"
+            assert ep["source"] in valid_sources, f"Unknown episode source: {ep['source']}"
+
+        # Вехи миссий информационные: недоставка в amrsim не штрафуется, цена всегда 0.0
+        mission_eps = [e for e in episodes if e.get("source") == "mission"]
+        for ep in mission_eps:
+            assert ep["cost"] == 0.0, f"Mission milestone with non-zero cost: {ep}"
+
+        # Журнал штрафов считается только по эпизодам отчета, без вех и пометок телеметрии
+        report_eps = [e for e in episodes if e.get("source") == "report"]
+        expected_warnings = len(
+            [e for e in report_eps if e.get("severity") in ("warning", "critical")]
+        )
+        assert ep_vm["summary"]["warningsCount"] == expected_warnings, (
+            f"warningsCount must count only report episodes for {sc_id}"
+        )
+
+
+def test_replay_view_model_missions_match_report():
+    """Подписи миссий в модели Replay совпадают с точками отчета и метками POINT_LABELS."""
+    for sc_id in ["04_busy_yard", "s1_pallet_2m"]:
+        sc = normalize_scenario_id(sc_id)
+        rep_vm = build_replay_view_model(sc)
+        missions = rep_vm.get("missions")
+        assert missions, f"Replay missions are empty for scenario: {sc}"
+
+        report = get_scenario_report(sc)
+        assert report is not None, f"Report not found for scenario: {sc}"
+        report_missions = report.get("missions", [])
+        assert report_missions, f"Report missions are empty for scenario: {sc}"
+        report_pairs = {(m.get("id"), m.get("from"), m.get("to")) for m in report_missions}
+
+        for m in missions:
+            assert "id" in m
+            assert "from" in m
+            assert "to" in m
+            assert "deadline_s" in m
+            assert "t_start" in m
+            assert m["t_start"] >= 0.0
+            # Подписи строятся из POINT_LABELS с fallback на сам ключ точки
+            assert m["fromLabel"] == server.POINT_LABELS.get(m["from"], m["from"])
+            assert m["toLabel"] == server.POINT_LABELS.get(m["to"], m["to"])
+            assert (m["id"], m["from"], m["to"]) in report_pairs, (
+                f"Replay mission {m} does not match report missions for {sc}"
+            )
+
+    # Контрольная проверка известных меток для сценария с реальным логом тактов
+    known = build_replay_view_model("04_busy_yard")
+    first = known["missions"][0]
+    assert first["from"] == "warehouse"
+    assert first["fromLabel"] == "Склад"
+    assert first["toLabel"] == server.POINT_LABELS[first["to"]]
+    assert first["deadline_s"] > 0.0
+
+
+def test_get_scenario_log_path_prefers_own_scenario_log(tmp_path, monkeypatch):
+    """Лог своего сценария из results/own_scenarios/logs приоритетнее образца."""
+    logs_dir = tmp_path / "results" / "own_scenarios" / "logs"
+    logs_dir.mkdir(parents=True)
+    own_log = logs_dir / "s1_pallet_2m.jsonl"
+    own_log.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(server, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(server, "OUT_DIR", tmp_path / "out")
+
+    assert get_scenario_log_path("s1_pallet_2m") == own_log
 
 
 def test_csv_export_format_and_rows():

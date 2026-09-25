@@ -145,12 +145,23 @@ export interface DashboardViewModel {
   mapData: MapData;
 }
 
+export interface ReplayMissionData {
+  id: string;
+  from: string;
+  to: string;
+  fromLabel: string;
+  toLabel: string;
+  deadline_s: number;
+  t_start: number;
+}
+
 export interface ReplayViewModel {
   scenario: string;
   seed: number;
   header: any;
   mapData: MapData;
   ticks: TickData[];
+  missions?: ReplayMissionData[];
   totalTicks: number;
   duration: number;
   episodes: {

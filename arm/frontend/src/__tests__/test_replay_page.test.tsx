@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import React from 'react';
 import { ReplayPage } from '../pages/ReplayPage';
 import { apiClient } from '../api/client';
+import { ReplayViewModel, TickData } from '../types';
 
 beforeAll(() => {
   HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
@@ -227,5 +228,70 @@ describe('ReplayPage Component', () => {
       expect(screen.getByText(/Пешеход/i)).toBeTruthy();
       expect(screen.getByText('Разница поз')).toBeTruthy();
     });
+  });
+
+  it('shows mission label and remaining time from the replay log, not hardcoded values', async () => {
+    const ticks: TickData[] = Array.from({ length: 5 }, (_, i) => ({
+      t: i * 0.1,
+      x: 0,
+      y: 0,
+      th: 0,
+      v: 0,
+      w: 0,
+      cv: 0,
+      cw: 0,
+      st: 'moving',
+      pe: null,
+      nt: null,
+      m: 'm1',
+      drv: 1,
+      fbd: 0,
+      vmax: null,
+      hum: null,
+      obj: null,
+      coll: 0,
+      cont: 0,
+    }));
+
+    const mockedMission = {
+      id: 'm1',
+      from: 'warehouse',
+      to: 'shop_b',
+      fromLabel: 'Склад',
+      toLabel: 'Цех B',
+      deadline_s: 252.0,
+      t_start: 0.0,
+    };
+
+    const replayVm: ReplayViewModel = {
+      scenario: '01_clear',
+      seed: 7,
+      header: { scenario: '01_clear', dt: 0.1, missions: [mockedMission] },
+      mapData: {
+        bounds: [0, 0, 10, 10],
+        drivable: [],
+        buildings: [],
+        zones: [],
+        points: {},
+      },
+      ticks,
+      missions: [mockedMission],
+      totalTicks: ticks.length,
+      duration: 0.4,
+      episodes: [],
+    };
+
+    vi.spyOn(apiClient, 'fetchReplay').mockResolvedValue(replayVm);
+
+    render(<ReplayPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Склад → Цех B')).toBeTruthy();
+      expect(screen.getByText('252.0 s left')).toBeTruthy();
+    });
+
+    // Зашитые в прошлой версии значения не должны отображаться
+    expect(screen.queryByText(/Цех А/)).toBeNull();
+    expect(screen.queryByText(/200\.7/)).toBeNull();
   });
 });

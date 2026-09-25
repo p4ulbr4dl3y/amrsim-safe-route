@@ -192,10 +192,13 @@ def get_scenario_report(scenario_id: str) -> dict | None:
 
     candidates = [
         OUT_DIR / f"{norm_id}.json",
-        RESULTS_DIR / f"team_{norm_id}.json",
+        RESULTS_DIR / f"team_dreamteam_4_0_{norm_id}.json",
+        RESULTS_DIR / "seed_packet" / f"{norm_id}_7.json",
         RESULTS_DIR / f"baseline_{norm_id}.json",
         RESULTS_DIR / "own_scenarios" / f"{norm_id}.json",
+        RESULTS_DIR / "table_runs" / "reports" / f"team_dreamteam_4_0__{norm_id}__s7.json",
         RESULTS_DIR / "table_runs" / "reports" / f"team__{norm_id}__s7.json",
+        OUT_DIR / "table_runs" / "reports" / f"team_dreamteam_4_0__{norm_id}__s7.json",
         OUT_DIR / "table_runs" / "reports" / f"team__{norm_id}__s7.json",
         ROOT_DIR / "amrsim-participants" / "samples" / f"{norm_id}.json",
     ]
@@ -216,7 +219,12 @@ def get_scenario_log_path(scenario_id: str) -> Path | None:
     candidates = [
         OUT_DIR / f"{norm_id}.jsonl",
         OUT_DIR / f"team_{norm_id}.jsonl",
+        OUT_DIR / f"team_dreamteam_4_0_{norm_id}.jsonl",
+        OUT_DIR / "table_runs" / "logs" / f"team_dreamteam_4_0__{norm_id}__s7.jsonl",
         OUT_DIR / "table_runs" / "logs" / f"team__{norm_id}__s7.jsonl",
+        RESULTS_DIR / "table_runs" / "logs" / f"team_dreamteam_4_0__{norm_id}__s7.jsonl",
+        # Собственные сценарии: логи в сдаче, чтобы подпись миссии бралась из своего лога
+        ROOT_DIR / "results" / "own_scenarios" / "logs" / f"{norm_id}.jsonl",
         ROOT_DIR / "amrsim-participants" / "samples" / f"{norm_id}.jsonl",
         # Использование образцов 01_clear.jsonl или 04_busy_yard.jsonl, если лог тактов еще не сформирован
         ROOT_DIR / "amrsim-participants" / "samples" / "04_busy_yard.jsonl",
@@ -567,6 +575,45 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
     }
 
 
+def build_replay_missions(header: dict | None, raw_ticks: list[dict]) -> list[dict]:
+    """Формирование списка миссий для воспроизведения на основе заголовка лога.
+
+    Для каждой миссии берется абсолютное время первого такта с `m == mission.id`.
+    Если такой такт не найден, `t_start` равен 0.0.
+    """
+    missions_raw = (header or {}).get("missions") or []
+    missions: list[dict] = []
+
+    for m in missions_raw:
+        m_id = m.get("id")
+        from_pt = m.get("from", "") or ""
+        to_pt = m.get("to", "") or ""
+
+        # Абсолютное время старта миссии по первому такту с совпадающим идентификатором
+        t_start = 0.0
+        for tk in raw_ticks:
+            if tk.get("m") == m_id:
+                t_start = float(tk.get("t", 0.0) or 0.0)
+                break
+
+        deadline_raw = m.get("deadline_s")
+        deadline_s = float(deadline_raw) if isinstance(deadline_raw, (int, float)) else 0.0
+
+        missions.append(
+            {
+                "id": m_id,
+                "from": from_pt,
+                "to": to_pt,
+                "fromLabel": POINT_LABELS.get(from_pt, from_pt),
+                "toLabel": POINT_LABELS.get(to_pt, to_pt),
+                "deadline_s": round(deadline_s, 3),
+                "t_start": round(t_start, 3),
+            }
+        )
+
+    return missions
+
+
 def build_replay_view_model(scenario_id: str, seed: int = 7) -> dict:
     norm_id = normalize_scenario_id(scenario_id)
     ticks_data = parse_ticks_log(norm_id)
@@ -575,6 +622,10 @@ def build_replay_view_model(scenario_id: str, seed: int = 7) -> dict:
 
     header = ticks_data.get("header")
     map_data = extract_map_data(scen_def, header)
+
+    # Сырые такты предпочтительнее прореженных: по ним точно определяется старт миссии
+    raw_ticks = ticks_data.get("raw_ticks") or ticks_data.get("ticks", [])
+    missions = build_replay_missions(header, raw_ticks)
 
     episodes_raw = report.get("score", {}).get("episodes", []) if report else []
     episodes_formatted = [
@@ -597,6 +648,7 @@ def build_replay_view_model(scenario_id: str, seed: int = 7) -> dict:
         "header": header,
         "mapData": map_data,
         "ticks": ticks_data.get("ticks", []),
+        "missions": missions,
         "totalTicks": ticks_data.get("totalTicks", 0),
         "duration": ticks_data.get("duration", 0.0),
         "episodes": episodes_formatted,
@@ -659,6 +711,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                 "severity": severity,
                 "type": ep_type,
                 "category": CATEGORY_NAMES.get(ep_type, "Предупреждение"),
+                "source": "report",
                 "t_start": t_start,
                 "t_end": t_end,
                 "x": ep.get("x", 0.0),
@@ -690,6 +743,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "severity": "info",
                     "type": "mission_start",
                     "category": "Старт миссии",
+                    "source": "mission",
                     "t_start": round(t_st, 1),
                     "t_end": round(t_st + 1.0, 1),
                     "x": round(tk_st.get("x", 0.0) if tk_st else 0.0, 2),
@@ -727,11 +781,14 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "severity": "success" if delivered else "critical",
                     "type": "mission_delivered" if delivered else "mission_timeout",
                     "category": "Доставка груза" if delivered else "Таймаут миссии",
+                    "source": "mission",
                     "t_start": round(t_arr, 1),
                     "t_end": round(t_arr + 1.0, 1),
                     "x": round(tk_arr.get("x", 0.0) if tk_arr else 0.0, 2),
                     "y": round(tk_arr.get("y", 0.0) if tk_arr else 0.0, 2),
-                    "cost": 0.0 if delivered else -40.0,
+                    # Вехи миссий информационные: в amrsim недоставка не дает штрафа,
+                    # поэтому отрицательная цена здесь вводила бы в заблуждение
+                    "cost": 0.0,
                     "ruleExplanation": f"Доставка {m_id} в {to_pt} завершена ({status_msg}{hold_str})",
                     "telemetrySnapshot": {
                         "v": round(tk_arr.get("v", 0.0), 2) if tk_arr else 0.0,
@@ -769,6 +826,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                         "severity": "success",
                         "type": "stop_person",
                         "category": "Защитный стоп",
+                        "source": "telemetry",
                         "t_start": round(t_curr, 1),
                         "t_end": round(t_curr + 1.2, 1),
                         "x": round(tk.get("x", 0.0), 2),
@@ -794,6 +852,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                         "severity": "warning",
                         "type": "gnss_outage",
                         "category": "Тень GNSS",
+                        "source": "telemetry",
                         "t_start": round(t_curr, 1),
                         "t_end": round(t_curr + 2.0, 1),
                         "x": round(tk.get("x", 0.0), 2),
@@ -819,6 +878,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                         "severity": "info",
                         "type": "map_extra",
                         "category": "Новый объект",
+                        "source": "telemetry",
                         "t_start": round(t_curr, 1),
                         "t_end": round(t_curr + 0.8, 1),
                         "x": round(tk.get("x", 0.0), 2),
@@ -844,6 +904,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                         "severity": "info",
                         "type": "obstacle_close",
                         "category": "Близость к препятствию",
+                        "source": "telemetry",
                         "t_start": round(t_curr, 1),
                         "t_end": round(t_curr + 1.0, 1),
                         "x": round(tk.get("x", 0.0), 2),
@@ -880,6 +941,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "severity": "info",
                     "type": "checkpoint",
                     "category": "Контрольная точка",
+                    "source": "checkpoint",
                     "t_start": round(t_curr, 1),
                     "t_end": round(t_curr + 1.0, 1),
                     "x": round(tk.get("x", 0.0), 2),
@@ -906,6 +968,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                 "severity": "info",
                 "type": "checkpoint",
                 "category": "Штатное движение",
+                "source": "checkpoint",
                 "t_start": 0.0,
                 "t_end": 1.0,
                 "x": 0.0,
@@ -930,9 +993,14 @@ def build_episodes_view_model(scenario_id: str) -> dict:
     episodes.sort(key=lambda e: e.get("t_start", 0.0))
 
     fatal_count = 1 if score.get("fatal") else 0
-    warnings_count = len([e for e in episodes if e.get("severity") in ("warning", "critical")])
+    # Журнал штрафов формируется только по эпизодам отчета:
+    # вехи миссий и информационные пометки телеметрии в него не попадают
+    report_episodes = [e for e in episodes if e.get("source") == "report"]
+    warnings_count = len(
+        [e for e in report_episodes if e.get("severity") in ("warning", "critical")]
+    )
     rule_violations = len(
-        [e for e in episodes if e.get("type") in ("speed_limit", "forbidden_zone")]
+        [e for e in report_episodes if e.get("type") in ("speed_limit", "forbidden_zone")]
     )
 
     return {
