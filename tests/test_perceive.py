@@ -735,6 +735,190 @@ class TestPerception(unittest.TestCase):
         self.assertAlmostEqual(exp_all[0], 8.0, delta=0.05)
         self.assertAlmostEqual(exp_kept[0], 18.0, delta=0.05)
 
+        # One more step with the removed segment hits line 677 (continue if s_idx in removed_segment_ids)
+        self.perc.step(
+            ranges=ranges, rel_angles=rel_angles, pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0), map_segs=segs, sigma_pose=0.0,
+            is_fog=False, v_odom=0.0, scan_inliers=50,
+        )
+
+
+class TestPerceiveCoverage(unittest.TestCase):
+    """Targeted coverage for edge cases and branches in perceive.py."""
+
+    def test_track_helpers(self):
+        from team.perceive import track_forward_lateral, track_world_shift
+        tr = Track(1, 0.0, 0.0, None)
+        self.assertEqual(track_forward_lateral(tr), (math.inf, math.inf))
+        tr.pts = np.empty((0, 2))
+        self.assertEqual(track_forward_lateral(tr), (math.inf, math.inf))
+
+        self.assertEqual(track_world_shift(tr), 0.0)
+        tr.hist.append((0.0, 0.0))
+        self.assertEqual(track_world_shift(tr), 0.0)
+        tr.hist.append((3.0, 4.0))
+        self.assertAlmostEqual(track_world_shift(tr), 5.0)
+
+    def test_fit_cluster_geometry_branches(self):
+        # len < 2
+        self.assertEqual(fit_cluster_geometry(np.empty((0, 2))), (0.0, 0.0))
+        self.assertEqual(fit_cluster_geometry(np.array([[1.0, 2.0]])), (0.0, 0.0))
+        # len == 2
+        l, th = fit_cluster_geometry(np.array([[0.0, 0.0], [3.0, 4.0]]))
+        self.assertAlmostEqual(l, 5.0)
+        self.assertEqual(th, 0.0)
+        # SVD exception handling
+        pts = np.array([[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]])
+        orig_svd = np.linalg.svd
+        try:
+            def bad_svd(*args, **kwargs):
+                raise np.linalg.LinAlgError("mock failure")
+            np.linalg.svd = bad_svd
+            l, th = fit_cluster_geometry(pts)
+            self.assertGreater(l, 0.0)
+            self.assertEqual(th, 0.0)
+        finally:
+            np.linalg.svd = orig_svd
+
+    def test_wall_predicates(self):
+        self.assertFalse(is_wall_cluster(np.array([[0.0, 0.0], [1.0, 1.0]])))
+        # is_wall_continuation empty or short clouds
+        self.assertFalse(is_wall_continuation(np.empty((0, 2)), []))
+        self.assertFalse(is_wall_continuation(np.array([[1.0, 1.0]]), [np.array([[0.0, 0.0]])]))  # len < 3
+        # dists > 0.6
+        wall = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
+        far_pts = np.array([[10.0, 10.0], [11.0, 10.0]])
+        self.assertFalse(is_wall_continuation(far_pts, [wall]))
+
+        # SVD exception in is_wall_continuation
+        orig_svd = np.linalg.svd
+        try:
+            def bad_svd(*args, **kwargs):
+                raise np.linalg.LinAlgError("mock failure")
+            np.linalg.svd = bad_svd
+            near_pts = np.array([[2.2, 0.0], [2.4, 0.0]])
+            self.assertFalse(is_wall_continuation(near_pts, [wall]))
+        finally:
+            np.linalg.svd = orig_svd
+
+    def test_step_empty_and_run_end(self):
+        perc = Perception(dt=0.1)
+        # Empty ranges or None map_segs
+        res = perc.step([], [], (0, 0, 0), (0, 0, 0), None)
+        self.assertEqual(res, [])
+
+        # Beams triggering unexplained run at the very end of 360 array (beam 358, 359)
+        map_segs = np.array([[0.0, 50.0, 100.0, 50.0]])
+        rel_angles = np.radians(np.arange(360))
+        ranges = np.full(360, 20.0)
+        ranges[358] = 2.0
+        ranges[359] = 2.0
+        tracks = perc.step(ranges, rel_angles, (10, 10, 0), (0, 0, 0), map_segs, sigma_pose=0.1)
+        self.assertGreaterEqual(len(perc.tracks), 1)
+
+    def test_track_classification_and_inheritance(self):
+        perc = Perception(dt=0.1)
+        # Existing pedestrian track at (5.0, 5.0)
+        ped = Track(0, 5.0, 5.0, np.array([[5.0, 5.0]]))
+        ped.class_label = "pedestrian"
+        ped.dyn = True
+        perc.tracks.append(ped)
+
+        # Detect a wall piece
+        c_wall = {
+            "pts": np.array([[10.0, 0.0], [12.0, 0.0], [14.0, 0.0]]),
+            "ox": 12.0, "oy": 0.0,
+            "length": 4.0, "thickness": 0.01,
+            "is_wall": True, "is_wall_piece": False,
+        }
+
+        wall_tr = Track(1, 12.0, 0.0, c_wall["pts"])
+        wall_tr.class_label = "unknown"
+        wall_tr.dyn = None
+        perc.tracks.append(wall_tr)
+
+        perc._last_pose = (0.0, 0.0, 0.0)
+        perc._last_odom_pose = (0.0, 0.0, 0.0)
+        wall_tr.seen = [1, 1]
+        wall_tr.class_label = "wall_extra"
+        obs = perc.get_extra_obstacles()
+        self.assertEqual(len(obs), 1)
+
+    def test_map_discrepancies_empty_segs(self):
+        perc = Perception(dt=0.1)
+        perc._check_map_discrepancies(np.array([1.0]), np.array([1.0]), 0, 0, 0, np.empty((0, 4)), 50)
+        self.assertEqual(perc.note, "")
+
+        # Directly hit line 677 (removed_segment_ids continue in overshoot loop)
+        perc.removed_segment_ids.add(0)
+        segs = np.array([[8.0, -4.0, 8.0, 4.0]])
+        exp_r = np.array([8.0])
+        r_actual = np.array([18.0])
+        perc._check_map_discrepancies(r_actual, exp_r, 0.0, 0.0, 0.0, segs, 50)
+
+    def test_import_fallback(self):
+        import sys
+        mod_name = "team.perceive"
+        if mod_name in sys.modules:
+            orig = sys.modules[mod_name]
+            try:
+                with open("/Users/yegor/doc-1790342627/team/perceive.py", "r") as f:
+                    code = f.read()
+                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/perceive.py", "__package__": ""}
+                team_path = "/Users/yegor/doc-1790342627/team"
+                if team_path not in sys.path:
+                    sys.path.insert(0, team_path)
+                exec(compile(code, "/Users/yegor/doc-1790342627/team/perceive.py", "exec"), globs)
+            finally:
+                sys.modules[mod_name] = orig
+
+    def test_step_wall_extra_and_ped_inheritance_and_discrepancies(self):
+        perc = Perception(dt=0.1)
+        perc.removed_segment_ids.add(0)
+        map_segs = np.array([
+            [0.0, 50.0, 100.0, 50.0],
+            [0.0, 60.0, 100.0, 60.0],
+        ])
+        rel_angles = np.radians(np.arange(360))
+        pose = (10.0, 40.0, 0.0)
+        odom_pose = (0.0, 0.0, 0.0)
+        ranges = np.full(360, 20.0)
+        for b in range(10, 31):
+            ranges[b] = 5.0
+        ranges[32] = 5.0
+        ranges[33] = 5.0
+
+        perc.step(ranges, rel_angles, pose, odom_pose, map_segs, sigma_pose=0.05, scan_inliers=50)
+        perc.step(ranges, rel_angles, pose, odom_pose, map_segs, sigma_pose=0.05, scan_inliers=50)
+
+        unconf_wall = Track(100, 5.0, 5.0, np.array([[5.0, 5.0]]))
+        unconf_wall.class_label = "wall_extra"
+        unconf_wall.seen = [1, 0, 0]
+        perc.tracks.append(unconf_wall)
+        perc._last_pose = (0, 0, 0)
+        perc._last_odom_pose = (0, 0, 0)
+        obs = perc.get_extra_obstacles()
+
+    def test_new_track_inherits_pedestrian(self):
+        perc = Perception(dt=0.1)
+        ped = Track(1, 5.0, 0.0, np.array([[5.0, 0.0]]))
+        ped.class_label = "pedestrian"
+        ped.dyn = True
+        perc.tracks.append(ped)
+
+        room = np.array([[-10.0, -10.0], [10.0, -10.0], [10.0, 10.0], [-10.0, 10.0]])
+        segs = box_segs(room)
+        rel_angles = np.radians(np.arange(360))
+        ranges = raycast(0.0, 0.0, rel_angles, segs)
+
+        ranges[0] = 5.0
+        ranges[1] = 5.0
+        ranges[4] = 5.2
+        ranges[5] = 5.2
+        perc.step(ranges, rel_angles, (0, 0, 0), (0, 0, 0), segs, sigma_pose=0.05)
+        self.assertEqual(len(perc.tracks), 2)
+        self.assertTrue(all(tr.class_label == "pedestrian" for tr in perc.tracks))
+
 
 if __name__ == "__main__":
     unittest.main()

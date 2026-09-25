@@ -386,5 +386,114 @@ class TestRouteFollower(unittest.TestCase):
         self.assertIsNone(cmd_near["note"])
 
 
+class TestRouteCoverage(unittest.TestCase):
+    def test_priority_queue_empty_pop(self):
+        from team.route import _PriorityQueue
+        pq = _PriorityQueue()
+        with self.assertRaises(IndexError):
+            pq.get()
+
+    def test_init_grid_empty_drivable(self):
+        rf = RouteFollower({"drivable": []})
+        self.assertEqual(rf.x_min, 0.0)
+        self.assertEqual(rf.y_min, 0.0)
+        self.assertEqual(rf.x_max, 250.0)
+
+    def test_resolve_point_formats(self):
+        rf = RouteFollower(load_test_map())
+        # dict with x, y
+        self.assertEqual(rf.get_point_xy({"x": 12.0, "y": 34.0}), (12.0, 34.0))
+        # fallback
+        self.assertEqual(rf.get_point_xy(None, fallback=(5.0, 6.0)), (5.0, 6.0))
+        # default (0, 0)
+        self.assertEqual(rf.get_point_xy(None), (0.0, 0.0))
+
+    def test_parse_obstacles_numpy_2d(self):
+        rf = RouteFollower(load_test_map())
+        obs_arr = np.array([[10.0, 20.0, 0.5], [30.0, 40.0, 0.4]])
+        parsed = rf._parse_obstacles(obs_arr)
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(parsed[0], (10.0, 20.0, 0.5))
+        self.assertEqual(parsed[1], (30.0, 40.0, 0.4))
+
+    def test_path_progress_edge_cases(self):
+        rf = RouteFollower(load_test_map())
+        # len < 2
+        self.assertEqual(rf._get_path_progress(np.array([[0.0, 0.0]]), 5.0, 5.0), 0.0)
+        # degenerate zero-length segment
+        path = np.array([[0.0, 0.0], [0.0, 0.0], [10.0, 0.0]])
+        prog = rf._get_path_progress(path, 5.0, 0.0)
+        self.assertAlmostEqual(prog, 5.0)
+
+    def test_check_obstacles_in_tube_and_lateral_offset_edges(self):
+        rf = RouteFollower(load_test_map())
+        # len < 2 in apply_lateral_offset
+        self.assertIsNone(rf.apply_lateral_offset(np.array([[0.0, 0.0]]), (0, 0, 0, 0), 0.0))
+
+        # Obstacle near dock point (last 3.0m) or behind robot
+        path = np.array([[0.0, 0.0], [0.0, 0.0], [10.0, 0.0], [20.0, 0.0]])
+        # 1. Zero-length segment (line 548)
+        # 2. Obstacle behind current_s (line 555)
+        # 3. Obstacle in last 3m (line 558)
+        parsed = [(0.0, -10.0, 0.4), (19.0, 0.0, 0.4)]
+        obs = rf.check_obstacles_in_tube(path, parsed, current_s=5.0)
+        # Should not trigger near terminal dock or behind robot
+        self.assertIsNone(obs)
+
+    def test_follow_path_close_to_goal(self):
+        rf = RouteFollower(load_test_map())
+        path = np.array([[0.0, 0.0], [1.0, 0.0]])
+        v, w, target_pt, curr_s, rem_dist = rf.pure_pursuit((0.99, 0.0, 0.0), path, 0.98)
+        self.assertEqual(v, 0.0)
+        self.assertEqual(w, 0.0)
+
+    def test_step_active_path_short_and_dock_align(self):
+        rf = RouteFollower(load_test_map())
+        # Empty / short active path (< 2)
+        rf.active_path = np.empty((0, 2))
+        cmd = rf.step((0.0, 0.0, 0.0))
+        self.assertEqual(cmd["status"], "waiting")
+
+        # Arrival dock alignment with goal heading dth > 0.05
+        rf.active_path = np.array([[0.0, 0.0], [1.0, 0.0]])
+        mission = {
+            "id": "m_align",
+            "from": [0.0, 0.0],
+            "goal": [1.0, 0.0, math.pi / 2],
+            "reference_path": [[0.0, 0.0], [1.0, 0.0]],
+        }
+        cmd_arr = rf.step((1.0, 0.0, 0.0), mission=mission)
+        self.assertEqual(cmd_arr["status"], "arrived")
+        self.assertGreater(abs(cmd_arr["w"]), 0.0)
+
+    def test_step_replan_window_pass(self):
+        rf = RouteFollower(load_test_map())
+        rf.active_path = np.array([[0.0, 0.0], [10.0, 0.0]])
+        rf.note = "replan"
+        rf.last_replan_t = 0.0
+        rf.replan_interval = 2.0
+        # Obstacle blocking path
+        obs = [(5.0, 0.0, 0.5)]
+        # Replan attempt prevented by throttle, but note == 'replan' (line 922)
+        cmd = rf.step((0.0, 0.0, 0.0), obstacles=obs, current_time=1.0)
+        self.assertIn("v", cmd)
+
+    def test_import_fallback(self):
+        import sys
+        mod_name = "team.route"
+        if mod_name in sys.modules:
+            orig = sys.modules[mod_name]
+            try:
+                with open("/Users/yegor/doc-1790342627/team/route.py", "r") as f:
+                    code = f.read()
+                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/route.py", "__package__": ""}
+                team_path = "/Users/yegor/doc-1790342627/team"
+                if team_path not in sys.path:
+                    sys.path.insert(0, team_path)
+                exec(compile(code, "/Users/yegor/doc-1790342627/team/route.py", "exec"), globs)
+            finally:
+                sys.modules[mod_name] = orig
+
+
 if __name__ == "__main__":
     unittest.main()

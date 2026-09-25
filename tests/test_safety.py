@@ -817,5 +817,79 @@ class TestSafety(unittest.TestCase):
         self.assertEqual(status_stop, "waiting")
 
 
+class TestSafetyEdgeCases(unittest.TestCase):
+    def test_determine_status_slowed_stationary(self):
+        # Line 170: v_odom < 0.05, is_slowed=True, allow_slowed=True
+        self.assertEqual(determine_status(v_odom=0.0, is_slowed=True, allow_slowed=True), "slowed")
+
+    def test_empty_pts_clearance_and_ttc(self):
+        # Lines 73 & 103
+        self.assertTrue(math.isinf(calculate_clearance(None)))
+        self.assertTrue(math.isinf(calculate_clearance(np.empty((0, 2)))))
+
+        tr = Track(track_id=99, ox=0.0, oy=0.0)
+        tr.pts = np.empty((0, 2))
+        cl, t = predict_ttc_clearance(tr, 1.0, 0.0, 2.0)
+        self.assertTrue(math.isinf(cl))
+        self.assertEqual(t, 2.0)
+
+    def test_evaluate_empty_track_pts_and_estop_and_arrival(self):
+        gov = SafetyGovernor(v_top=1.39, dt=0.1)
+        tr_empty = Track(track_id=1, ox=0.0, oy=0.0)
+        tr_empty.pts = np.empty((0, 2))
+
+        # Line 359: loop over tracks with empty pts
+        v, w, status, note = gov.evaluate(
+            v_cand=1.0, w_cand=0.0, v_odom=0.0, w_odom=0.0,
+            pose=(0, 0, 0), odom_pose=(0, 0, 0), tracks=[tr_empty],
+            ranges=np.full(360, 20.0), rel_angles=np.radians(np.arange(360)), zones=[],
+        )
+        self.assertEqual(v, 1.0)
+
+        # Line 513: min_overall_clearance < 0.15 with stop_reason is None (wall_extra, remaining_dist <= 0.35)
+        # Static wall piece in front (x = 1.0, y = 0.0) -> clearance = 1.0 - 0.9 = 0.10 < 0.15
+        tr_close = Track(track_id=2, ox=1.0, oy=0.0)
+        tr_close.pts = np.array([[1.0, 0.0]])
+        tr_close.class_label = "wall_extra"
+        tr_close.dyn = False
+        v_e, w_e, status_e, note_e = gov.evaluate(
+            v_cand=1.0, w_cand=0.0, v_odom=1.0, w_odom=0.0,
+            pose=(0, 0, 0), odom_pose=(0, 0, 0), tracks=[tr_close],
+            ranges=np.full(360, 20.0), rel_angles=np.radians(np.arange(360)), zones=[],
+            remaining_dist=0.2,
+        )
+        self.assertEqual(v_e, 0.0)
+        self.assertEqual(status_e, "estop")
+
+        # Lines 544-547: is_arrived=True
+        gov_arr = SafetyGovernor(v_top=1.39, dt=0.1)
+        v_a, w_a, status_a, note_a = gov_arr.evaluate(
+            v_cand=1.0, w_cand=0.5, v_odom=0.0, w_odom=0.0,
+            pose=(0, 0, 0), odom_pose=(0, 0, 0), tracks=[],
+            ranges=np.full(360, 20.0), rel_angles=np.radians(np.arange(360)), zones=[],
+            is_arrived=True,
+        )
+        self.assertEqual(v_a, 0.0)
+        self.assertEqual(w_a, 0.0)
+        self.assertEqual(status_a, "arrived")
+        self.assertEqual(note_a, "dock")
+
+    def test_import_fallback(self):
+        import sys
+        mod_name = "team.safety"
+        if mod_name in sys.modules:
+            orig = sys.modules[mod_name]
+            try:
+                with open("/Users/yegor/doc-1790342627/team/safety.py", "r") as f:
+                    code = f.read()
+                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/safety.py", "__package__": ""}
+                team_path = "/Users/yegor/doc-1790342627/team"
+                if team_path not in sys.path:
+                    sys.path.insert(0, team_path)
+                exec(compile(code, "/Users/yegor/doc-1790342627/team/safety.py", "exec"), globs)
+            finally:
+                sys.modules[mod_name] = orig
+
+
 if __name__ == "__main__":
     unittest.main()

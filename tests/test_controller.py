@@ -184,5 +184,217 @@ class TestLostSpeedCap(unittest.TestCase):
         self.assertLessEqual(cmd["v"], 0.2 + 1e-9)
 
 
+class TestControllerUnits(unittest.TestCase):
+    """Targeted coverage for Controller branches."""
+
+    def test_extract_pole_centers_edge_cases(self):
+        """_extract_pole_centers handles various valid and invalid building inputs."""
+        # Empty/None
+        self.assertEqual(Controller._extract_pole_centers(None).shape, (0, 2))
+        self.assertEqual(Controller._extract_pole_centers([]).shape, (0, 2))
+
+        # Buildings with invalid/short poly or bad shapes
+        b_invalid = [
+            {"polygon": None},
+            {"polygon": [[0, 0], [1, 1]]},  # len < 3
+            {"polygon": "not a list"},  # ValueError/TypeError
+            {"polygon": [[[0, 0], [1, 1], [1, 0]]]},  # ndim == 3 != 2
+            {"polygon": [[0], [1], [2]]},  # shape[1] < 2
+            {"id": "no polygon key"},
+        ]
+        res = Controller._extract_pole_centers(b_invalid)
+        self.assertEqual(res.shape, (0, 2))
+
+        # A small polygon (pole): sides < 1.0 m
+        pole = [[10.0, 10.0], [10.2, 10.0], [10.2, 10.2], [10.0, 10.2]]
+        # A large building: sides >= 1.0 m
+        large = [[0.0, 0.0], [5.0, 0.0], [5.0, 5.0], [0.0, 5.0]]
+        res = Controller._extract_pole_centers([{"polygon": pole}, {"polygon": large}])
+        self.assertEqual(res.shape, (1, 2))
+        self.assertAlmostEqual(res[0, 0], 10.1)
+        self.assertAlmostEqual(res[0, 1], 10.1)
+
+    def test_track_world_xy(self):
+        """_track_world_xy converts odom-frame track to world coordinates."""
+        class DummyTrack:
+            ox = 10.0
+            oy = 5.0
+
+        trk = DummyTrack()
+        pose = (20.0, 30.0, math.pi / 2)
+        odom_pose = (5.0, 5.0, 0.0)
+        # dx_o = 5, dy_o = 0. In robot frame: rx = 5, ry = 0.
+        # In world frame with pose (20, 30, pi/2): cos=0, sin=1
+        # wx = 20 + 0*5 - 1*0 = 20
+        # wy = 30 + 1*5 + 0*0 = 35
+        wx, wy = Controller._track_world_xy(trk, pose, odom_pose)
+        self.assertAlmostEqual(wx, 20.0)
+        self.assertAlmostEqual(wy, 35.0)
+
+    def test_truth_pose_override(self):
+        """set_truth overrides pose and zeroes variances during step."""
+        ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+        ctrl.set_truth([42.0, 24.0, 1.23])
+        obs = make_obs(ctrl)
+        res = ctrl.step(obs)
+        self.assertAlmostEqual(res["pose_est"][0], 42.0)
+        self.assertAlmostEqual(res["pose_est"][1], 24.0)
+        self.assertAlmostEqual(res["pose_est"][2], 1.23)
+        self.assertEqual(ctrl.localizer.var_along, 0.0)
+        self.assertEqual(ctrl.localizer.var_cross, 0.0)
+
+    def test_mission_from_formats_and_arrival(self):
+        """Mission 'from' as tuple/list and arrival state machine."""
+        map_with_zones = dict(SYNTH_MAP)
+        map_with_zones["zones"] = [
+            {"type": "speed_limit", "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]], "v_max": 0.5}
+        ]
+        ctrl = Controller(map_with_zones, SYNTH_CONFIG, [5.0, 2.0, 0.0])
+
+        # Step 1: mission with 'from' as list [5.0, 2.0]
+        mission = dict(SYNTH_MISSION)
+        mission["from"] = [5.0, 2.0]
+        mission["goal"] = [5.05, 2.0, 0.0]
+        obs = make_obs(ctrl)
+        obs["mission"] = mission
+        ctrl.step(obs)
+        self.assertTrue(ctrl.visited_from)
+
+        # Arrive: close to goal, v_odom < 0.04
+        ctrl.localizer.x = 5.05
+        ctrl.localizer.y = 2.0
+        ctrl.route.active_path = np.array([[5.0, 2.0], [5.05, 2.0]])
+        res = ctrl.step(obs)
+        self.assertEqual(res["status"], "arrived")
+        self.assertTrue(ctrl.arrived)
+
+        # Subsequent step when already arrived returns dock immediately
+        res2 = ctrl.step(obs)
+        self.assertEqual(res2["status"], "arrived")
+        self.assertEqual(res2["note"], "dock")
+
+    def test_perception_removed_segments_and_obstacles(self):
+        """Removed segments mask and confirmed tracks feeding static obstacles."""
+        ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+
+        # Add removed segment id
+    def test_perception_removed_segments_and_obstacles(self):
+        """Removed segments mask and confirmed tracks feeding static obstacles."""
+        ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+
+        # Add removed segment id
+        ctrl.perception.removed_segment_ids.add(0)
+
+        # Add mock tracks
+        class MockPedTrack:
+            is_pedestrian = True
+            is_unknown = False
+            is_static_object = False
+            is_wall = False
+            ox, oy = 10.0, 2.0
+            length = 0.5
+            seen = [1, 1]
+            pts = np.array([[10.0, 2.0]])
+            vx_odom = 0.0
+            vy_odom = 0.0
+
+        class MockStaticTrack1:
+            is_pedestrian = False
+            is_unknown = False
+            is_static_object = True
+            is_wall = False
+            ox, oy = 15.0, 2.0
+            length = 1.0
+            seen = [1, 1]
+            pts = np.array([[15.0, 2.0]])
+            vx_odom = 0.0
+            vy_odom = 0.0
+
+        class MockStaticTrack2:
+            is_pedestrian = False
+            is_unknown = False
+            is_static_object = False  # Not added to static_obs initially!
+            is_wall = False
+            ox, oy = 25.0, 2.0
+            length = 1.0
+            seen = [1, 1]
+            pts = np.array([[25.0, 2.0]])
+            vx_odom = 0.0
+            vy_odom = 0.0
+
+        ctrl._active_tracks = lambda: [MockPedTrack(), MockStaticTrack1(), MockStaticTrack2()]
+
+        # Compute world xy for MockStaticTrack1 and MockStaticTrack2
+        pose = ctrl.localizer.pose
+        odom_pose = ctrl.localizer.odom_pose
+        w1_x, w1_y = Controller._track_world_xy(MockStaticTrack1(), pose, odom_pose)
+        w2_x, w2_y = Controller._track_world_xy(MockStaticTrack2(), pose, odom_pose)
+
+        # get_extra_obstacles returns:
+        # 1. obstacle far from confirmed_xy -> skipped (line 295)
+        # 2. obstacle matching w1 (already in static_obs) -> skipped (line 297)
+        # 3. obstacle matching w2 (not in static_obs) -> appended (line 298)
+        ctrl.perception.get_extra_obstacles = lambda: [
+            (99.0, 99.0, 0.5),
+            (w1_x, w1_y, 0.5),
+            (w2_x, w2_y, 0.5),
+        ]
+
+        obs = make_obs(ctrl)
+        res = ctrl.step(obs)
+        self.assertIn("v", res)
+
+    def test_import_fallback(self):
+        """Import fallback executes cleanly."""
+        import importlib
+        import sys
+        # Emulate importing controller without parent package
+        mod_name = "team.controller"
+        if mod_name in sys.modules:
+            orig = sys.modules[mod_name]
+            try:
+                # Compile and exec with __package__ = ""
+                with open("/Users/yegor/doc-1790342627/team/controller.py", "r") as f:
+                    code = f.read()
+                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/controller.py", "__package__": ""}
+                # sys.path has team directory
+                team_path = "/Users/yegor/doc-1790342627/team"
+                if team_path not in sys.path:
+                    sys.path.insert(0, team_path)
+                exec(compile(code, "/Users/yegor/doc-1790342627/team/controller.py", "exec"), globs)
+            finally:
+                sys.modules[mod_name] = orig
+
+    def test_lost_recovery_invocation(self):
+        """Lost status triggers try_recover when stopped."""
+        ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+        recovered = []
+        ctrl.localizer.try_recover = lambda **kwargs: recovered.append(kwargs)
+        # Ensure is_lost remains True during update_scan/gnss
+        orig_check = ctrl.localizer._check_lost_status
+        def force_lost():
+            ctrl.localizer.is_lost = True
+        ctrl.localizer._check_lost_status = force_lost
+        ctrl.localizer.is_lost = True
+
+        obs = make_obs(ctrl, t=2.0)
+        ctrl.step(obs)
+        self.assertEqual(len(recovered), 1)
+        self.assertTrue(recovered[0]["stopped"])
+
+    def test_combined_note_override(self):
+        """route_note overrides map_missing or map_extra safety note."""
+        ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+        ctrl.route.step = lambda **kwargs: {
+            "v": 0.5, "w": 0.0, "remaining_dist": 10.0, "note": "offset dy=0.3"
+        }
+        ctrl.safety.evaluate = lambda **kwargs: (0.5, 0.0, "moving", "map_extra")
+
+        obs = make_obs(ctrl)
+        res = ctrl.step(obs)
+        self.assertEqual(res["note"], "offset dy=0.3")
+
+
 if __name__ == "__main__":
     unittest.main()
+

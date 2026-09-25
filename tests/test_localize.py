@@ -723,5 +723,155 @@ class TestLocalizer(unittest.TestCase):
         self.assertGreater(loc.sigma_along, 0.8)
 
 
+class TestLocalizeCoverage(unittest.TestCase):
+    def test_pole_centers_and_landmarks(self):
+        poles = np.array([[10.0, 20.0], [15.0, 25.0]])
+        segs = np.array([[0.0, 0.0, 10.0, 0.0]])
+        loc = Localizer(initial_pose=(0.0, 0.0, 0.0), building_segs=segs, pole_centers=poles)
+        self.assertIsNotNone(loc.pole_centers)
+        self.assertEqual(loc.pole_centers.shape, (2, 2))
+        self.assertGreaterEqual(len(loc.landmarks), 4)
+
+    def test_penalise_missing_near_walls(self):
+        loc = Localizer((0.0, 0.0, 0.0))
+        # segs at 2.0m ahead
+        segs = np.array([
+            [2.0, -5.0, 2.0, 5.0],
+            [-5.0, -5.0, -5.0, 5.0],
+        ])
+        rel = np.radians(np.linspace(-30, 30, 30))
+        # Expected ranges are ~2.0m, measured are NaN
+        r_nan = np.full(30, np.nan)
+        prev_cross = loc.var_cross
+        loc._penalise_missing_near_walls(r_nan, rel, segs)
+        self.assertGreater(loc.var_cross, prev_cross)
+        self.assertGreater(loc._fog_var_added, 0.0)
+
+        # Early return branches
+        loc._penalise_missing_near_walls(r_nan, rel, np.empty((0, 4)))
+        loc._fog_var_added = 0.5
+        loc._penalise_missing_near_walls(r_nan, rel, segs)
+
+    def test_apply_landmark_correction_branches(self):
+        poles = np.array([[5.0, 0.0]])
+        segs = np.array([[0.0, 0.0, 5.0, 0.0], [5.0, 0.0, 5.0, 5.0]])
+        loc = Localizer((0.0, 0.0, 0.0), building_segs=segs, pole_centers=poles)
+
+        # Early return branches (lines 686, 689, 695, 707)
+        loc._apply_landmark_correction(np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.empty((0, 4)))
+        loc._apply_landmark_correction(np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), segs)
+
+        # Synthetic scan with jump > 1.5m at landmark
+        n = 360
+        r_all = np.full(n, 10.0)
+        rel_all = np.radians(np.arange(n))
+        # Beams hitting corner at (5, 0)
+        r_all[0] = 5.0
+        r_all[1] = 5.0
+        r_all[2] = 20.0  # jump!
+        r_all[359] = 20.0  # jump!
+        d_prev = np.zeros(n)
+        d_prev[2] = 15.0
+        d_prev[0] = 15.0
+        d_next = np.zeros(n)
+        d_next[1] = 15.0
+        finite_all = np.ones(n, dtype=bool)
+
+        loc._apply_landmark_correction(r_all, rel_all, d_prev, d_next, finite_all, segs)
+
+    def test_update_gnss_rejection_and_persistent_drift_recovery(self):
+        loc = Localizer((10.0, 10.0, 0.0))
+        # 1. scan_inliers low, dist > 0.6 -> rejection (lines 939-942)
+        loc.scan_inliers = 10
+        loc.fog_active = False
+        res = loc.update_gnss(gnss_x=11.0, gnss_y=10.0, gnss_valid=True, gnss_hdop=2.0)
+        self.assertFalse(res)
+        self.assertGreaterEqual(len(loc.gnss_rejections), 1)
+
+        # 2. HDOP > 1.4 accepted fix (line 953)
+        loc.scan_inliers = 50
+        res_ok = loc.update_gnss(gnss_x=10.2, gnss_y=10.0, gnss_valid=True, gnss_hdop=1.8)
+        self.assertTrue(res_ok)
+
+        # 3. Persistent disagreement recovery (lines 979-994)
+        # Populate 65 rejections with shift ~ 2.0m and std < 0.5m
+        loc.gnss_rejections = [(2.0, 0.0) for _ in range(65)]
+        loc.scan_inliers = 70
+        # Call update_gnss with rejected innovation (dist = 2.0 > 1.5)
+        res_rec = loc.update_gnss(gnss_x=12.0, gnss_y=10.0, gnss_valid=True, gnss_hdop=1.0)
+        self.assertTrue(res_rec)
+        self.assertEqual(len(loc.gnss_rejections), 0)
+
+        # 4. Pop rejections when > 80 (lines 993-994)
+        loc.gnss_rejections = [(10.0, 10.0) for _ in range(85)]
+        loc.scan_inliers = 10
+        loc.update_gnss(gnss_x=20.0, gnss_y=20.0, gnss_valid=True, gnss_hdop=1.0)
+        self.assertLessEqual(len(loc.gnss_rejections), 86)
+
+    def test_detect_fog_and_scan_unavailable_edges(self):
+        loc = Localizer((0.0, 0.0, 0.0))
+        # Line 170: empty ranges
+        self.assertFalse(loc.detect_fog(np.array([])))
+        # Line 336: empty segs in update_scan
+        self.assertFalse(loc.update_scan(np.full(360, 5.0), np.radians(np.arange(360)), None))
+
+    def test_dock_snap_empty(self):
+        loc = Localizer((0.0, 0.0, 0.0))
+        # Distance to goal > 3.0 or heading > 0.35
+        self.assertFalse(loc.dock_snap(np.array([]), np.array([]), (10.0, 10.0, 0.0), None))
+        # Close to goal but empty ranges or segs (line 1023)
+        self.assertFalse(loc.dock_snap(np.array([]), np.array([]), (0.1, 0.0, 0.0), None))
+        self.assertFalse(loc.dock_snap(np.array([1.0]), np.array([0.0]), (0.1, 0.0, 0.0), np.empty((0, 4))))
+
+    def test_try_recover_and_grid_search(self):
+        loc = Localizer((0.0, 0.0, 0.0))
+        # Not lost or not stopped
+        self.assertFalse(loc.try_recover(np.array([1.0]), np.array([0.0]), np.empty((0, 4)), stopped=False))
+
+        loc.is_lost = True
+        # Arguments None (line 1092)
+        self.assertFalse(loc.try_recover(None, None, None, stopped=True))
+
+        # recover_grid_search edge cases (lines 1125, 1138, 1151)
+        self.assertFalse(loc.recover_grid_search(np.array([]), np.array([]), np.empty((0, 4))))
+        # Fewer than 15 valid rays
+        self.assertFalse(loc.recover_grid_search(np.full(360, np.nan), np.radians(np.arange(360)), np.array([[0, 0, 1, 0]])))
+        # No local segments in reach
+        far_segs = np.array([[1000.0, 1000.0, 1010.0, 1000.0]])
+        valid_ranges = np.full(360, 5.0)
+        self.assertFalse(loc.recover_grid_search(valid_ranges, np.radians(np.arange(360)), far_segs))
+
+        # Successful grid recovery with asymmetric room
+        poly = np.array([[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [8.0, 10.0], [8.0, 5.0], [0.0, 5.0]])
+        segs = box_segs(poly)
+        angles = np.radians(np.arange(360))
+        ranges = raycast(4.0, 2.5, angles, segs)
+
+        loc.x = 4.5
+        loc.y = 2.0
+        loc.is_lost = True
+        ok = loc.try_recover(ranges, angles, segs, stopped=True)
+        self.assertTrue(ok)
+        self.assertFalse(loc.is_lost)
+        self.assertAlmostEqual(loc.x, 4.0)
+        self.assertAlmostEqual(loc.y, 2.5)
+
+    def test_import_fallback(self):
+        import sys
+        mod_name = "team.localize"
+        if mod_name in sys.modules:
+            orig = sys.modules[mod_name]
+            try:
+                with open("/Users/yegor/doc-1790342627/team/localize.py", "r") as f:
+                    code = f.read()
+                globs = {"__name__": "__main__", "__file__": "/Users/yegor/doc-1790342627/team/localize.py", "__package__": ""}
+                team_path = "/Users/yegor/doc-1790342627/team"
+                if team_path not in sys.path:
+                    sys.path.insert(0, team_path)
+                exec(compile(code, "/Users/yegor/doc-1790342627/team/localize.py", "exec"), globs)
+            finally:
+                sys.modules[mod_name] = orig
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -219,6 +219,26 @@ describe('apiClient & fallbackData', () => {
         'Simulation failed (HTTP 400): Scenario not found'
       );
     });
+
+    it('propagates network failure as rejected promise', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+      await expect(apiClient.runSimulation({ scenario: '01_clear', seed: 7 })).rejects.toThrow(
+        'Network error'
+      );
+    });
+
+    it('handles server failure with empty response body', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => '',
+      });
+
+      await expect(apiClient.runSimulation({ scenario: '01_clear', seed: 7 })).rejects.toThrow(
+        'Simulation failed (HTTP 500): '
+      );
+    });
   });
 
   describe('getExportCsvUrl', () => {
@@ -230,6 +250,59 @@ describe('apiClient & fallbackData', () => {
     it('uses default scenario when none passed', () => {
       const url = apiClient.getExportCsvUrl();
       expect(url).toBe('/api/export/csv?scenario=04_busy_yard');
+    });
+
+    it('correctly handles special characters and slashes in scenario ID', () => {
+      const url = apiClient.getExportCsvUrl('backend/s2_container&block?1');
+      expect(url).toBe('/api/export/csv?scenario=backend%2Fs2_container%26block%3F1');
+    });
+  });
+
+  describe('HTTP error fallback for all endpoints', () => {
+    it('fetchDashboard falls back on HTTP 404', async () => {
+      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const res = await apiClient.fetchDashboard('nonexistent_scenario');
+      expect(warnSpy).toHaveBeenCalled();
+      expect(res.scenario).toBe('nonexistent_scenario');
+    });
+
+    it('fetchReplay falls back on HTTP 502 with default seed', async () => {
+      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 502 });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const res = await apiClient.fetchReplay('unknown', 42);
+      expect(warnSpy).toHaveBeenCalled();
+      expect(res.scenario).toBe('unknown');
+      expect(res.seed).toBe(42);
+    });
+
+    it('fetchEpisodes falls back on HTTP 500', async () => {
+      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const res = await apiClient.fetchEpisodes('scenario_500');
+      expect(warnSpy).toHaveBeenCalled();
+      expect(res.scenario).toBe('scenario_500');
+    });
+
+    it('fetchMissions falls back on HTTP 404', async () => {
+      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const res = await apiClient.fetchMissions('scenario_missions');
+      expect(warnSpy).toHaveBeenCalled();
+      expect(res.scenario).toBe('scenario_missions');
+    });
+
+    it('fetchAnalytics falls back on HTTP 503', async () => {
+      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const res = await apiClient.fetchAnalytics('scenario_analytics');
+      expect(warnSpy).toHaveBeenCalled();
+      expect(res.scenario).toBe('scenario_analytics');
     });
   });
 });

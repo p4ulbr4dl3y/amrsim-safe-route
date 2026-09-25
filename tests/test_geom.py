@@ -253,5 +253,56 @@ class TestPerformance(unittest.TestCase):
         self.assertLess(dt, 0.002, f"Raycast too slow: {dt * 1000:.2f} ms")
 
 
+class TestGeomEdgeCases(unittest.TestCase):
+    def test_rot2d_array_theta(self):
+        x, y = 1.0, 0.0
+        thetas = np.array([0.0, math.pi / 2])
+        rx, ry = rot2d(x, y, thetas)
+        np.testing.assert_allclose(rx, [1.0, 0.0], atol=1e-12)
+        np.testing.assert_allclose(ry, [0.0, 1.0], atol=1e-12)
+
+    def test_aabb_empty_and_none(self):
+        self.assertEqual(segments_aabb(None).shape, (0, 4))
+        self.assertEqual(segments_aabb(np.empty((0, 4))).shape, (0, 4))
+        self.assertEqual(filter_segs_aabb(None, 0, 0, 5).shape, (0, 4))
+        self.assertEqual(filter_segs_aabb(np.empty((0, 4)), 0, 0, 5).shape, (0, 4))
+        segs = np.array([[0, 0, 1, 0], [10, 10, 11, 10]])
+        filtered = filter_segs_aabb(segs, 0.5, 0.5, 2.0)
+        self.assertEqual(len(filtered), 1)
+
+    def test_displacement_empty(self):
+        # Scalar px, py with empty segs
+        disp = point_to_segs_displacement(1.0, 2.0, None)
+        self.assertTrue(np.isnan(disp.normals).all())
+        self.assertTrue(math.isinf(disp.dists))
+        self.assertEqual(disp.seg_idx, -1)
+
+        # Array px, py with empty segs
+        disp_arr = point_to_segs_displacement([1.0, 2.0], [3.0, 4.0], np.empty((0, 4)))
+        self.assertEqual(len(disp_arr.dists), 2)
+        self.assertTrue(np.isinf(disp_arr.dists).all())
+
+    def test_inside_polygon_empty_or_degenerate(self):
+        # degenerate poly < 3 vertices
+        self.assertFalse(inside_polygon(1.0, 1.0, [[0, 0], [1, 1]]))
+        # empty query points
+        res = inside_polygon(np.empty((0, 2)), [[0, 0], [1, 0], [1, 1]])
+        self.assertEqual(len(res), 0)
+
+    def test_box_segs_edge_cases(self):
+        self.assertEqual(box_segs(None).shape, (0, 4))
+        self.assertEqual(box_segs({"polygon": [[0, 0], [1, 0], [1, 1]]}).shape, (3, 4))
+        # Nested 2D polygons
+        p1 = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]])
+        p2 = np.array([[2.0, 2.0], [3.0, 2.0], [3.0, 3.0]])
+        res = box_segs([p1, p2])
+        self.assertEqual(res.shape, (6, 4))
+        # Invalid shape
+        self.assertEqual(box_segs([[0.0, 0.0]]).shape, (0, 4))
+
+    def test_polygon_area_degenerate(self):
+        self.assertEqual(polygon_area([[0, 0], [1, 1]]), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
