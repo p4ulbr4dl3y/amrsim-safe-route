@@ -753,6 +753,35 @@ class TestSafety(unittest.TestCase):
         self.assertNotIn("stop_person", note_slow)
         self.assertIn("slow_person", note_slow)
 
+    # --- plan/05:110: status stays `moving` while the odometry still rolls ---
+
+    def test_status_moving_at_0_3_odom_after_zero_command(self):
+        """While |v_odom| = 0.3 m/s the status is `moving`, even with command 0 (plan/05:110).
+
+        The `status_mismatch` episode is driven by the true motion, not by the controller
+        command: a platform that has just been ordered to a full stop for a person is
+        still rolling and must not report `waiting`. Only after it has actually stopped
+        (|v_odom| <= 0.04) may the status change.
+        """
+        human = self._track(1.9, 0.0, "pedestrian", True)  # clearance 0.7 m -> stop
+        v_safe, _, status, note = self._eval([human], v_cand=1.39, v_odom=0.3)
+        self.assertEqual(v_safe, 0.0)
+        self.assertEqual(status, "moving")
+        self.assertIn("stop_person", note)
+
+        # The helper follows the same 0.05 m/s moving threshold as the scoring.
+        self.assertEqual(determine_status(v_odom=0.3, is_stopped=True), "moving")
+
+        # Once the odometry really stops, the same geometry reports `waiting`, not moving.
+        stopped_gov = SafetyGovernor(v_top=1.39, dt=0.1)
+        v_stop, _, status_stop, _ = stopped_gov.evaluate(
+            v_cand=1.39, w_cand=0.0, v_odom=0.0, w_odom=0.0,
+            pose=(0.0, 0.0, 0.0), odom_pose=(0.0, 0.0, 0.0), tracks=[human],
+            ranges=np.full(360, 20.0), rel_angles=np.radians(np.arange(360)), zones=[],
+        )
+        self.assertEqual(v_stop, 0.0)
+        self.assertEqual(status_stop, "waiting")
+
 
 if __name__ == "__main__":
     unittest.main()

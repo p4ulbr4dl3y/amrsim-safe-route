@@ -4,18 +4,18 @@ Strictly conforms to AMR-1.0 schema, isolation rules, and scoring thresholds.
 Only standard library and numpy are used.
 """
 import math
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 try:
-    from .geom import box_segs, seg_dist, raycast
+    from .geom import box_segs, raycast
     from .localize import Localizer
     from .perceive import Perception
     from .route import RouteFollower
     from .safety import SafetyGovernor
 except ImportError:
-    from geom import box_segs, seg_dist, raycast
+    from geom import box_segs, raycast
     from localize import Localizer
     from perceive import Perception
     from route import RouteFollower
@@ -40,11 +40,9 @@ class Controller:
         self.config = config
         self.dt = float(config.get("dt", 0.1))
 
-        # Platform dimensions and dynamic limits
+        # Platform dynamic limits
         rb = config.get("robot", {})
-        self.radius = float(rb.get("radius", 0.9))
         self.v_top = float(rb.get("v_max", 1.39))
-        self.w_top = float(rb.get("w_max", 1.0))
 
         # Lidar beam angles
         lid = config.get("lidar", {})
@@ -75,13 +73,9 @@ class Controller:
         # Mission and arrival tracking
         self.current_mission_id: Optional[str] = None
         self.arrived: bool = False
-        self.arrived_hold_ticks: int = 0
         self.visited_from: bool = False
         self.truth_pose: Optional[List[float]] = None
         self.last_recover_t: float = -1e9
-        # Track ids confirmed by two consecutive sightings (fallback while
-        # Perception.active_tracks is not exposed yet, task I).
-        self._confirmed_ids: Set[int] = set()
 
     @staticmethod
     def _extract_pole_centers(buildings: Any) -> np.ndarray:
@@ -111,15 +105,12 @@ class Controller:
         return np.asarray(centers, dtype=float)
 
     def _make_localizer(self, initial_pose: List[float]) -> "Localizer":
-        """Build the Localizer with map landmarks, tolerating the older signature."""
-        try:
-            return Localizer(
-                initial_pose=initial_pose,
-                building_segs=self.building_segs,
-                pole_centers=self.pole_centers,
-            )
-        except TypeError:
-            return Localizer(initial_pose=initial_pose)
+        """Build the Localizer with map landmarks (poles, plan/02:68)."""
+        return Localizer(
+            initial_pose=initial_pose,
+            building_segs=self.building_segs,
+            pole_centers=self.pole_centers,
+        )
 
     def set_truth(self, pose: List[float]) -> None:
         """Ground truth hook for local --cheat benchmarking only."""
@@ -146,33 +137,11 @@ class Controller:
     def _active_tracks(self) -> List[Any]:
         """Return confirmed tracks only for safety and the obstacle layer.
 
-        Uses ``Perception.active_tracks`` when task I exposes it. Until then the
-        same frozen rule is applied locally: a track is confirmed once its
-        ``seen`` history contains two consecutive hits (1,1), and a confirmed
-        track stays confirmed while it coasts -- a fog dropout must not release
-        the brake (plan/03:20, plan/02:143-145).
+        A track is confirmed once its ``seen`` history contains two consecutive
+        hits (1,1), and a confirmed track stays confirmed while it coasts -- a fog
+        dropout must not release the brake (plan/03:20, plan/02:143-145).
         """
-        active = getattr(self.perception, "active_tracks", None)
-        if active is not None:
-            return list(active)
-
-        live_ids: Set[int] = set()
-        for tr in self.perception.tracks:
-            live_ids.add(tr.track_id)
-            if tr.track_id in self._confirmed_ids:
-                continue
-            run = 0
-            for seen in tr.seen:
-                if seen:
-                    run += 1
-                    if run >= 2:
-                        self._confirmed_ids.add(tr.track_id)
-                        break
-                else:
-                    run = 0
-        # Track ids are never reused, so a pruned track can drop its confirmation.
-        self._confirmed_ids &= live_ids
-        return [tr for tr in self.perception.tracks if tr.track_id in self._confirmed_ids]
+        return list(self.perception.active_tracks)
 
     def step(self, obs: Dict[str, Any]) -> Dict[str, Any]:
         """Perform one control cycle for the AMR platform."""
@@ -255,7 +224,6 @@ class Controller:
             if mid != self.current_mission_id:
                 self.current_mission_id = mid
                 self.arrived = False
-                self.arrived_hold_ticks = 0
                 self.visited_from = False
 
             # Check from pick-up proximity (plan/02:125: filter was within 1.5m during mission)
@@ -279,7 +247,6 @@ class Controller:
 
         # If already arrived and holding arrived status
         if self.arrived:
-            self.arrived_hold_ticks += 1
             return {
                 "v": 0.0,
                 "w": 0.0,
@@ -356,7 +323,6 @@ class Controller:
             if ((dist_to_dock <= 0.10 or is_route_arrived)
                     and abs(v_odom) < 0.04 and self.visited_from):
                 self.arrived = True
-                self.arrived_hold_ticks = 1
                 return {
                     "v": 0.0,
                     "w": 0.0,

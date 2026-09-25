@@ -4,14 +4,14 @@ Strictly conforms to plan/03-vospriyatie-i-bezopasnost.md and isolation requirem
 (standard library math/typing and numpy only).
 """
 import math
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
 try:
-    from .geom import filter_segs_aabb, raycast, rot2d, seg_dist, wrap_angle
+    from .geom import raycast, seg_dist, wrap_angle
 except ImportError:
-    from geom import filter_segs_aabb, raycast, rot2d, seg_dist, wrap_angle
+    from geom import raycast, seg_dist, wrap_angle
 
 
 # Track classification thresholds (plan/03:28-30).
@@ -249,17 +249,6 @@ class Perception:
         # Last pose pair; lets get_extra_obstacles() map odom-frame tracks to world
         self._last_pose: Optional[Tuple[float, float, float]] = None
         self._last_odom_pose: Optional[Tuple[float, float, float]] = None
-
-    def reset(self) -> None:
-        """Reset internal tracking state."""
-        self.tracks.clear()
-        self._next_track_id = 1
-        self.removed_segment_ids.clear()
-        self._missing_wall_votes.clear()
-        self.note = ""
-        self._note_hold = 0
-        self._last_pose = None
-        self._last_odom_pose = None
 
     @property
     def active_tracks(self) -> List[Track]:

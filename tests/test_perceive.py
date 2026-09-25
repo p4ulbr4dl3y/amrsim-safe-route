@@ -562,6 +562,84 @@ class TestPerception(unittest.TestCase):
                            odom_pose=odom, map_segs=self.map_segs)
         self.assertEqual(self.perc.note, "")
 
+    # ------------------------------------------------------------------ plan/05:115
+
+    def test_isolated_one_metre_ray_creates_no_track_and_no_stop_object(self):
+        """A single 1 m beam beside two far returns is snow, not an obstacle (plan/05:115).
+
+        Beam 0 is the only shortened return and both angular neighbours look at the far
+        mapped wall, so the snow filter drops the lone ray: no track is created, and the
+        safety governor therefore never receives a `stop_object` cause from it.
+        """
+        pose = (10.0, 40.0, math.pi / 2)
+        odom_pose = (0.0, 0.0, 0.0)
+        rel_angles = np.radians(np.arange(360))
+        ranges = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
+        self.assertGreater(ranges[359], 5.0)  # two far neighbours
+        self.assertGreater(ranges[1], 5.0)
+        ranges[0] = 1.0  # one lone short return
+
+        tracks = self.perc.step(
+            ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom_pose,
+            map_segs=self.map_segs, sigma_pose=0.05, is_fog=False,
+            v_odom=0.0, scan_inliers=50,
+        )
+        self.assertEqual(tracks, [])
+        self.assertEqual(self.perc.tracks, [])
+        self.assertEqual(self.perc.active_tracks, [])
+
+        gov = SafetyGovernor(v_top=1.39, dt=0.1)
+        v_safe, _, status, note = gov.evaluate(
+            v_cand=1.0, w_cand=0.0, v_odom=1.0, w_odom=0.0,
+            pose=pose, odom_pose=odom_pose, tracks=self.perc.active_tracks,
+            ranges=ranges, rel_angles=rel_angles, zones=[],
+        )
+        self.assertEqual(v_safe, 1.0)
+        self.assertEqual(status, "moving")
+        self.assertNotIn("stop_object", note)
+        self.assertNotIn("stop_person", note)
+
+    # ------------------------------------------------------------------ plan/05:114
+
+    def test_demolished_segment_flagged_and_excluded(self):
+        """A mapped wall absent from the scan is removed for the whole run (plan/03:36-38).
+
+        Rays run past the demolished wall (the scan returns the far wall behind it)
+        while the neighbouring far wall keeps matching. After enough corroborating
+        ticks the segment id is latched into `removed_segment_ids`, `note` is
+        `map_missing`, and the controller then hands the matcher a segment list without
+        it -- so a wall that is not there cannot drag the pose (plan/04:81).
+        """
+        demolished = np.array([[8.0, -4.0, 8.0, 4.0]])
+        far_wall = np.array([[18.0, -8.0, 18.0, 8.0]])
+        segs = np.vstack([demolished, far_wall])
+        rel_angles = np.radians(np.arange(360))
+        ranges = raycast(0.0, 0.0, rel_angles, far_wall)  # the near wall is gone
+
+        removed_tick = None
+        note_at_removal = None
+        for k in range(40):
+            self.perc.step(
+                ranges=ranges, rel_angles=rel_angles, pose=(0.0, 0.0, 0.0),
+                odom_pose=(0.0, 0.0, 0.0), map_segs=segs, sigma_pose=0.0,
+                is_fog=False, v_odom=0.0, scan_inliers=50,
+            )
+            if self.perc.removed_segment_ids:
+                removed_tick = k
+                note_at_removal = self.perc.note
+                break
+
+        self.assertIsNotNone(removed_tick, "the demolished wall was never removed")
+        self.assertGreaterEqual(removed_tick, 5)  # needs a corroborated vote, not one frame
+        self.assertIn(0, self.perc.removed_segment_ids)
+        self.assertEqual(note_at_removal, "map_missing")
+        # Once excluded, the segment no longer contributes to the expected ranges:
+        # beam 0 then measures the far wall behind the demolished one.
+        exp_all = raycast(0.0, 0.0, np.array([0.0]), segs)
+        exp_kept = raycast(0.0, 0.0, np.array([0.0]), segs[[1]])
+        self.assertAlmostEqual(exp_all[0], 8.0, delta=0.05)
+        self.assertAlmostEqual(exp_kept[0], 18.0, delta=0.05)
+
 
 if __name__ == "__main__":
     unittest.main()

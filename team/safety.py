@@ -4,15 +4,15 @@ Strictly conforms to plan/03-vospriyatie-i-bezopasnost.md, plan/01-schet-i-plosh
 and scoring thresholds (standard library math/typing and numpy only).
 """
 import math
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 try:
-    from .geom import inside_polygon, wrap_angle
+    from .geom import inside_polygon
     from .perceive import Track
 except ImportError:
-    from geom import inside_polygon, wrap_angle
+    from geom import inside_polygon
     from perceive import Track
 
 
@@ -20,7 +20,6 @@ except ImportError:
 R_PLATFORM = 0.9         # Platform radius (m)
 R_PEDESTRIAN = 0.3       # Pedestrian radius (m)
 DECEL_NORMAL = 1.2       # Normal service deceleration (m/s^2)
-DECEL_ESTOP = 2.5        # Emergency deceleration (m/s^2)
 DT = 0.1                 # Simulation step (s)
 V_MAX_DEFAULT = 1.39     # Maximum vehicle speed (m/s)
 
@@ -55,7 +54,6 @@ STOP_GAP = 0.8           # Current or predicted clearance below which v = 0
 # the human limits to it anyway (task I.5).
 STATIC_OBJECT_NEAR_GAP = 1.5
 ESTOP_GAP = 1.2          # Confirmed cluster distance enabling emergency braking
-ESTOP_SAFE_GAP = 1.5     # False estop penalty threshold (scoring THRESH["estop_gap"])
 
 
 def calculate_clearance(
@@ -221,7 +219,6 @@ class SafetyGovernor:
         self._person_note: str = ""
         self._last_human_pred: float = math.inf
         self._lost_human_ticks: int = 0
-        self._arrived_ticks: int = 0
         # Previous minimum estimated clearance, used to confirm a closing gap for estop.
         self._prev_min_cl: Optional[float] = None
 
@@ -529,15 +526,12 @@ class SafetyGovernor:
         else:
             w_safe = w_cand
 
-        # 10. Arrival hold handling (hold for 12 ticks, target is 10)
+        # 10. Arrival hold: hold the dock command at zero speed
         if is_arrived:
-            self._arrived_ticks += 1
             v_safe = 0.0
             w_safe = 0.0
             if not notes:
                 notes["dock"] = "dock"
-        else:
-            self._arrived_ticks = 0
 
         # 11. Status determination
         is_slowed = (v_safe <= 0.35 and v_safe > 0.0)

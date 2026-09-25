@@ -112,11 +112,9 @@ class RouteFollower:
         self.current_mission_id: Optional[str] = None
         self.reference_path: np.ndarray = np.empty((0, 2), dtype=float)
         self.active_path: np.ndarray = np.empty((0, 2), dtype=float)
-        self.progress_s: float = 0.0
         self.last_s: float = 0.0
         self.arrived: bool = False
         self.hold_count: int = 0
-        self.status: str = "waiting"
         self.note: Optional[str] = None
 
         # Replan throttling
@@ -274,8 +272,6 @@ class RouteFollower:
         self.active_path = ref_path.copy()
         self.arrived = False
         self.hold_count = 0
-        self.progress_s = 0.0
-        self.last_s = 0.0
         self.last_s = 0.0
         self.note = None
         self.last_replan_t = -10.0
@@ -504,7 +500,6 @@ class RouteFollower:
         best_dist = math.inf
         for i in range(len(seg_lens)):
             p1 = path[i]
-            p2 = path[i + 1]
             v = diffs[i]
             L = seg_lens[i]
             if L < 1e-6:
@@ -547,7 +542,6 @@ class RouteFollower:
             # Find projection onto path
             for i in range(len(seg_lens)):
                 p1 = path[i]
-                p2 = path[i + 1]
                 v = diffs[i]
                 L = seg_lens[i]
                 if L < 1e-6:
@@ -749,7 +743,6 @@ class RouteFollower:
 
         for i in range(len(seg_lens)):
             p1 = path[i]
-            p2 = path[i + 1]
             v = diffs[i]
             L = seg_lens[i]
             if L < 1e-6:
@@ -944,9 +937,8 @@ class RouteFollower:
         v_zone_limit = self.check_speed_zones(x, y, th)
 
         # Pure pursuit command
-        v, w, target_pt, curr_s, rem_dist = self.pure_pursuit(pose, self.active_path, v_max=v_zone_limit)
+        v, w, target_pt, _, rem_dist = self.pure_pursuit(pose, self.active_path, v_max=v_zone_limit)
 
-        self.status = "moving"
         return {
             "v": v,
             "w": w,
@@ -957,13 +949,6 @@ class RouteFollower:
             "target_point": target_pt,
             "remaining_dist": rem_dist,
         }
-
-    def compute_command(self, pose: Tuple[float, float, float],
-                        mission: Optional[Dict[str, Any]] = None,
-                        obstacles: Optional[Any] = None,
-                        current_time: float = 0.0) -> Dict[str, Any]:
-        """Alias for step() for flexible controller integration."""
-        return self.step(pose, mission=mission, obstacles=obstacles, current_time=current_time)
 
 
 # Export Planner as alias of RouteFollower

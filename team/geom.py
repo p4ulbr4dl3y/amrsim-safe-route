@@ -8,7 +8,7 @@ Conventions:
 Only standard library (math) and numpy are used.
 """
 import math
-from typing import Tuple, Union
+from typing import Union
 
 import numpy as np
 

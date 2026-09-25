@@ -3,7 +3,7 @@
 Conforms to plan/02-lokalizaciya.md and isolation requirements (only stdlib and numpy).
 """
 import math
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -12,8 +12,6 @@ try:
         filter_segs_aabb,
         point_to_segs_displacement,
         raycast,
-        rot2d,
-        segments_aabb,
         wrap_angle,
     )
 except ImportError:
@@ -21,8 +19,6 @@ except ImportError:
         filter_segs_aabb,
         point_to_segs_displacement,
         raycast,
-        rot2d,
-        segments_aabb,
         wrap_angle,
     )
 
@@ -68,7 +64,7 @@ class Localizer:
         self._prev_scan_odom = (0.0, 0.0)
 
         # Per-tick odometry step (real path) pending scan-match confirmation, and the
-        # exact prediction delta / variance increments so a blocked-wheel tick can be undone.
+        # exact variance increments so a blocked-wheel tick can be undone.
         self._odom_step_tick = 0.0
         self._pending_odom_step = 0.0
         # Short window used by the wheel-stall detector (plan/02:149-157).
@@ -76,7 +72,6 @@ class Localizer:
         self._stall_odom = 0.0
         self._stall_xy = (self.x, self.y)
         self._pre_predict_xy = (self.x, self.y)
-        self._predict_delta = (0.0, 0.0)
         self._predict_var = (0.0, 0.0, 0.0)
 
         # IMU heading bias (th = imu_heading - heading_bias)
@@ -87,7 +82,6 @@ class Localizer:
         self.is_lost = False
         self.blocked_wheels = False
         self.scan_inliers = 0
-        self.scan_std = 0.0
         # Speed cap exported to the safety governor (plan/02 "Потеря ориентации")
         self.lost_speed_limit = 1.39
         self._low_inlier_ticks = 0
@@ -242,7 +236,6 @@ class Localizer:
         self._pre_predict_xy = (self.x, self.y)
         self.x += world_dx
         self.y += world_dy
-        self._predict_delta = (world_dx, world_dy)
 
         # 4. Heading update from IMU
         if not self.bias_initialized:
@@ -285,7 +278,6 @@ class Localizer:
         self.var_along = max(0.0, self.var_along - da)
         self.var_cross = max(0.0, self.var_cross - dc)
         self.var_th = max(0.0, self.var_th - dth)
-        self._predict_delta = (0.0, 0.0)
         self._predict_var = (0.0, 0.0, 0.0)
         self._pending_odom_step = max(0.0, self._pending_odom_step - self._odom_step_tick)
 
@@ -379,7 +371,7 @@ class Localizer:
         last_weights = None
 
         # 4 iterations of Gauss-Newton
-        for it in range(4):
+        for _ in range(4):
             # Compute beam endpoints in world frame
             beam_world_angles = cur_th + cand_rel
             px = cur_x + cand_ranges * np.cos(beam_world_angles)
@@ -453,7 +445,6 @@ class Localizer:
                 break
 
         self.scan_inliers = inliers_count
-        self.scan_std = final_std
 
         if not is_fog:
             self._fog_var_added = 0.0
@@ -538,7 +529,6 @@ class Localizer:
     def _scan_unavailable(self, is_fog: bool) -> bool:
         """No usable scan this tick: count it towards the blind timer (plan/02:141)."""
         self.scan_inliers = 0
-        self.scan_std = 999.0
         self._register_scan_health(is_fog)
         self._check_lost_status()
         return False
@@ -659,8 +649,6 @@ class Localizer:
         then written into the weak tangential axis only; the normal is already held by
         the facade, and a measurement there would smear it.
         """
-        self._lm_n = 0
-        self._lm_shift = 0.0
         if segs is None or len(segs) == 0:
             return
         n = len(r_all)
@@ -726,13 +714,11 @@ class Localizer:
             shifts.append(max(-0.5, min(0.5, d_t)))
             tangents.append((tx, ty))
 
-        self._lm_n = len(shifts)
         # A single beam-boundary feature is not trustworthy enough to move the pose.
         if len(shifts) < 2:
             return
 
         shift = 0.5 * float(np.median(shifts))
-        self._lm_shift = float(shift)
         mtx = float(np.mean([t[0] for t in tangents]))
         mty = float(np.mean([t[1] for t in tangents]))
         mag = math.hypot(mtx, mty)

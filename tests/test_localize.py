@@ -482,6 +482,101 @@ class TestLocalizer(unittest.TestCase):
             loc.update_scan(ranges, ANGLES, segs, is_fog=False)
             self.assertFalse(loc.blocked_wheels)
 
+    # ------------------------------------------------------------------ plan/05:108
+
+    def test_gnss_noise_0_4_accepted_without_pose_jump(self):
+        """A 0.4 m GNSS noise cloud is a measurement, never a pose jump (plan/05:108).
+
+        plan/05:108 names three behaviours: the 6 m jump is rejected (see
+        test_gnss_gating_and_filtering), a 0.4 m noise sample is *accepted* as a
+        measurement, and the pose state shows no jump. Every sample here is drawn
+        from a 0.4 m circle around the true pose, so a raw copy into pose_est would
+        move the pose by up to 0.4 m; the gated blend must keep each step far below
+        that and leave the state near the truth.
+        """
+        loc = Localizer((10.0, 10.0, 0.0))
+        loc.var_along = 0.5
+        loc.var_cross = 0.5
+        loc.scan_inliers = 50  # the scan corroborates the pose, so the gate is open
+
+        rng = np.random.default_rng(20240607)  # fixed seed: the test is deterministic
+        accepted = 0
+        max_step = 0.0
+        for _ in range(20):
+            bearing = rng.uniform(0.0, 2.0 * math.pi)
+            gnss_x = 10.0 + 0.4 * math.cos(bearing)
+            gnss_y = 10.0 + 0.4 * math.sin(bearing)
+            old = loc.pose
+            if loc.update_gnss(gnss_x, gnss_y, gnss_valid=True, gnss_hdop=0.9):
+                accepted += 1
+            max_step = max(max_step, math.hypot(loc.x - old[0], loc.y - old[1]))
+
+        self.assertGreaterEqual(accepted, 18)  # 0.4 m is well inside the 1.5 m gate
+        self.assertTrue(loc.last_gnss_accepted)
+        # A raw copy would jump by up to 0.4 m; the blend stays well under that.
+        self.assertLess(max_step, 0.2)
+        self.assertLess(math.hypot(loc.x - 10.0, loc.y - 10.0), 0.2)
+
+    # ------------------------------------------------------------------ plan/05:113
+
+    def test_dock_snap_repeated_reaches_goal_within_5cm(self):
+        """Dock-snap on 1.5 m front and 2.5 m side beams reaches the goal to 0.05 m (plan/05:113).
+
+        The procedure corrects half the front/side discrepancy per tick (plan/02:118),
+        so one call only halves the error. Repeating it on the same true dock geometry
+        must converge into the 0.05 m ball around the goal.
+        """
+        dock_segs = np.array([
+            [225.0, 92.0, 225.0, 97.0],  # front wall, 1.5 m from the goal
+            [220.0, 97.0, 225.0, 97.0],  # left wall,  2.5 m from the goal
+            [220.0, 92.0, 225.0, 92.0],  # right wall, 2.5 m from the goal
+        ])
+        goal = (223.5, 94.5, 0.0)
+        angles_rel = np.radians(np.arange(360))
+        ranges = raycast(223.5, 94.5, angles_rel, dock_segs)  # true dock geometry
+
+        loc = Localizer((223.4, 94.6, 0.0))
+        applied = False
+        for _ in range(5):
+            applied = loc.dock_snap(ranges, angles_rel, goal, dock_segs) or applied
+        self.assertTrue(applied)
+        dist = math.hypot(loc.x - goal[0], loc.y - goal[1])
+        self.assertLess(dist, 0.05, f"dock snap stopped {dist:.3f} m from the goal")
+
+    # ------------------------------------------------------------------ plan/05:114
+
+    def test_scan_match_ignores_map_segment_absent_from_scan(self):
+        """A mapped segment the scan does not contain drops out of the matcher (plan/05:114).
+
+        The corridor walls carry the match; the partition at x=115 was demolished and
+        never appears in the scan (the controller removes its id from the segment list,
+        plan/03:36-38, plan/04:81). Keeping it in the map must therefore add no inliers
+        and move no pose, and the match on the neighbouring walls must still hold the
+        pose instead of jumping.
+        """
+        walls = np.array([[80.0, 45.0, 140.0, 45.0], [80.0, 55.0, 140.0, 55.0]])
+        demolished = np.array([[115.0, 48.0, 115.0, 52.0]])
+        with_phantom = np.vstack([walls, demolished])
+
+        angles_rel = np.radians(np.arange(360))
+        ranges = raycast(100.0, 50.0, angles_rel, walls, max_range=19.0)  # scan lacks the phantom
+
+        loc_phantom = Localizer((100.08, 49.94, 0.02))
+        matched_phantom = loc_phantom.update_scan(ranges, angles_rel, with_phantom, is_fog=False)
+        loc_clean = Localizer((100.08, 49.94, 0.02))
+        matched_clean = loc_clean.update_scan(ranges, angles_rel, walls, is_fog=False)
+
+        self.assertTrue(matched_phantom)
+        self.assertTrue(matched_clean)
+        # The absent segment contributes nothing: identical inliers and identical pose.
+        self.assertEqual(loc_phantom.scan_inliers, loc_clean.scan_inliers)
+        self.assertAlmostEqual(loc_phantom.x, loc_clean.x, places=9)
+        self.assertAlmostEqual(loc_phantom.y, loc_clean.y, places=9)
+        self.assertAlmostEqual(loc_phantom.th, loc_clean.th, places=9)
+        # The neighbouring walls still hold the pose: no jump.
+        self.assertAlmostEqual(loc_phantom.y, 50.0, delta=0.05)
+        self.assertAlmostEqual(loc_phantom.th, 0.0, delta=0.01)
+
 
 if __name__ == "__main__":
     unittest.main()
