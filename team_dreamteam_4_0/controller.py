@@ -1,7 +1,7 @@
-"""Autonomous Mobile Robot Controller for the 'Safe Route' case.
+"""Контроллер автономной мобильной платформы для кейса 'Безопасный маршрут'.
 
-Strictly conforms to AMR-1.0 schema, isolation rules, and scoring thresholds.
-Only standard library and numpy are used.
+Строго соответствует схеме AMR-1.0, правилам изоляции и порогам оценки.
+Используются только стандартная библиотека и numpy.
 """
 
 import math
@@ -24,16 +24,16 @@ except ImportError:
 
 
 class Controller:
-    """Integrated AMR platform controller.
+    """Интегрированный контроллер AMR-платформы.
 
-    Order of execution in step(obs):
-    1. Odometry & IMU dead reckoning predict.
-    2. Wall scan-matching, GNSS innovation gate, dock snap.
-    3. Perception obstacle clustering & tracking in clean odometry frame.
-    4. Mission tracking, lateral avoidance or A* path planning.
-    5. Pure pursuit tracking, speed zone limits, predictive safety governor.
-    6. Status determination based on measured odometry speed (moving >= 0.05 m/s).
-    7. Filter mean output in pose_est.
+    Порядок выполнения в step(obs):
+    1. Прогноз позы по одометрии и IMU.
+    2. Сопоставление сканов со стенами, стробирование невязки GNSS, привязка к доку.
+    3. Кластеризация и отслеживание препятствий в чистом базисе одометрии.
+    4. Следование по миссии, боковой объезд или планирование пути A*.
+    5. Чистое преследование, ограничения скоростных зон, прогнозный модуль безопасности.
+    6. Определение статуса по измеренной скорости одометрии (движение >= 0.05 м/с).
+    7. Фильтрация среднего значения на выходе в pose_est.
     """
 
     def __init__(self, map_: Dict[str, Any], config: Dict[str, Any], initial_pose: List[float]):
@@ -80,10 +80,10 @@ class Controller:
 
     @staticmethod
     def _extract_pole_centers(buildings: Any) -> np.ndarray:
-        """Collect centers of small mapped polygons (poles, plan/02:68).
+        """Собрать центры мелких полигонов карты (столбы, plan/02:68).
 
-        A polygon qualifies as a pole when its longest side is shorter than 1 m.
-        Returns an (N, 2) float array, empty when no such polygons exist.
+        Полигон считается столбом, когда его наибольшая сторона короче 1 м.
+        Возвращает массив float (N, 2), пустой, если таких полигонов нет.
         """
         centers: List[List[float]] = []
         for b in buildings or []:
@@ -106,7 +106,7 @@ class Controller:
         return np.asarray(centers, dtype=float)
 
     def _make_localizer(self, initial_pose: List[float]) -> "Localizer":
-        """Build the Localizer with map landmarks (poles, plan/02:68)."""
+        """Собрать Localizer с ориентирами карты (столбы, plan/02:68)."""
         return Localizer(
             initial_pose=initial_pose,
             building_segs=self.building_segs,
@@ -114,7 +114,7 @@ class Controller:
         )
 
     def set_truth(self, pose: List[float]) -> None:
-        """Ground truth hook for local --cheat benchmarking only."""
+        """Хук истинной позы только для локального бенчмаркинга --cheat."""
         self.truth_pose = [float(p) for p in pose]
 
     @staticmethod
@@ -123,7 +123,7 @@ class Controller:
         pose: Tuple[float, float, float],
         odom_pose: Tuple[float, float, float],
     ) -> Tuple[float, float]:
-        """Transform a track centroid from the pure odometry frame to world frame."""
+        """Преобразовать центроид трека из чистого базиса одометрии в мировой базис."""
         cos_o, sin_o = math.cos(odom_pose[2]), math.sin(odom_pose[2])
         cos_w, sin_w = math.cos(pose[2]), math.sin(pose[2])
         dx_o = trk.ox - odom_pose[0]
@@ -135,16 +135,17 @@ class Controller:
         return (pose[0] + cos_w * rx - sin_w * ry, pose[1] + sin_w * rx + cos_w * ry)
 
     def _active_tracks(self) -> List[Any]:
-        """Return confirmed tracks only for safety and the obstacle layer.
+        """Вернуть только подтвержденные треки для безопасности и слоя препятствий.
 
-        A track is confirmed once its ``seen`` history contains two consecutive
-        hits (1,1), and a confirmed track stays confirmed while it coasts -- a fog
-        dropout must not release the brake (plan/03:20, plan/02:143-145).
+        Трек подтверждается, когда его история ``seen`` содержит два подряд
+        попадания (1,1), и подтвержденный трек остается подтвержденным, пока
+        движется по инерции - пропуск в тумане не должен снимать торможение
+        (plan/03:20, plan/02:143-145).
         """
         return list(self.perception.active_tracks)
 
     def step(self, obs: Dict[str, Any]) -> Dict[str, Any]:
-        """Perform one control cycle for the AMR platform."""
+        """Выполнить один цикл управления AMR-платформой."""
         # 1. Прогноз позы по одометрии и IMU
         odom = obs["odom"]
         imu = obs["imu"]

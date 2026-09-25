@@ -1,6 +1,6 @@
-"""Localization module: EKF state estimation, scan-matching Gauss-Newton, GNSS fusion, dock snap.
+"""Модуль локализации: оценка состояния EKF, сопоставление сканов Гаусса-Ньютона, комплексирование GNSS, привязка к доку.
 
-Conforms to plan/02-lokalizaciya.md and isolation requirements (only stdlib and numpy).
+Соответствует plan/02-lokalizaciya.md и требованиям изоляции (только stdlib и numpy).
 """
 
 import math
@@ -25,14 +25,14 @@ except ImportError:
 
 
 class Localizer:
-    """AMR State Estimator and Localizer.
+    """Оценщик состояния и локализатор AMR.
 
-    Coordinates:
-      x: East (m)
-      y: North (m)
-      th: Counterclockwise from East (rad)
+    Координаты:
+      x: восток (м);
+      y: север (м);
+      th: против часовой стрелки от востока (рад).
 
-    Pure odometry frame (ox, oy, oth) is tracked without corrections for dynamic object perception.
+    Чистый базис одометрии (ox, oy, oth) отслеживается без поправок для распознавания динамических объектов.
     """
 
     def __init__(
@@ -115,7 +115,7 @@ class Localizer:
         building_segs: Optional[np.ndarray],
         pole_centers: Optional[np.ndarray],
     ) -> np.ndarray:
-        """Collect longitudinal landmarks: segment endpoints plus explicit pole centres."""
+        """Собрать продольные ориентиры: концы отрезков и явные центры столбов."""
         parts: List[np.ndarray] = []
         if building_segs is not None and len(building_segs) > 0:
             s = np.asarray(building_segs, dtype=float)
@@ -131,12 +131,12 @@ class Localizer:
 
     @property
     def pose(self) -> Tuple[float, float, float]:
-        """Return (x, y, th)."""
+        """Вернуть (x, y, th)."""
         return (self.x, self.y, self.th)
 
     @property
     def odom_pose(self) -> Tuple[float, float, float]:
-        """Return pure odometry pose (ox, oy, oth)."""
+        """Вернуть чистую позу одометрии (ox, oy, oth)."""
         return (self.ox, self.oy, self.oth)
 
     @property
@@ -152,16 +152,16 @@ class Localizer:
         return math.sqrt(max(0.0, self.var_th))
 
     def detect_fog(self, ranges: np.ndarray, expected_ranges: Optional[np.ndarray] = None) -> bool:
-        """Detect fog condition from the real (often NaN/inf) simulator scan.
+        """Обнаружить туман по реальному скану симулятора (часто NaN/inf).
 
-        plan/02:49-61. The simulator caps every return at ``lidar.fog_max_range`` (6.0 m)
-        and turns everything beyond it into NaN, so the working evidence is:
-          (a) a large share of non-finite beams, gated by the absence of long returns;
-          (b) the map expects a wall in 9-19 m and the beam there is NaN/inf, in a batch.
-        Beam ranges > 6.5 m cannot exist in fog, so they must NOT zero the hysteresis
-        counter instantly (the old early return killed the 1 s hold).
+        plan/02:49-61. Симулятор ограничивает каждый отклик значением ``lidar.fog_max_range`` (6.0 м)
+        и превращает все, что дальше, в NaN, поэтому рабочие признаки такие:
+          (a) большая доля нефинитных лучей при отсутствии дальних откликов;
+          (b) карта ожидает стену в 9-19 м, а луч там NaN/inf, и так пачкой.
+        Дальности лучей > 6.5 м не могут существовать в тумане, поэтому они НЕ должны обнулять
+        счетчик гистерезиса мгновенно (прежний ранний возврат убивал удержание 1 с).
 
-        Holds the flag for 1.0 s (10 ticks) to avoid flickering.
+        Удерживает флаг 1.0 с (10 тактов), чтобы избежать мерцания.
         """
         r = np.asarray(ranges, dtype=float)
         n = len(r)
@@ -207,12 +207,12 @@ class Localizer:
         imu_yaw_rate: float,
         dt: float,
     ) -> None:
-        """Prediction step using odometry and IMU.
+        """Шаг прогноза по одометрии и IMU.
 
-        - Pure odometry (ox, oy, oth) updated directly.
-        - True position (x, y) updated by (odom_dx, odom_dy) / scale rotated by current th.
-        - Heading watchdog: if imu_heading jumps > 0.05 rad compared to expected, integrate yaw_rate.
-        - Variances propagated based on motion.
+        - чистая одометрия (ox, oy, oth) обновляется напрямую;
+        - истинная позиция (x, y) обновляется на (odom_dx, odom_dy) / scale, повернутые на текущий th;
+        - сторожевой таймер курса: если imu_heading скачет > 0.05 рад относительно ожидаемого, интегрируется yaw_rate;
+        - дисперсии распространяются по движению.
         """
         # 1. Обновление чистого базиса одометрии (без поправок и масштаба)
         cos_oth = math.cos(self.oth)
@@ -277,25 +277,25 @@ class Localizer:
         self._check_lost_status()
 
     def _along_bound_m(self) -> float:
-        """Along-track error bound implied by the odometry scale bias (plan/02:99-108).
+        """Граница погрешности вдоль пути, задаваемая смещением масштаба одометрии (plan/02:99-108).
 
-        The bound is the bias times the distance travelled since the along-track position
-        was last confirmed. It only starts counting once it exceeds the 0.2 m that the
-        existing variance floors already assume (var_along >= 0.04 m^2 everywhere, e.g.
-        the GNSS update and the fog penalty), so below that distance it is a no-op by
-        construction and leaves every trajectory that regularly confirms the along axis
-        untouched -- which is why the acceptance packet is unchanged (all 28 runs of
-        01..04 x 7 seeds, and all 30 own-scenario runs, score identically).
+        Граница равна смещению, умноженному на расстояние, пройденное с момента последнего
+        подтверждения продольной координаты. Отсчет начинается только после превышения 0.2 м,
+        которые уже предполагают существующие нижние границы дисперсии (var_along >= 0.04 м^2 всюду,
+        например при обновлении GNSS и штрафе за туман), поэтому ниже этого расстояния она
+        по построению не влияет и оставляет нетронутой любую траекторию, которая регулярно
+        подтверждает продольную ось - именно поэтому пакет приемки не меняется (все 28 прогонов
+        01..04 x 7 сидов и все 30 прогонов собственных сценариев дают тот же счет).
         """
         scale_err = 0.01 if self.scale_locked else 0.04
         beyond = self._unconfirmed_dist - 0.2 / scale_err
         return scale_err * beyond if beyond > 0.0 else 0.0
 
     def _rollback_predict(self) -> None:
-        """Undo this tick's prediction (blocked wheels, plan/02:149-157).
+        """Отменить прогноз этого такта (блокировка колес, plan/02:149-157).
 
-        The pose is restored to its pre-prediction value: an odometry tick that the scan
-        match did not confirm must not be integrated into the filter.
+        Поза восстанавливается к значению до прогноза: такт одометрии, который сопоставление
+        скана не подтвердило, не должен интегрироваться в фильтр.
         """
         self.x, self.y = self._pre_predict_xy
         da, dc, dth = self._predict_var
@@ -314,14 +314,14 @@ class Localizer:
         is_fog: bool = False,
         segs_aabb: Optional[np.ndarray] = None,
     ) -> bool:
-        """Scan-matching against map segments using 4 iterations of Gauss-Newton.
+        """Сопоставление сканов с отрезками карты за 4 итерации Гаусса-Ньютона.
 
-        Args:
-          ranges: 1D array of beam ranges (360 beams, 1 deg step)
-          rel_angles: 1D array of beam angles in robot frame (rad)
-          segs: (M, 4) array of map segments [x1, y1, x2, y2]
-          is_fog: whether fog condition is active
-          segs_aabb: optional precomputed AABB for segments
+        Аргументы:
+          ranges: одномерный массив дальностей лучей (360 лучей, шаг 1 град);
+          rel_angles: одномерный массив углов лучей в базисе робота (рад);
+          segs: массив (M, 4) отрезков карты [x1, y1, x2, y2];
+          is_fog: активен ли режим тумана;
+          segs_aabb: необязательный предвычисленный AABB для отрезков.
         """
         self.fog_active = bool(is_fog)
         if segs is None or len(segs) == 0:
@@ -543,7 +543,7 @@ class Localizer:
         return False
 
     def _scan_unavailable(self, is_fog: bool) -> bool:
-        """No usable scan this tick: count it towards the blind timer (plan/02:141)."""
+        """Нет пригодного скана в этом такте: учесть его в таймере слепоты (plan/02:141)."""
         self.scan_inliers = 0
         self._register_scan_health(is_fog)
         self._check_lost_status()
@@ -551,7 +551,7 @@ class Localizer:
 
     @staticmethod
     def _scan_has_angle(normals: Optional[np.ndarray]) -> bool:
-        """True when the inlier walls span more than ~30 deg: an actual corner is seen."""
+        """Истина, когда инлайерные стены охватывают более ~30 град: виден реальный угол."""
         if normals is None or len(normals) < 2:
             return False
         ang = np.arctan2(normals[:, 1], normals[:, 0])
@@ -569,16 +569,16 @@ class Localizer:
         finite_all: np.ndarray,
         segs: np.ndarray,
     ) -> bool:
-        """True when a scan corner sits on a mapped longitudinal landmark (plan/02:63-81).
+        """Истина, когда угол скана попадает на размеченный продольный ориентир (plan/02:63-81).
 
-        ``_scan_has_angle`` only looks at the spread of wall normals, so a robot driving
-        past the end of a long facade sees "one wall" even though the silhouette of that
-        facade's end is a perfectly good along-track reference. The plan names exactly
-        that reference -- segment ends of buildings and pole centres -- and its
-        association rule is 2 m. Here the same angular feature the landmark layer uses
-        (neighbouring returns jumping by > 1.5 m) must land on a mapped wall
-        (residual < 0.35 m) and be within 2 m of a mapped landmark. A snow speck fails
-        both tests, so this cannot open the gate on an unobservable straight.
+        ``_scan_has_angle`` смотрит только на разброс нормалей стен, поэтому робот, проезжающий
+        мимо конца длинного фасада, видит 'одну стену', хотя силуэт конца этого фасада -
+        вполне хорошая продольная привязка. План называет именно такую привязку - концы отрезков
+        зданий и центры столбов - и его правило сопоставления равно 2 м. Здесь тот же угловой
+        признак, который использует слой ориентиров (соседние отклики прыгают на > 1.5 м),
+        должен попасть на размеченную стену (невязка < 0.35 м) и находиться в пределах 2 м
+        от размеченного ориентира. Снежинка не проходит обе проверки, поэтому это не может
+        открыть стробирование на ненаблюдаемой прямой.
         """
         lm = self.landmarks
         if lm is None or len(lm) == 0 or segs is None or len(segs) == 0 or len(r_all) == 0:
@@ -603,10 +603,10 @@ class Localizer:
         return False
 
     def _register_scan_health(self, is_fog: bool) -> None:
-        """Count consecutive ticks with too few scan inliers (plan/02:141).
+        """Считать подряд идущие такты с малым числом инлайеров скана (plan/02:141).
 
-        Only counted when there is no absolute GNSS fix either: a blank street with a
-        valid GNSS fix is not a loss of orientation.
+        Считается только при отсутствии абсолютной засечки GNSS: пустая улица с
+        действительной засечкой GNSS не является потерей ориентации.
         """
         if is_fog or self.scan_inliers >= 15 or self._gnss_fix_ticks <= 10:
             self._low_inlier_ticks = 0
@@ -619,7 +619,7 @@ class Localizer:
         rel_sub: np.ndarray,
         segs: np.ndarray,
     ) -> None:
-        """In fog, expected near walls that return NaN add variance in a batch (plan/02:59)."""
+        """В тумане ожидаемые ближние стены, дающие NaN, пачкой добавляют дисперсию (plan/02:59)."""
         if segs is None or len(segs) == 0:
             return
         if self._fog_var_added >= 0.36:
@@ -656,14 +656,13 @@ class Localizer:
         finite_all: np.ndarray,
         segs: np.ndarray,
     ) -> None:
-        """Longitudinal landmarks (plan/02:63-81).
+        """Продольные ориентиры (plan/02:63-81).
 
-        An angular feature is a pair of neighbouring returns whose endpoints jump by
-        more than 1.5 m. It is only usable when the endpoint actually lies on a mapped
-        wall (residual < 0.35 m) and a mapped landmark -- an endpoint of that very
-        segment, or a pole centre -- sits within 2 m of it. The along-wall residual is
-        then written into the weak tangential axis only; the normal is already held by
-        the facade, and a measurement there would smear it.
+        Угловой признак - это пара соседних откликов, концы которых прыгают более чем на 1.5 м.
+        Он пригоден, только когда конец действительно лежит на размеченной стене (невязка < 0.35 м)
+        и размеченный ориентир - конец этого самого отрезка или центр столба - находится в пределах
+        2 м от него. Продольная невязка вдоль стены затем записывается только в слабую касательную
+        ось; нормаль уже удерживается фасадом, и измерение там размазало бы ее.
         """
         if segs is None or len(segs) == 0:
             return
@@ -756,7 +755,7 @@ class Localizer:
         self.var_cross = max(1e-6, self.var_cross - 0.5 * var_t * sin_d2)
 
     def _update_variances_from_walls(self, normals: np.ndarray, weights: np.ndarray) -> None:
-        """Update variances along and cross wall normal directions."""
+        """Обновить дисперсии вдоль и поперек направлений нормалей стен."""
         # Средняя ориентация нормалей.
         # Стена фиксирует нормаль и курс, но не ограничивает касательную составляющую.
         n_x = float(np.average(normals[:, 0], weights=weights))
@@ -791,7 +790,7 @@ class Localizer:
 
     @staticmethod
     def _snap_scale(calc_scale: float) -> float:
-        """Clamp the estimate to the physically allowed set [0.96,0.99] U [1.01,1.04]."""
+        """Прижать оценку к физически допустимому множеству [0.96,0.99] U [1.01,1.04]."""
         s = max(0.96, min(1.04, float(calc_scale)))
         if 0.99 <= s <= 1.01:
             # Разрыв масштаба около 1.0 недопустим: сдвиг к ближайшей границе
@@ -805,13 +804,13 @@ class Localizer:
         scan_dx: float,
         scan_dy: float,
     ) -> None:
-        """Accumulate the REAL odometry path and the scan-matched path, then freeze.
+        """Накопить РЕАЛЬНЫЙ путь одометрии и путь сопоставления сканов, затем зафиксировать.
 
-        plan/02:99-108: s = odom_path / lidar_path over at least 25 m of scan-confirmed
-        travel. Both paths are measured over exactly the same interval between two
-        accepted scan matches -- the odometry odometer delta in its own frame, rotated
-        into world axes -- and only the along-motion projection of the scan displacement
-        is used so lateral scan/GNSS corrections do not inflate the lidar path.
+        plan/02:99-108: s = odom_path / lidar_path на не менее 25 м подтвержденного сканом
+        пути. Оба пути измеряются на строго одном интервале между двумя принятыми
+        сопоставлениями скана - дельта одометра в своем базисе, повернутая в мировые оси -
+        и используется только продольная проекция смещения скана, чтобы боковые поправки
+        скана/GNSS не раздували путь лидара.
         """
         if self.scale_locked:
             return
@@ -857,7 +856,7 @@ class Localizer:
 
     @staticmethod
     def _trimmed_mean(values: List[float], trim: float) -> float:
-        """Mean after dropping the lowest and highest `trim` fraction of the samples."""
+        """Среднее после отбрасывания низшей и высшей доли `trim` выборки."""
         s = sorted(values)
         n = len(s)
         k = int(trim * n)
@@ -872,16 +871,16 @@ class Localizer:
         gnss_hdop: float,
         in_shadow: bool = False,
     ) -> bool:
-        """GNSS measurement update with innovation gating.
+        """Обновление измерения GNSS со стробированием невязки.
 
-        Rules (plan/02:83-97):
-        - Never directly copy raw GNSS into pose_est.
-        - Accept only when valid, not in_shadow and innovation < 1.5 m; when the scan
-          corroborates the pose (scan_inliers >= 30) the measurement is taken at full
-          gain, otherwise only small (<0.6 m) corrections pass, at reduced gain.
-        - hdop > 1.4 only increases distrust (halved gain); hdop > 2.0 is a coarse guard.
-        - Recovery from persistent disagreement (> 3 s, stable, scan agrees with GNSS)
-          shifts the hypothesis to GNSS.
+        Правила (plan/02:83-97):
+        - никогда не копировать сырой GNSS напрямую в pose_est;
+        - принимать только когда измерение действительно, не в тени и невязка < 1.5 м; когда скан
+          подтверждает позу (scan_inliers >= 30), измерение берется с полным усилением, иначе
+          проходят только малые (<0.6 м) поправки со сниженным усилением;
+        - hdop > 1.4 только усиливает недоверие (усиление вдвое); hdop > 2.0 - грубая защита;
+        - восстановление при устойчивом расхождении (> 3 с, стабильно, скан согласен с GNSS)
+          смещает гипотезу к GNSS.
         """
         self.last_gnss_accepted = False
 
@@ -967,11 +966,11 @@ class Localizer:
         dock_goal: Union[Tuple[float, float, float], List[float]],
         dock_wall_segs: np.ndarray,
     ) -> bool:
-        """Accurate docking snap within 1.5 - 3.0 m of dock goal.
+        """Точная привязка к доку в пределах 1.5 - 3.0 м от цели дока.
 
-        Front beam ~0 deg expects 1.5m to front dock wall.
-        Side beams ~+-90 deg expect 2.5m to side dock walls.
-        Adjusts pose by half the discrepancy along and cross heading.
+        Передний луч ~0 град ожидает 1.5 м до передней стены дока.
+        Боковые лучи ~+-90 град ожидают 2.5 м до боковых стен дока.
+        Поза корректируется на половину расхождения вдоль и поперек курса.
         """
         gx, gy, gh = float(dock_goal[0]), float(dock_goal[1]), float(dock_goal[2])
         dist_to_goal = math.hypot(gx - self.x, gy - self.y)
@@ -1046,9 +1045,9 @@ class Localizer:
         stopped: bool = False,
         is_fog: bool = False,
     ) -> bool:
-        """Search for the pose only while stopped and lost (plan/02:143-145).
+        """Искать позу только когда платформа стоит и поза потеряна (plan/02:143-145).
 
-        Returns True when a sharp hypothesis peak was found and ``is_lost`` cleared.
+        Возвращает True, когда найдена резкая вершина гипотезы и ``is_lost`` снят.
         """
         if not self.is_lost or not stopped:
             return False
@@ -1080,10 +1079,10 @@ class Localizer:
         segs: np.ndarray,
         is_fog: bool = False,
     ) -> bool:
-        """Global/local hypothesis search over grid when lost.
+        """Глобально-локальный поиск гипотез по сетке при потере позы.
 
-        Grid: dx in [-3, 3] step 0.5m, dy in [-3, 3] step 0.5m, dth in [-8°, 8°] step 2°.
-        Uses 60 rays for evaluation. Sharp peak accepted to clear is_lost.
+        Сетка: dx в [-3, 3] шаг 0.5 м, dy в [-3, 3] шаг 0.5 м, dth в [-8°, 8°] шаг 2°.
+        Для оценки используется 60 лучей. Резкая вершина принимается для снятия is_lost.
         """
         if segs is None or len(segs) == 0:
             return False
@@ -1163,14 +1162,14 @@ class Localizer:
         return False
 
     def _check_lost_status(self) -> None:
-        """Evaluate lost status and the exported speed limit (plan/02:133-147).
+        """Оценить статус потери позы и экспортируемое ограничение скорости (plan/02:133-147).
 
-        Tiers:
-          sigma_cross > 0.4 or sigma_th > 5 deg  -> lost_speed_limit <= 0.4
-          sigma_along > 2 m (cross narrow)       -> lost_speed_limit <= 0.6
-          sigma_cross > 0.8 or sigma_th > 10 deg -> is_lost, stop, then search
-          sigma_along > 5 m and still unexplained -> is_lost (see the comment below)
-          inliers < 15 outside fog for > 1 s     -> is_lost
+        Уровни:
+          sigma_cross > 0.4 или sigma_th > 5 град  -> lost_speed_limit <= 0.4;
+          sigma_along > 2 м (поперечная узкая)     -> lost_speed_limit <= 0.6;
+          sigma_cross > 0.8 или sigma_th > 10 град -> is_lost, остановка, затем поиск;
+          sigma_along > 5 м и все еще без объяснения -> is_lost (см. комментарий ниже);
+          inliers < 15 вне тумана более 1 с        -> is_lost.
         """
         # Широкая продольная граница требует остановки только при отсутствии объяснения.
         # При наличии подтверждения сканированием или GNSS движение продолжается.

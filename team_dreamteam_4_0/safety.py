@@ -1,7 +1,7 @@
-"""Safety governor and speed limiter module.
+"""Модуль безопасности и ограничителя скорости.
 
-Strictly conforms to plan/03-vospriyatie-i-bezopasnost.md, plan/01-schet-i-ploshchadka.md,
-and scoring thresholds (standard library math/typing and numpy only).
+Строго соответствует plan/03-vospriyatie-i-bezopasnost.md, plan/01-schet-i-ploshchadka.md
+и порогам оценки (только стандартная библиотека math/typing и numpy).
 """
 
 import math
@@ -50,14 +50,14 @@ def calculate_clearance(
     pts: np.ndarray,
     is_pedestrian: bool = True,
 ) -> float:
-    """Calculate clearance from AMR perimeter to obstacle perimeter.
+    """Вычислить зазор от периметра AMR до периметра препятствия.
 
-    AMR radius = 0.9 m.
-    Pedestrian radius = 0.3 m (subtracted for pedestrians and unknown obstacles).
-    For walls/fences and static objects, only AMR radius is subtracted.
+    Радиус AMR = 0.9 м.
+    Радиус пешехода = 0.3 м (вычитается для пешеходов и неизвестных препятствий).
+    Для стен/заборов и статических объектов вычитается только радиус AMR.
 
-    Returns:
-      clearance in meters (can be <= 0 at contact).
+    Возвращает:
+      зазор в метрах (может быть <= 0 при контакте).
     """
     if pts is None or len(pts) == 0:
         return math.inf
@@ -74,19 +74,19 @@ def predict_ttc_clearance(
     horizon_s: float = 2.0,
     dt_step: float = 0.2,
 ) -> Tuple[float, float]:
-    """Predict minimum clearance to track over a 2.0 s horizon with 0.2 s steps.
+    """Спрогнозировать минимальный зазор до трека на горизонте 2.0 с шагом 0.2 с.
 
-    Considers platform velocity along heading and track velocity in pure odometry frame.
+    Учитывает скорость платформы вдоль курса и скорость трека в чистом базисе одометрии.
 
-    Args:
-      track: obstacle Track instance
-      v_platform: forward speed of platform (m/s)
-      oth: AMR heading in pure odometry frame (rad)
-      horizon_s: prediction horizon (default 2.0)
-      dt_step: time step for prediction (default 0.2)
+    Аргументы:
+      track: экземпляр Track препятствия;
+      v_platform: скорость платформы вперед (м/с);
+      oth: курс AMR в чистом базисе одометрии (рад);
+      horizon_s: горизонт прогноза (по умолчанию 2.0);
+      dt_step: шаг времени прогноза (по умолчанию 0.2).
 
-    Returns:
-      (min_predicted_clearance, time_to_min_clearance)
+    Возвращает:
+      (min_predicted_clearance, time_to_min_clearance).
     """
     pts = track.pts
     if pts is None or len(pts) == 0:
@@ -130,15 +130,15 @@ def determine_status(
     is_estop: bool = False,
     allow_slowed: bool = False,
 ) -> str:
-    """Determine AMR operational status.
+    """Определить рабочий статус AMR.
 
-    Conforms to scoring rules:
-    - Status MUST be 'moving' whenever |v_odom| >= 0.05 to prevent status_mismatch (-2).
-    - Status 'arrived' when dock condition is met.
-    - Status 'waiting' when stopped (|v_odom| < 0.05) due to obstacle, person or pause.
-    - Status 'lost' when pose is lost AND the platform has already stopped (plan/02:145).
-    - Status 'estop' when emergency stop is triggered.
-    - If allow_slowed=True and robot is moving under reduced speed limit, returns 'slowed'.
+    Соответствует правилам оценки:
+    - статус ОБЯЗАН быть 'moving', когда |v_odom| >= 0.05, чтобы не допустить status_mismatch (-2);
+    - статус 'arrived', когда выполнено условие прибытия в док;
+    - статус 'waiting', когда платформа стоит (|v_odom| < 0.05) из-за препятствия, человека или паузы;
+    - статус 'lost', когда поза потеряна И платформа уже остановилась (plan/02:145);
+    - статус 'estop', когда сработало экстренное торможение;
+    - если allow_slowed=True и робот движется при сниженном ограничении скорости, возвращается 'slowed'.
     """
     if is_arrived:
         return "arrived"
@@ -163,26 +163,28 @@ def determine_status(
 
 
 class SafetyGovernor:
-    """Safety governor enforcing clearance, speed limits, corridor braking, and notes.
+    """Модуль безопасности, обеспечивающий зазор, ограничения скорости, торможение в коридоре и примечания.
 
-    Limits speed according to plan/03 (hardest limit wins):
-    1. Predicted clearance to pedestrian/unknown over 2 s < 0.8 m -> v = 0. While the platform
-       is still rolling fast (>= STOP_PREDICT_MIN_SPEED) the prediction uses the speed the path
-       follower asked for, not the v_odom our own slow cap may have just collapsed, so the crawl
-       limit cannot suppress a stop that is genuinely needed (see STOP_PREDICT_WITH_CANDIDATE).
-    2. Current clearance to pedestrian/unknown < 0.8 m -> v = 0, held until the predicted
-       clearance exceeds 3.3 m (no "wait and go" timeout for dynamic/unknown tracks).
-    3. Current clearance to a person-like pedestrian/unknown < 3.3 m, plus an anticipatory
-       margin that grows with the current speed (SLOW_PERSON_MARGIN_K*|v_odom|, capped), caps
-       v at <= 0.22 (scoring penalty starts at 3.0 m / 0.28 m/s, so this leaves margin for the
-       1.2 m/s^2 brake ramp and for the person walking towards the platform).
-    4. Three adjacent lidar returns in corridor |y| < 1.0 m inside braking distance -> v = 0.
-    5. Unmapped wall (is_wall/map_extra) and static object in the corridor -> treated as an
-       obstacle in the clearance and in the corridor test, never ignored.
-    6. Fog + unexplained cluster ahead < 5.0 m -> v <= 0.35; fog and clear -> v <= 0.90.
-    7. Pose loss (is_lost) -> v = 0; status becomes 'lost' only after the platform has stopped.
-    8. estop (2.5 m/s^2) only when a confirmed cluster is closer than 1.2 m, the gap closes and
-       the normal 1.2 m/s^2 brake cannot stop in time. Never above 1.5 m (false estop = -1).
+    Ограничивает скорость согласно plan/03 (побеждает самый жесткий лимит):
+    1. Прогнозируемый зазор до пешехода/неизвестного объекта за 2 с < 0.8 м -> v = 0. Пока платформа
+       еще катится быстро (>= STOP_PREDICT_MIN_SPEED), прогноз использует скорость, запрошенную
+       следователем пути, а не v_odom, который мог только что обрушить наш собственный медленный
+       лимит, поэтому ограничение до ползания не может подавить действительно необходимую остановку
+       (см. STOP_PREDICT_WITH_CANDIDATE).
+    2. Текущий зазор до пешехода/неизвестного объекта < 0.8 м -> v = 0, удерживается, пока
+       прогнозируемый зазор не превысит 3.3 м (для динамических/неизвестных треков таймаута
+       'подождать и поехать' нет).
+    3. Текущий зазор до человекоподобного пешехода/неизвестного объекта < 3.3 м плюс упреждающий
+       запас, растущий с текущей скоростью (SLOW_PERSON_MARGIN_K*|v_odom|, с ограничением),
+       ограничивает v значением <= 0.22 (штраф начинается при 3.0 м / 0.28 м/с, поэтому остается
+       запас на торможение 1.2 м/с^2 и на человека, идущего навстречу платформе).
+    4. Три соседних отклика лидара в коридоре |y| < 1.0 м внутри тормозного пути -> v = 0.
+    5. Неразмеченная стена (is_wall/map_extra) и статический объект в коридоре -> учитываются как
+       препятствие в зазоре и в проверке коридора, никогда не игнорируются.
+    6. Туман + необъясненный кластер впереди < 5.0 м -> v <= 0.35; туман и чисто -> v <= 0.90.
+    7. Потеря позы (is_lost) -> v = 0; статус становится 'lost' только после остановки платформы.
+    8. estop (2.5 м/с^2) только когда подтвержденный кластер ближе 1.2 м, зазор сокращается и
+       штатное торможение 1.2 м/с^2 не успевает остановиться. Никогда выше 1.5 м (ложный estop = -1).
     """
 
     NOTE_ORDER = (
@@ -218,7 +220,7 @@ class SafetyGovernor:
         y: float,
         zones: List[Tuple[Any, float]],
     ) -> float:
-        """Find minimum applicable zone speed limit at (x, y) with 0.05 m/s margin."""
+        """Найти минимальное применимое ограничение скорости зоны в точке (x, y) с запасом 0.05 м/с."""
         lim = self.v_top
         for poly, v_max in zones:
             if inside_polygon(x, y, poly):
@@ -227,7 +229,7 @@ class SafetyGovernor:
         return max(0.1, lim)
 
     def _compose_note(self, notes: Dict[str, str]) -> str:
-        """Join active reasons into one stable <= 200 char string, no flicker."""
+        """Объединить активные причины в одну стабильную строку <= 200 символов без мерцания."""
         parts = [notes[k] for k in self.NOTE_ORDER if k in notes]
         if not parts:
             return ""
@@ -253,29 +255,29 @@ class SafetyGovernor:
         remaining_dist: float = 99.0,
         sigma_cross: float = 0.0,
     ) -> Tuple[float, float, str, str]:
-        """Evaluate safety limits and determine safe command (v, w), status, and note.
+        """Оценить ограничения безопасности и определить безопасную команду (v, w), статус и примечание.
 
-        Args:
-          v_cand: candidate forward velocity from path follower (m/s)
-          w_cand: candidate angular velocity from path follower (rad/s)
-          v_odom: current forward velocity from odometry (m/s)
-          w_odom: current angular velocity from odometry (rad/s)
-          pose: world pose (x, y, th)
-          odom_pose: pure odometry pose (ox, oy, oth)
-          tracks: active tracks from perception (including unmapped walls, is_wall=True)
-          ranges: lidar beam ranges (360,)
-          rel_angles: relative beam angles in robot frame (360,)
-          zones: speed limit zones [(polygon, v_max), ...]
-          is_fog: whether fog condition is active
-          is_arrived: whether dock target reached
-          is_lost: whether localizer lost (v forced to 0)
-          blocked_wheels: whether wheel slip/wall contact detected
-          perception_note: existing note from perception (e.g. map_missing/map_extra)
-          remaining_dist: remaining distance to dock, metres
-          sigma_cross: lateral pose sigma, reported in the `lost s_lat=` note
+        Аргументы:
+          v_cand: запрошенная скорость вперед от следователя пути (м/с);
+          w_cand: запрошенная угловая скорость от следователя пути (рад/с);
+          v_odom: текущая скорость вперед по одометрии (м/с);
+          w_odom: текущая угловая скорость по одометрии (рад/с);
+          pose: мировая поза (x, y, th);
+          odom_pose: чистая поза одометрии (ox, oy, oth);
+          tracks: активные треки распознавания (включая неразмеченные стены, is_wall=True);
+          ranges: дальности лучей лидара (360,);
+          rel_angles: относительные углы лучей в базисе робота (360,);
+          zones: зоны ограничения скорости [(polygon, v_max), ...];
+          is_fog: активен ли режим тумана;
+          is_arrived: достигнута ли цель дока;
+          is_lost: потерян ли локализатор (v принудительно 0);
+          blocked_wheels: обнаружено ли проскальзывание колес или контакт со стеной;
+          perception_note: существующее примечание распознавания (например map_missing/map_extra);
+          remaining_dist: оставшееся расстояние до дока, метры;
+          sigma_cross: поперечная сигма позы, выводимая в примечании `lost s_lat=`.
 
-        Returns:
-          (v_safe, w_safe, status, note)
+        Возвращает:
+          (v_safe, w_safe, status, note).
         """
         x, y, th = pose
         _, _, oth = odom_pose

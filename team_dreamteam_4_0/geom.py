@@ -1,11 +1,11 @@
-"""Geometric utilities for AMR navigation, localization and perception.
+"""Геометрические утилиты для навигации, локализации и распознавания AMR.
 
-Conventions:
-- Coordinates in meters, Cartesian 2D (x east, y north).
-- Angles in radians counterclockwise from +X (east).
-- Segments stored as shape (M, 4): [x1, y1, x2, y2].
-- Polygons stored as shape (K, 2): [[x, y], ...].
-Only standard library (math) and numpy are used.
+Соглашения:
+- координаты в метрах, декартовы 2D (x на восток, y на север);
+- углы в радианах против часовой стрелки от +X (восток);
+- отрезки хранятся формой (M, 4): [x1, y1, x2, y2];
+- полигоны хранятся формой (K, 2): [[x, y], ...].
+Используются только стандартная библиотека (math) и numpy.
 """
 
 import math
@@ -15,9 +15,9 @@ import numpy as np
 
 
 def wrap_angle(theta: Union[float, int, np.ndarray]) -> Union[float, np.ndarray]:
-    """Normalize angle(s) to [-pi, pi].
+    """Нормализовать угол (углы) к [-pi, pi].
 
-    Supports scalar floats/ints and numpy arrays.
+    Поддерживаются скалярные float/int и массивы numpy.
     """
     if isinstance(theta, (int, float, np.floating, np.integer)):
         return float((theta + math.pi) % (2.0 * math.pi) - math.pi)
@@ -26,11 +26,11 @@ def wrap_angle(theta: Union[float, int, np.ndarray]) -> Union[float, np.ndarray]
 
 
 def rot2d(x, y=None, theta=None):
-    """Rotate 2D points by angle theta (radians) counterclockwise.
+    """Повернуть 2D точки на угол theta (радианы) против часовой стрелки.
 
-    Supported calling conventions:
+    Поддерживаемые способы вызова:
       rot2d(x, y, theta) -> (rx, ry)
-      rot2d(pts, theta)  -> rotated_pts (shape (2,) or (N, 2))
+      rot2d(pts, theta)  -> rotated_pts (форма (2,) или (N, 2))
     """
     if theta is None:
         # Вызов в формате rot2d(pts, theta)
@@ -54,9 +54,9 @@ def rot2d(x, y=None, theta=None):
 
 
 def segments_aabb(segs: np.ndarray) -> np.ndarray:
-    """Compute axis-aligned bounding boxes for segments.
+    """Вычислить осевые ограничивающие прямоугольники для отрезков.
 
-    segs: (M, 4) -> (M, 4) containing [min_x, min_y, max_x, max_y].
+    segs: (M, 4) -> (M, 4), содержащий [min_x, min_y, max_x, max_y].
     """
     if segs is None or len(segs) == 0:
         return np.empty((0, 4), dtype=float)
@@ -73,7 +73,7 @@ def segments_aabb(segs: np.ndarray) -> np.ndarray:
 def filter_segs_aabb(
     segs: np.ndarray, x: float, y: float, radius: float, aabb: np.ndarray = None
 ) -> np.ndarray:
-    """Filter segments whose AABB intersects the box [x - radius, y - radius, x + radius, y + radius]."""
+    """Отфильтровать отрезки, чей AABB пересекает прямоугольник [x - radius, y - radius, x + radius, y + radius]."""
     if segs is None or len(segs) == 0:
         return np.empty((0, 4), dtype=float)
     if aabb is None:
@@ -90,15 +90,15 @@ def filter_segs_aabb(
 def raycast(
     ox: float, oy: float, angles: np.ndarray, segs: np.ndarray, max_range: float = np.inf
 ) -> np.ndarray:
-    """Vectorized raycast of lidar rays against 2D line segments with AABB pruning.
+    """Векторизованная трассировка лучей лидара по 2D отрезкам с отсечением по AABB.
 
-    ox, oy: lidar origin coordinates
-    angles: 1D array of ray angles in world frame (radians)
-    segs: (M, 4) array of segment endpoints [x1, y1, x2, y2]
-    max_range: maximum detection distance (default inf)
+    ox, oy: координаты начала лидара;
+    angles: одномерный массив углов лучей в мировом базисе (радианы);
+    segs: массив (M, 4) концов отрезков [x1, y1, x2, y2];
+    max_range: максимальная дальность обнаружения (по умолчанию inf).
 
-    Returns:
-      ranges: 1D array of distances to first intersection along each ray (inf if none).
+    Возвращает:
+      ranges: одномерный массив расстояний до первого пересечения вдоль каждого луча (inf, если пересечения нет).
     """
     angles_arr = np.asarray(angles, dtype=float)
     is_scalar_angle = angles_arr.ndim == 0
@@ -159,13 +159,13 @@ def raycast(
 
 
 def seg_dist(px, py, segs: np.ndarray) -> Union[float, np.ndarray]:
-    """Distance from point(s) to the nearest segment (vectorized).
+    """Расстояние от точки (точек) до ближайшего отрезка (векторизовано).
 
-    px, py: scalars or 1D arrays of point coordinates.
-    segs: (M, 4) array of segments [ax, ay, bx, by].
+    px, py: скаляры или одномерные массивы координат точек;
+    segs: массив (M, 4) отрезков [ax, ay, bx, by].
 
-    Returns:
-      scalar float if px, py are scalars, else (N,) array of minimum distances.
+    Возвращает:
+      скаляр float, если px, py - скаляры, иначе массив (N,) минимальных расстояний.
     """
     is_scalar = np.ndim(px) == 0 and np.ndim(py) == 0
     px_arr = np.atleast_1d(np.asarray(px, dtype=float))
@@ -204,14 +204,14 @@ def seg_dist(px, py, segs: np.ndarray) -> Union[float, np.ndarray]:
 
 
 class Displacement(tuple):
-    """Result of point_to_segs_displacement.
+    """Результат point_to_segs_displacement.
 
-    Unpacks as tuple: (normals, projs, dists).
-    Also provides attributes:
-      .normals (alias .normal): unit normal pointing from wall to point ((N, 2) or (2,))
-      .projs   (alias .proj):   closest point on nearest segment ((N, 2) or (2,))
-      .dists   (alias .dist):   distance to nearest segment ((N,) or float)
-      .seg_idx:                 index of nearest segment ((N,) or int)
+    Распаковывается как кортеж: (normals, projs, dists).
+    Также предоставляет атрибуты:
+      .normals (псевдоним .normal): единичная нормаль от стены к точке ((N, 2) или (2,));
+      .projs   (псевдоним .proj):   ближайшая точка на ближайшем отрезке ((N, 2) или (2,));
+      .dists   (псевдоним .dist):   расстояние до ближайшего отрезка ((N,) или float);
+      .seg_idx:                 индекс ближайшего отрезка ((N,) или int).
     """
 
     normals: np.ndarray
@@ -232,19 +232,19 @@ class Displacement(tuple):
 
 
 def point_to_segs_displacement(px, py, segs: np.ndarray) -> Displacement:
-    """Compute normal vector, projection point, and distance to nearest segment.
+    """Вычислить вектор нормали, точку проекции и расстояние до ближайшего отрезка.
 
-    Used for scan-matching Gauss-Newton Jacobian and residuals.
+    Используется для якобиана и невязок Гаусса-Ньютона при сопоставлении сканов.
 
-    px, py: scalars or 1D arrays of points (world frame).
-    segs: (M, 4) array of segments [ax, ay, bx, by].
+    px, py: скаляры или одномерные массивы точек (мировой базис);
+    segs: массив (M, 4) отрезков [ax, ay, bx, by].
 
-    Returns:
-      Displacement instance: unpacks as (normals, projs, dists).
-      - normals: unit normal pointing from closest point to query point ((N, 2) or (2,)).
-      - projs:   closest point coordinates ((N, 2) or (2,)).
-      - dists:   Euclidean distance ((N,) or float).
-      - seg_idx: index of nearest segment ((N,) or int).
+    Возвращает:
+      экземпляр Displacement: распаковывается как (normals, projs, dists).
+      - normals: единичная нормаль от ближайшей точки к запрашиваемой ((N, 2) или (2,));
+      - projs:   координаты ближайшей точки ((N, 2) или (2,));
+      - dists:   евклидово расстояние ((N,) или float);
+      - seg_idx: индекс ближайшего отрезка ((N,) или int).
     """
     is_scalar = np.ndim(px) == 0 and np.ndim(py) == 0
     px_arr = np.atleast_1d(np.asarray(px, dtype=float))
@@ -315,11 +315,11 @@ def point_to_segs_displacement(px, py, segs: np.ndarray) -> Displacement:
 
 
 def inside_polygon(x, y=None, poly=None) -> Union[bool, np.ndarray]:
-    """Test whether point(s) lie inside a 2D polygon using even-odd crossing rule.
+    """Проверить, лежат ли точки внутри 2D полигона, правилом четно-нечетного пересечения.
 
-    Supported calling conventions:
-      inside_polygon(x, y, poly) -> bool or (N,) boolean array
-      inside_polygon(pts, poly)  -> bool or (N,) boolean array
+    Поддерживаемые способы вызова:
+      inside_polygon(x, y, poly) -> bool или булев массив (N,)
+      inside_polygon(pts, poly)  -> bool или булев массив (N,)
     """
     if poly is None:
         pts = np.asarray(x, dtype=float)
@@ -357,12 +357,12 @@ def inside_polygon(x, y=None, poly=None) -> Union[bool, np.ndarray]:
 
 
 def box_segs(poly) -> np.ndarray:
-    """Extract line segments [x1, y1, x2, y2] from polygon(s).
+    """Извлечь отрезки [x1, y1, x2, y2] из полигона (полигонов).
 
-    Accepts:
-      - (K, 2) array / list of vertices representing a single closed polygon -> (K, 4)
-      - dict with 'polygon' key -> (K, 4)
-      - list/collection of polygons or building dicts -> (M, 4)
+    Принимает:
+      - массив / список вершин (K, 2), представляющий один замкнутый полигон -> (K, 4);
+      - словарь с ключом 'polygon' -> (K, 4);
+      - список/коллекцию полигонов или словарей зданий -> (M, 4).
     """
     if poly is None:
         return np.empty((0, 4), dtype=float)
@@ -396,7 +396,7 @@ def box_segs(poly) -> np.ndarray:
 
 
 def polygon_area(poly) -> float:
-    """Signed area of 2D polygon (positive if counterclockwise)."""
+    """Знаковая площадь 2D полигона (положительна против часовой стрелки)."""
     p = np.asarray(poly, dtype=float)
     if len(p) < 3:
         return 0.0

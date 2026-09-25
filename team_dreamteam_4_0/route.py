@@ -1,10 +1,10 @@
-"""Route planning and tracking module for Autonomous Mobile Robot (AMR).
+"""Модуль планирования и следования по маршруту для автономной мобильной платформы (AMR).
 
-Conforms strictly to plan/04-marshrut-i-missii.md, plan/01-schet-i-ploshchadka.md,
-and plan/05-sborka-i-priemka.md.
-Pure pursuit tracking, speed zone management, lateral offset avoidance,
-and grid A* fallback.
-Isolation: only standard math, typing, and numpy are used.
+Строго соответствует plan/04-marshrut-i-missii.md, plan/01-schet-i-ploshchadka.md
+и plan/05-sborka-i-priemka.md.
+Чистое преследование, управление скоростными зонами, боковое смещение для объезда
+и резервный поиск A* по сетке.
+Изоляция: используются только стандартные math, typing и numpy.
 """
 
 import math
@@ -19,7 +19,7 @@ except ImportError:
 
 
 class _PriorityQueue:
-    """Min-priority queue using pure-Python binary min-heap."""
+    """Очередь с минимальным приоритетом на чистом бинарном мин-хепе Python."""
 
     def __init__(self) -> None:
         self.heap: List[Tuple[float, Any]] = []
@@ -67,25 +67,25 @@ class _PriorityQueue:
 
 
 class RouteFollower:
-    """AMR Pure Pursuit route follower and local path planner.
+    """Следователь маршрута AMR методом чистого преследования и локальный планировщик пути.
 
-    Features:
-    - Pure pursuit with 1.5m lookahead.
-    - Dock target snap within 1.5m, docking speed 0.15 m/s.
-    - In-place rotation for |alpha| > 0.8 rad (v = 0, |w| <= 0.8 rad/s).
-    - Turning speed limit for |alpha| > 0.35 rad (v <= 0.5 m/s).
-    - Deceleration braking profile: v <= sqrt(2 * 0.4 * remaining_dist) + 0.03.
-    - Speed zone limits (checking current, +3.0m ahead, -1.5m behind) capped at v_zone - 0.05.
-    - FB_HAZ forbidden zone strictly excluded from drivable area.
-    - Automatic generation of initial leg to 'from' point if distance > 1.5m.
-    - Lateral shift avoidance (0.2m steps, gap > 1.1m, margin >= 0.2m to drivable boundary),
-      shifted towards the roomy side of the aisle first (plan/04:36-39).
-    - Grid A* fallback (0.5m grid, free cells keep a 0.2m boundary margin,
-      forbidden zones cut out) re-joining the reference on clear line of sight.
-    - A* replan throttled to once per 2 s; safe stop otherwise.
-    - Deadline-aware final approach (< 8 s left, < 2 m to goal, clear corridor).
-    - note strings: 'offset dy=<m>', 'replan', 'stop_object'.
-    - Safe stop (v = 0, status waiting, note=stop_object) if corridor blocked.
+    Возможности:
+    - чистое преследование с упреждением 1.5 м;
+    - привязка к цели дока в пределах 1.5 м, скорость стыковки 0.15 м/с;
+    - разворот на месте при |alpha| > 0.8 рад (v = 0, |w| <= 0.8 рад/с);
+    - ограничение скорости на повороте при |alpha| > 0.35 рад (v <= 0.5 м/с);
+    - профиль торможения: v <= sqrt(2 * 0.4 * remaining_dist) + 0.03;
+    - ограничения скоростных зон (проверка текущей точки, +3.0 м впереди, -1.5 м позади) с потолком v_zone - 0.05;
+    - запретная зона FB_HAZ строго исключена из проезжей области;
+    - автоматическое построение начального участка до точки 'from', если расстояние > 1.5 м;
+    - боковое смещение для объезда (шаги 0.2 м, зазор > 1.1 м, запас >= 0.2 м до границы проезда),
+      сначала в просторную сторону проезда (plan/04:36-39);
+    - резервный поиск A* по сетке (сетка 0.5 м, свободные ячейки сохраняют запас 0.2 м до границы,
+      запретные зоны вырезаны) с возвратом на опорный путь по прямой видимости;
+    - перепланирование A* не чаще одного раза в 2 с; иначе безопасная остановка;
+    - финальный подъезд с учетом дедлайна (< 8 с осталось, < 2 м до цели, свободный коридор);
+    - строки note: 'offset dy=<m>', 'replan', 'stop_object';
+    - безопасная остановка (v = 0, статус waiting, note=stop_object), если коридор заблокирован.
     """
 
     def __init__(
@@ -195,8 +195,8 @@ class RouteFollower:
     def is_drivable(
         self, x: Union[float, np.ndarray], y: Union[float, np.ndarray] = None, margin: float = 0.2
     ) -> Union[bool, np.ndarray]:
-        """Check if 2D coordinates are inside drivable polygon, outside FB_HAZ,
-        and at least `margin` meters away from drivable boundaries."""
+        """Проверить, что 2D координаты внутри проезжего полигона, вне FB_HAZ,
+        и не ближе `margin` метров к границам проезжей части."""
         if y is None:
             pts = np.atleast_2d(np.asarray(x, dtype=float))
             is_single = np.ndim(x) == 1
@@ -234,10 +234,10 @@ class RouteFollower:
         return bool(valid[0]) if is_single else valid
 
     def check_speed_zones(self, x: float, y: float, th: float) -> float:
-        """Inspect current point, +3.0m ahead and -1.5m behind.
+        """Проверить текущую точку, +3.0 м впереди и -1.5 м позади.
 
-        Caps speed at v_zone - 0.05.
-        Returns maximum permissible speed (m/s), default 1.39 m/s.
+        Ограничивает скорость значением v_zone - 0.05.
+        Возвращает максимально допустимую скорость (м/с), по умолчанию 1.39 м/с.
         """
         c, s = math.cos(th), math.sin(th)
         test_pts = np.array(
@@ -260,7 +260,7 @@ class RouteFollower:
     def get_point_xy(
         self, pt_ident: Any, fallback: Optional[Union[List[float], np.ndarray]] = None
     ) -> Tuple[float, float]:
-        """Resolve a dock / waypoint identifier to (x, y) coordinates."""
+        """Преобразовать идентификатор дока или путевой точки в координаты (x, y)."""
         if isinstance(pt_ident, str) and pt_ident in self.points:
             p = self.points[pt_ident]
             return float(p["x"]), float(p["y"])
@@ -273,7 +273,7 @@ class RouteFollower:
         return 0.0, 0.0
 
     def update_mission(self, mission: Dict[str, Any], pose: Tuple[float, float, float]) -> None:
-        """Handle mission updates and generate initial approach leg if needed."""
+        """Обработать обновления миссии и при необходимости построить начальный участок подъезда."""
         m_id = mission.get("id")
         if m_id == self.current_mission_id and len(self.active_path) > 0:
             return
@@ -325,7 +325,7 @@ class RouteFollower:
         goal: Tuple[float, float],
         obstacles: Optional[List[Tuple[float, float, float]]] = None,
     ) -> Optional[List[Tuple[float, float]]]:
-        """Compute path between start and goal avoiding obstacles and FB_HAZ."""
+        """Вычислить путь между началом и целью в обход препятствий и FB_HAZ."""
         return self._astar_search(start, goal, obstacles=obstacles)
 
     def _coord_to_cell(self, x: float, y: float) -> Tuple[int, int]:
@@ -373,11 +373,11 @@ class RouteFollower:
     def _lateral_clearance(
         self, point: Tuple[float, float], normal: np.ndarray, max_dist: float = 3.0
     ) -> float:
-        """Largest shift along `normal` that keeps a 0.2 m drivable margin.
+        """Наибольшее смещение вдоль `normal`, сохраняющее запас 0.2 м до границы проезда.
 
-        Used to pick the roomy side of an aisle (plan/04:36-39): the northern
-        aisle has 2.6 m to the south and only 0.6 m to the north, the western
-        exit has 0.6 m to the east, the southern aisle is symmetric.
+        Используется для выбора просторной стороны проезда (plan/04:36-39): северный
+        проезд имеет 2.6 м на юг и только 0.6 м на север, западный выход имеет
+        0.6 м на восток, южный проезд симметричен.
         """
         step = 0.2
         travelled = 0.0
@@ -397,7 +397,7 @@ class RouteFollower:
         obs_circles: List[Tuple[float, float, float]],
         margin: float = 0.2,
     ) -> bool:
-        """Check if straight segment between p1 and p2 is clear (vectorised)."""
+        """Проверить, что прямой отрезок между p1 и p2 свободен (векторизовано)."""
         dist = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
         steps = max(2, int(math.ceil(dist / 0.25)))
         ts = np.linspace(0.0, 1.0, steps)
@@ -502,7 +502,7 @@ class RouteFollower:
         return [[round(x, 2), round(y, 2)] for x, y in shortcutted]
 
     def _parse_obstacles(self, obstacles: Any) -> List[Tuple[float, float, float]]:
-        """Extract [(x, y, radius)] list from various obstacle representations."""
+        """Извлечь список [(x, y, radius)] из разных представлений препятствий."""
         if obstacles is None:
             return []
         out: List[Tuple[float, float, float]] = []
@@ -529,7 +529,7 @@ class RouteFollower:
     def _get_path_progress(
         self, path: np.ndarray, x: float, y: float, last_s: float = 0.0
     ) -> float:
-        """Find progress distance s along polyline corresponding to point (x, y)."""
+        """Найти пройденное расстояние s вдоль полилинии, соответствующее точке (x, y)."""
         if len(path) < 2:
             return 0.0
         diffs = path[1:] - path[:-1]
@@ -559,12 +559,12 @@ class RouteFollower:
     def check_obstacles_in_tube(
         self, path: np.ndarray, obstacles: Any, current_s: float, tube_radius: float = 1.25
     ) -> Optional[Tuple[float, float, float, float]]:
-        """Detect if an obstacle penetrates the reference tube or requires lateral avoidance.
+        """Определить, проникает ли препятствие в опорную трубку или требует бокового объезда.
 
-        Trigger condition:
-        - Penetration within reference tube: dist_center - r < tube_radius (1.25m)
-        - OR insufficient clearance: gap = dist_center - 0.9 - r < 1.1m
-        Returns (ox, oy, r, s_obs) for the earliest obstacle ahead of current progress.
+        Условие срабатывания:
+        - проникновение в опорную трубку: dist_center - r < tube_radius (1.25 м);
+        - ИЛИ недостаточный зазор: gap = dist_center - 0.9 - r < 1.1 м.
+        Возвращает (ox, oy, r, s_obs) для ближайшего препятствия впереди текущего прогресса.
         """
         parsed = self._parse_obstacles(obstacles)
         if not parsed or len(path) < 2:
@@ -614,9 +614,9 @@ class RouteFollower:
         current_s: float,
         all_obstacles: Optional[List[Tuple[float, float, float]]] = None,
     ) -> Optional[np.ndarray]:
-        """Apply lateral shift to polyline in 0.2m increments until clearance > 1.1m
+        """Применить боковое смещение к полилинии шагами 0.2 м, пока зазор > 1.1 м
 
-        and boundary margin >= 0.2m is satisfied for all scene obstacles.
+        и запас до границы >= 0.2 м не соблюдены для всех препятствий сцены.
         """
         ox, oy, r, s_obs = obstacle
         if len(path) < 2:
@@ -722,7 +722,7 @@ class RouteFollower:
         obstacle: Tuple[float, float, float, float],
         all_obstacles: Optional[List[Tuple[float, float, float]]] = None,
     ) -> Optional[np.ndarray]:
-        """Local A* replan on 0.5m grid avoiding all scene obstacles."""
+        """Локальное перепланирование A* по сетке 0.5 м в обход всех препятствий сцены."""
         ox, oy, r, s_obs = obstacle
         if len(path) < 2:
             return None
@@ -768,9 +768,9 @@ class RouteFollower:
     def pure_pursuit(
         self, pose: Tuple[float, float, float], path: np.ndarray, v_max: float = 1.39
     ) -> Tuple[float, float, Tuple[float, float], float, float]:
-        """Pure pursuit tracking along polyline.
+        """Следование по полилинии методом чистого преследования.
 
-        Returns (v, w, target_point, current_s, remaining_dist).
+        Возвращает (v, w, target_point, current_s, remaining_dist).
         """
         x, y, th = pose
         if len(path) < 2:
@@ -865,14 +865,14 @@ class RouteFollower:
         obstacles: Optional[Any] = None,
         current_time: float = 0.0,
     ) -> Dict[str, Any]:
-        """Compute navigation command for the current simulation tick.
+        """Вычислить команду навигации для текущего такта симуляции.
 
-        Returns dict containing:
-          'v': linear velocity (m/s)
-          'w': angular velocity (rad/s)
-          'status': 'moving', 'arrived', 'waiting', or 'estop'
-          'note': 'offset', 'replan', 'stop_object', or None
-          'arrived': bool flag
+        Возвращает словарь, содержащий:
+          'v': линейная скорость (м/с);
+          'w': угловая скорость (рад/с);
+          'status': 'moving', 'arrived', 'waiting' или 'estop';
+          'note': 'offset', 'replan', 'stop_object' или None;
+          'arrived': булев флаг.
         """
         x, y, th = pose
 

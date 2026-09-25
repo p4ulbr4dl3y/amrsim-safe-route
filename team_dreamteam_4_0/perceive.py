@@ -1,7 +1,7 @@
-"""Perception module: unexplained lidar clustering, odometry tracking, classification, map discrepancies.
+"""Модуль распознавания: кластеризация необъясненных откликов лидара, отслеживание по одометрии, классификация, расхождения карты.
 
-Strictly conforms to plan/03-vospriyatie-i-bezopasnost.md and isolation requirements
-(standard library math/typing and numpy only).
+Строго соответствует plan/03-vospriyatie-i-bezopasnost.md и требованиям изоляции
+(только стандартная библиотека math/typing и numpy).
 """
 
 import math
@@ -46,10 +46,10 @@ PLATFORM_BODY_MARGIN_M = 0.05
 
 
 def seen_has_pair(seen: List[int]) -> bool:
-    """True when `seen` contains two adjacent detection hits (1, 1).
+    """Истина, когда `seen` содержит два соседних попадания детектора (1, 1).
 
-    A track confirmed by an adjacent pair stays confirmed forever (coasting through
-    fog must not drop an already validated person back to unknown, plan/03:20).
+    Трек, подтвержденный соседней парой, остается подтвержденным навсегда (движение
+    по инерции в тумане не должно возвращать уже подтвержденного человека в unknown, plan/03:20).
     """
     for i in range(len(seen) - 1):
         if seen[i] == 1 and seen[i + 1] == 1:
@@ -58,11 +58,11 @@ def seen_has_pair(seen: List[int]) -> bool:
 
 
 def track_forward_lateral(tr: "Track") -> Tuple[float, float]:
-    """Centroid of a track in the current robot frame: (forward, lateral) metres.
+    """Центроид трека в текущем базисе робота: (вперед, вбок), метры.
 
-    ``Track.pts`` already lives in the robot frame (relative to the pure odometry
-    pose of the last step). An empty footprint is reported as (inf, inf) so it is
-    never mistaken for a cluster inside the swept corridor.
+    ``Track.pts`` уже находится в базисе робота (относительно чистой позы
+    одометрии последнего шага). Пустой контур возвращается как (inf, inf), чтобы
+    его никогда не принять за кластер внутри заметаемого коридора.
     """
     pts = tr.pts
     if pts is None or len(pts) == 0:
@@ -71,17 +71,17 @@ def track_forward_lateral(tr: "Track") -> Tuple[float, float]:
 
 
 def track_world_shift(tr: "Track") -> float:
-    """Displacement of a track in the pure odometry frame over its history window."""
+    """Смещение трека в чистом базисе одометрии за окно его истории."""
     if len(tr.hist) < 2:
         return 0.0
     return math.hypot(tr.hist[-1][0] - tr.hist[0][0], tr.hist[-1][1] - tr.hist[0][1])
 
 
 class Track:
-    """Obstacle track maintained in pure odometry coordinates (ox, oy, oth).
+    """Трек препятствия, поддерживаемый в чистых координатах одометрии (ox, oy, oth).
 
-    Tracking in pure odometry prevents artificial position jumps caused by
-    GNSS corrections or scan-matching pose updates.
+    Отслеживание в чистой одометрии предотвращает искусственные скачки позиции,
+    вызванные поправками GNSS или обновлениями позы при сопоставлении сканов.
     """
 
     __slots__ = (
@@ -120,11 +120,11 @@ class Track:
         self.confirmed: bool = False
 
     def inside_platform_body(self) -> bool:
-        """True when the current footprint sits inside the platform hull.
+        """Истина, когда текущий контур находится внутри корпуса платформы.
 
-        A return closer than ``R_PLATFORM - 0.05`` m is physically impossible without a
-        reported contact: it is a phantom (a stray snowflake or a lidar artifact), so
-        its points are discarded from the active obstacle set (plan/03:18).
+        Отклик ближе ``R_PLATFORM - 0.05`` м физически невозможен без
+        зарегистрированного контакта: это фантом (случайная снежинка или артефакт лидара),
+        поэтому его точки исключаются из активного набора препятствий (plan/03:18).
         """
         pts = self.pts
         if pts is None or len(pts) == 0:
@@ -134,13 +134,13 @@ class Track:
         )
 
     def refresh_confirmed(self) -> bool:
-        """Latch confirmation once `seen` holds two adjacent hits; never unset it.
+        """Зафиксировать подтверждение, когда `seen` содержит два соседних попадания; никогда его не снимать.
 
-        A cluster whose points currently lie inside the platform body cannot confirm:
-        that is the close-phantom safeguard (plan/03:18). Discarding the points here,
-        rather than at cluster assembly, keeps the segmentation of real returns -- and
-        therefore track association -- untouched. A track that is already confirmed
-        never loses the flag, so a real body at contact still brakes.
+        Кластер, точки которого сейчас лежат внутри корпуса платформы, не может подтвердиться:
+        это защита от близких фантомов (plan/03:18). Отбрасывание точек здесь, а не при сборке
+        кластера, сохраняет сегментацию реальных откликов - и, следовательно, сопоставление
+        треков - неизменной. Трек, уже подтвержденный, никогда не теряет флаг, поэтому реальное
+        тело при контакте все равно тормозит.
         """
         if self.inside_platform_body():
             return self.confirmed
@@ -168,11 +168,11 @@ class Track:
 
 
 def fit_cluster_geometry(pts: np.ndarray) -> Tuple[float, float]:
-    """Calculate length and 80th-percentile thickness using PCA (SVD).
+    """Вычислить длину и толщину по 80-му перцентилю методом PCA (SVD).
 
-    pts: (N, 2) array of 2D points in Cartesian plane.
-    Returns:
-      (length, thickness) in meters.
+    pts: массив (N, 2) 2D точек на декартовой плоскости.
+    Возвращает:
+      (length, thickness) в метрах.
     """
     if len(pts) < 2:
         return 0.0, 0.0
@@ -195,9 +195,9 @@ def fit_cluster_geometry(pts: np.ndarray) -> Tuple[float, float]:
 
 
 def is_wall_cluster(pts: np.ndarray) -> bool:
-    """Determine if cluster geometry represents an unmapped wall or fence.
+    """Определить, соответствует ли геометрия кластера неразмеченной стене или забору.
 
-    Criterion: length > 1.0 m and 80th-percentile thickness < 0.1 m.
+    Критерий: длина > 1.0 м и толщина по 80-му перцентилю < 0.1 м.
     """
     if len(pts) < 3:
         return False
@@ -206,10 +206,10 @@ def is_wall_cluster(pts: np.ndarray) -> bool:
 
 
 def is_wall_continuation(pts: np.ndarray, wall_point_clouds: List[np.ndarray]) -> bool:
-    """Determine if a short cluster continues an unmapped wall.
+    """Определить, продолжает ли короткий кластер неразмеченную стену.
 
-    Criterion: cluster is closer than 0.6 m to a known wall cluster and its
-    80th-percentile lateral deviation from the wall principal axis is < 0.15 m.
+    Критерий: кластер ближе 0.6 м к известному кластеру стены, а его
+    боковое отклонение по 80-му перцентилю от главной оси стены < 0.15 м.
     """
     if len(pts) == 0 or not wall_point_clouds:
         return False
@@ -235,14 +235,14 @@ def is_wall_continuation(pts: np.ndarray, wall_point_clouds: List[np.ndarray]) -
 
 
 class Perception:
-    """Perception pipeline for AMR navigation.
+    """Конвейер распознавания для навигации AMR.
 
-    - Isolates dynamic tracks into pure odometry frame (ox, oy, oth).
-    - Clusters unexplained lidar returns (> 0.35 + sigma_pose shorter than map, > 0.4m from map wall).
-    - Snow filtering: isolated single beams rejected.
-    - Classifies tracks: pedestrian, wall_extra, static_object, unknown.
-    - Preserves dynamic tracks across dropouts (up to 1.0s) with velocity prediction.
-    - Detects map discrepancies: map_missing (sensed demolished walls), map_extra (new obstacles).
+    - выделяет динамические треки в чистом базисе одометрии (ox, oy, oth);
+    - кластеризует необъясненные отклики лидара (> 0.35 + sigma_pose короче карты, > 0.4 м от стены карты);
+    - фильтрация снега: одиночные изолированные лучи отбрасываются;
+    - классифицирует треки: pedestrian, wall_extra, static_object, unknown;
+    - сохраняет динамические треки при пропусках (до 1.0 с) с прогнозом скорости;
+    - обнаруживает расхождения карты: map_missing (обнаруженные снесенные стены), map_extra (новые препятствия).
     """
 
     def __init__(self, dt: float = 0.1):
@@ -262,13 +262,13 @@ class Perception:
 
     @property
     def active_tracks(self) -> List[Track]:
-        """Confirmed tracks only: two adjacent detections seen at least once.
+        """Только подтвержденные треки: два соседних детектирования, увиденные хотя бы раз.
 
-        A lone or paired snow return never repeats in one world point from tick to
-        tick (plan/03:18), so it can never confirm; a confirmed track stays
-        confirmed while it coasts through fog (plan/03:20). Safety and the route
-        obstacle layer must consume this list, ``tracks`` stays the full set used
-        for association and coasting.
+        Одиночный или парный снежный отклик никогда не повторяется в одной точке мира
+        от такта к такту (plan/03:18), поэтому он не может подтвердиться; подтвержденный
+        трек остается подтвержденным, пока движется по инерции в тумане (plan/03:20).
+        Безопасность и слой препятствий маршрута должны использовать этот список,
+        ``tracks`` остается полным набором для сопоставления и движения по инерции.
         """
         active: List[Track] = []
         for tr in self.tracks:
@@ -288,21 +288,21 @@ class Perception:
         v_odom: float = 0.0,
         scan_inliers: int = 0,
     ) -> List[Track]:
-        """Process lidar scan and update obstacle tracks and map discrepancies.
+        """Обработать скан лидара и обновить треки препятствий и расхождения карты.
 
-        Args:
-          ranges: 1D array of lidar ranges (360 beams, 1 deg step)
-          rel_angles: 1D array of beam angles in robot frame (rad)
-          pose: estimated world pose (x, y, th)
-          odom_pose: pure odometry pose (ox, oy, oth)
-          map_segs: (M, 4) line segments of mapped buildings
-          sigma_pose: current localizer pose uncertainty (m)
-          is_fog: whether fog condition is active
-          v_odom: current forward velocity from odometry (m/s)
-          scan_inliers: number of scan-matching inliers from localizer
+        Аргументы:
+          ranges: одномерный массив дальностей лидара (360 лучей, шаг 1 град);
+          rel_angles: одномерный массив углов лучей в базисе робота (рад);
+          pose: оцененная мировая поза (x, y, th);
+          odom_pose: чистая поза одометрии (ox, oy, oth);
+          map_segs: отрезки (M, 4) стен зданий карты;
+          sigma_pose: текущая неопределенность позы локализатора (м);
+          is_fog: активен ли режим тумана;
+          v_odom: текущая скорость вперед по одометрии (м/с);
+          scan_inliers: число инлайеров сопоставления сканов от локализатора.
 
-        Returns:
-          Active confirmed tracks.
+        Возвращает:
+          активные подтвержденные треки.
         """
         x, y, th = pose
         ox, oy, oth = odom_pose
@@ -664,7 +664,7 @@ class Perception:
         map_segs: np.ndarray,
         scan_inliers: int,
     ) -> None:
-        """Detect demolished mapped walls (map_missing) or confirmed extra structures (map_extra)."""
+        """Обнаружить снесенные стены карты (map_missing) или подтвержденные лишние конструкции (map_extra)."""
         if len(map_segs) == 0:
             return
 
@@ -714,12 +714,12 @@ class Perception:
                 self.note = ""
 
     def get_extra_obstacles(self) -> List[Tuple[float, float, float]]:
-        """Return unmapped/extra obstacles for the route planner: list of (x, y, radius).
+        """Вернуть неразмеченные и лишние препятствия для планировщика маршрута: список (x, y, radius).
 
-        Tracks are maintained in the pure odometry frame; they are transformed back
-        into world coordinates using the pose pair of the most recent step().
-        Only confirmed tracks are exported: an unconfirmed phantom wall must not
-        rewrite the route (frozen wave-3 interface).
+        Треки поддерживаются в чистом базисе одометрии; они переводятся обратно
+        в мировые координаты по паре поз последнего вызова step().
+        Экспортируются только подтвержденные треки: неподтвержденная фантомная стена
+        не должна переписывать маршрут (замороженный интерфейс волны 3).
         """
         obs: List[Tuple[float, float, float]] = []
         if self._last_pose is None or self._last_odom_pose is None:
