@@ -1,9 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { RouteName, DashboardViewModel, ScenarioItem } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { RouteName, DashboardViewModel, ScenarioItem, TickData, MapData, RecentEvent } from '../types';
 import { apiClient } from '../api/client';
 import { MapCanvas } from '../components/MapCanvas';
 import { Upload, Play, ArrowRight, ChevronDown, RefreshCw } from 'lucide-react';
 import { Latex } from '../components/Latex';
+import { mockMapData } from '../mock/mockData';
+
+const formatTime = (seconds: number): string => {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
 
 interface DashboardPageProps {
   onNavigate: (route: RouteName, params?: Record<string, any>) => void;
@@ -14,6 +21,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [data, setData] = useState<DashboardViewModel | null>(null);
   const [loading, setLoading] = useState(true);
+  const uploadedRef = useRef(false);
 
   // Fetch scenarios on mount
   useEffect(() => {
@@ -31,6 +39,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   // Fetch dashboard data when scenario changes
   useEffect(() => {
     let mounted = true;
+    if (uploadedRef.current) {
+      uploadedRef.current = false;
+      return;
+    }
     setLoading(true);
     apiClient.fetchDashboard(selectedScenario).then((vm) => {
       if (mounted) {
@@ -42,6 +54,270 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
       mounted = false;
     };
   }, [selectedScenario]);
+
+  // Client-side FileReader parser for simulator report (.json) and telemetry log (.jsonl)
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (!text) return;
+
+      try {
+        const isJsonl = file.name.endsWith('.jsonl') || text.includes('\n{"type":"tick"') || text.includes('\n{"type": "tick"');
+
+        if (isJsonl) {
+          // 2. Parse .jsonl (frame-by-frame telemetry log)
+          const lines = text.split('\n');
+          let headerObj: any = null;
+          const parsedTicks: TickData[] = [];
+
+          for (const rawLine of lines) {
+            const trimmed = rawLine.trim();
+            if (!trimmed) continue;
+            try {
+              const item = JSON.parse(trimmed);
+              if (item.type === 'header') {
+                headerObj = item;
+              } else if (item.type === 'tick') {
+                if (item.pe && item.pe.length >= 2 && item.pe_error === undefined) {
+                  item.pe_error = Math.hypot(item.pe[0] - item.x, item.pe[1] - item.y);
+                }
+                parsedTicks.push(item as TickData);
+              }
+            } catch {
+              // skip unparseable line
+            }
+          }
+
+          if (parsedTicks.length > 0) {
+            const previewTick = parsedTicks[parsedTicks.length - 1];
+            const historyTicks = parsedTicks;
+
+            // Sample speeds |v| (40 samples across duration)
+            const NUM_SPEED_SAMPLES = 40;
+            const speedHistory: number[] = [];
+            const speedTimestamps: string[] = [];
+            const totalTicks = parsedTicks.length;
+
+            if (totalTicks <= NUM_SPEED_SAMPLES) {
+              for (const tk of parsedTicks) {
+                speedHistory.push(Math.round(Math.abs(tk.v || 0) * 100) / 100);
+                speedTimestamps.push(formatTime(tk.t || 0));
+              }
+            } else {
+              const step = (totalTicks - 1) / (NUM_SPEED_SAMPLES - 1);
+              for (let i = 0; i < NUM_SPEED_SAMPLES; i++) {
+                const idx = Math.min(totalTicks - 1, Math.round(i * step));
+                const tk = parsedTicks[idx];
+                speedHistory.push(Math.round(Math.abs(tk.v || 0) * 100) / 100);
+                speedTimestamps.push(formatTime(tk.t || 0));
+              }
+            }
+
+            // Map data from header if present
+            let parsedMapData: MapData | undefined = undefined;
+            if (headerObj?.map && Array.isArray(headerObj.map.bounds)) {
+              parsedMapData = {
+                bounds: headerObj.map.bounds,
+                drivable: headerObj.map.drivable || [],
+                buildings: headerObj.map.buildings || [],
+                zones: headerObj.map.zones || [],
+                gates: headerObj.map.gates || [],
+                crossing: headerObj.map.crossing || [],
+                points: headerObj.map.points || headerObj.points || {},
+              };
+            }
+
+            // Localization error from ticks
+            const peErrors = parsedTicks
+              .filter((t) => typeof t.pe_error === 'number' && !isNaN(t.pe_error))
+              .map((t) => t.pe_error!);
+            const meanLocError = peErrors.length > 0
+              ? Math.round((peErrors.reduce((sum, v) => sum + v, 0) / peErrors.length) * 100) / 100
+              : undefined;
+
+            const fatalCollisions = parsedTicks.some((t) => t.coll === 1) ? 1 : 0;
+
+            const scenarioName = headerObj?.scenario || file.name.replace(/\.jsonl$/i, '');
+            if (scenarioName) {
+              uploadedRef.current = true;
+              setSelectedScenario(scenarioName);
+            }
+
+            const newEvent: RecentEvent = {
+              id: `log-${Date.now()}`,
+              title: `Загружен лог · ${file.name}`,
+              detail: `Кадров телеметрии: ${parsedTicks.length}, время: ${formatTime(previewTick.t || 0)}`,
+              time: formatTime(previewTick.t || 0),
+              status: fatalCollisions > 0 ? 'critical' : 'success',
+            };
+
+            setData((prev) => {
+              const base: DashboardViewModel = prev || {
+                scenario: scenarioName || '04_busy_yard',
+                totalScore: 98.18,
+                totalMax: 100,
+                deliveriesCount: 2,
+                deliveriesTotal: 2,
+                safetyFatal: 0,
+                safetyWarnings: 0,
+                localizationError: 0.18,
+                recentEvents: [],
+                controllerState: {
+                  online: true,
+                  meanDelayMs: 2.7,
+                  maxDelayMs: 35.0,
+                  nSteps: 0,
+                },
+                speedHistory: [],
+                speedTimestamps: [],
+                previewTick: null,
+                historyTicks: [],
+                mapData: (mockMapData as unknown as MapData),
+              };
+
+              return {
+                ...base,
+                scenario: scenarioName || base.scenario,
+                previewTick,
+                historyTicks,
+                speedHistory,
+                speedTimestamps,
+                mapData: parsedMapData || base.mapData,
+                localizationError: meanLocError !== undefined ? meanLocError : base.localizationError,
+                safetyFatal: fatalCollisions > 0 ? fatalCollisions : base.safetyFatal,
+                controllerState: {
+                  ...base.controllerState,
+                  nSteps: parsedTicks.length,
+                },
+                recentEvents: [newEvent, ...(base.recentEvents || [])].slice(0, 6),
+              };
+            });
+          }
+        } else {
+          // 1. Parse .json (simulator report)
+          const report = JSON.parse(text);
+
+          const scenarioName = report.scenario || report.id || report.scenario_id;
+          if (scenarioName) {
+            uploadedRef.current = true;
+            setSelectedScenario(scenarioName);
+          }
+
+          const totalScore = typeof report.score?.total === 'number'
+            ? report.score.total
+            : typeof report.totalScore === 'number'
+            ? report.totalScore
+            : undefined;
+
+          // Deliveries
+          let deliveriesCount: number | undefined = undefined;
+          let deliveriesTotal: number | undefined = undefined;
+          if (Array.isArray(report.missions)) {
+            deliveriesTotal = report.missions.length;
+            deliveriesCount = typeof report.score?.deliveries === 'number'
+              ? report.score.deliveries
+              : report.missions.filter((m: any) => m.delivered === true || m.status === 'DELIVERED').length;
+          } else if (typeof report.score?.deliveries === 'number') {
+            deliveriesCount = report.score.deliveries;
+          }
+
+          // Safety Fatal & Warnings
+          let safetyFatal: number | undefined = undefined;
+          let safetyWarnings: number | undefined = undefined;
+
+          if (report.summary?.fatalCount !== undefined) {
+            safetyFatal = Number(report.summary.fatalCount);
+          } else if (report.summary?.fatal !== undefined) {
+            safetyFatal = report.summary.fatal ? 1 : 0;
+          } else if (report.score?.fatal !== undefined) {
+            safetyFatal = report.score.fatal ? 1 : 0;
+          } else if (Array.isArray(report.episodes_raw)) {
+            safetyFatal = report.episodes_raw.filter((e: any) => e.severity === 'critical' || e.cost <= -20).length;
+          }
+
+          if (report.summary?.warningsCount !== undefined) {
+            safetyWarnings = Number(report.summary.warningsCount);
+          } else if (report.summary?.warnings !== undefined) {
+            safetyWarnings = Number(report.summary.warnings);
+          } else if (Array.isArray(report.episodes_raw)) {
+            safetyWarnings = report.episodes_raw.filter((e: any) => e.severity === 'warning' || (e.cost !== undefined && e.cost < 0 && e.cost > -20)).length;
+          } else if (Array.isArray(report.score?.episodes)) {
+            safetyWarnings = report.score.episodes.length;
+          }
+
+          // Localization Error
+          const localizationError = report.pose_error?.mean_m
+            ?? report.localizationError
+            ?? report.score?.pose_error?.mean_m
+            ?? (typeof report.pose_error === 'number' ? report.pose_error : undefined);
+
+          // Step time
+          const meanDelay = report.step_time_ms?.mean;
+          const maxDelay = report.step_time_ms?.max;
+          const nSteps = report.step_time_ms?.n ?? report.ticks;
+
+          const newEvent: RecentEvent = {
+            id: `rep-${Date.now()}`,
+            title: `Загружен отчет · ${file.name}`,
+            detail: `Балл: ${(totalScore ?? 98.18).toFixed(2)}, Доставок: ${deliveriesCount ?? 2}/${deliveriesTotal ?? 2}`,
+            time: '00:00',
+            status: safetyFatal && safetyFatal > 0 ? 'critical' : 'success',
+          };
+
+          setData((prev) => {
+            const base: DashboardViewModel = prev || {
+              scenario: scenarioName || '04_busy_yard',
+              totalScore: 98.18,
+              totalMax: 100,
+              deliveriesCount: 2,
+              deliveriesTotal: 2,
+              safetyFatal: 0,
+              safetyWarnings: 0,
+              localizationError: 0.18,
+              recentEvents: [],
+              controllerState: {
+                online: true,
+                meanDelayMs: 2.7,
+                maxDelayMs: 35.0,
+                nSteps: 0,
+              },
+              speedHistory: [],
+              speedTimestamps: [],
+              previewTick: null,
+              historyTicks: [],
+              mapData: (mockMapData as unknown as MapData),
+            };
+
+            return {
+              ...base,
+              scenario: scenarioName || base.scenario,
+              totalScore: totalScore !== undefined ? totalScore : base.totalScore,
+              deliveriesCount: deliveriesCount !== undefined ? deliveriesCount : base.deliveriesCount,
+              deliveriesTotal: deliveriesTotal !== undefined ? deliveriesTotal : base.deliveriesTotal,
+              safetyFatal: safetyFatal !== undefined ? safetyFatal : base.safetyFatal,
+              safetyWarnings: safetyWarnings !== undefined ? safetyWarnings : base.safetyWarnings,
+              localizationError: localizationError !== undefined ? localizationError : base.localizationError,
+              controllerState: {
+                ...base.controllerState,
+                meanDelayMs: meanDelay !== undefined ? meanDelay : base.controllerState.meanDelayMs,
+                maxDelayMs: maxDelay !== undefined ? maxDelay : base.controllerState.maxDelayMs,
+                nSteps: nSteps !== undefined ? nSteps : base.controllerState.nSteps,
+              },
+              recentEvents: [newEvent, ...(base.recentEvents || [])].slice(0, 6),
+            };
+          });
+        }
+      } catch (err) {
+        console.error('[DashboardPage] Failed to parse uploaded file:', err);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   // Loading fallback placeholder if data not yet loaded
   const d = data || apiClient.fetchDashboard('04_busy_yard');
@@ -88,9 +364,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
             <span>Загрузить лог</span>
             <input
               type="file"
+              data-testid="upload-log-input"
               className="hidden"
               accept=".json,.jsonl"
-              onChange={() => alert('Лог успешно импортирован на сервер')}
+              onChange={handleFileUpload}
             />
           </label>
         </div>

@@ -41,6 +41,7 @@ ALL_SCENARIO_IDS = [
     "s3_wall_removed",
     "s4_shadow_start_charger",
     "s5_fog_inattentive",
+    "c1_logistics_hub",
 ]
 
 
@@ -275,4 +276,61 @@ def test_api_post_unknown_endpoint(http_server):
     with pytest.raises(HTTPError) as exc_info:
         urlopen(req)
     assert exc_info.value.code == 404
+
+
+def test_custom_scenario_c1_logistics_hub_integration(http_server):
+    # 1. Verify get_scenario_file resolves custom_scenarios/c1_logistics_hub.json
+    sc_file = get_scenario_file("c1_logistics_hub")
+    assert sc_file is not None
+    assert sc_file.exists()
+    assert "custom_scenarios" in str(sc_file).replace("\\", "/")
+
+    # 2. Verify schema validity with amrsim
+    amrsim_part = Path(__file__).resolve().parent.parent / "amrsim-participants"
+    if str(amrsim_part) not in sys.path:
+        sys.path.insert(0, str(amrsim_part))
+    from amrsim.schema import load_scenario
+    sc = load_scenario(sc_file)
+    assert sc["schema"] == "amr-1.0"
+    assert sc["name"] == "c1_logistics_hub"
+    assert len(sc["missions"]) == 2
+    assert "dock_inbound" in sc["map"]["points"]
+    assert "dock_outbound" in sc["map"]["points"]
+    assert len(sc["map"]["drivable"]) >= 4
+    assert len(sc["map"]["buildings"]) >= 10
+    assert len(sc["pedestrians"]) >= 2
+
+    # 3. Verify server HTTP API returns custom scenario
+    url = f"{http_server}/api/scenarios"
+    with urlopen(url) as resp:
+        assert resp.status == 200
+        scenarios = json.loads(resp.read().decode("utf-8"))
+        hub_sc = next((s for s in scenarios if s["id"] == "c1_logistics_hub"), None)
+        assert hub_sc is not None, "c1_logistics_hub must be returned by /api/scenarios"
+        assert hub_sc["type"] == "custom"
+        assert "custom_scenarios" in hub_sc["file"]
+        assert hub_sc["hasReport"] is True
+        assert hub_sc["score"] is not None
+
+    # 4. Verify all SDUI view models build for c1_logistics_hub
+    dash_vm = build_dashboard_view_model("c1_logistics_hub")
+    assert dash_vm["scenario"] == "c1_logistics_hub"
+    assert dash_vm["deliveriesCount"] == 2
+    assert dash_vm["totalScore"] is not None
+
+    rep_vm = build_replay_view_model("c1_logistics_hub")
+    assert rep_vm["scenario"] == "c1_logistics_hub"
+    assert len(rep_vm["ticks"]) > 1000
+
+    ep_vm = build_episodes_view_model("c1_logistics_hub")
+    assert ep_vm["scenario"] == "c1_logistics_hub"
+
+    mis_vm = build_missions_view_model("c1_logistics_hub")
+    assert mis_vm["scenario"] == "c1_logistics_hub"
+    assert len(mis_vm["missions"]) == 2
+
+    an_vm = build_analytics_view_model("c1_logistics_hub")
+    assert an_vm["scenario"] == "c1_logistics_hub"
+    assert len(an_vm["blocks"]) == 6
+
 

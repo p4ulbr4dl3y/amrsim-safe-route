@@ -125,6 +125,15 @@ const fallbackData = {
         hasReport: true,
         score: 99.27,
       },
+      {
+        id: 'c1_logistics_hub',
+        name: 'custom_scenarios/c1_logistics_hub.json (Логистический хаб)',
+        description: 'Логистический хаб 160x140м: Т-образный кросс-докинг, зоны ограничения скорости, пешеходные переходы.',
+        type: 'custom',
+        file: 'custom_scenarios/c1_logistics_hub.json',
+        hasReport: true,
+        score: 94.74,
+      },
     ];
   },
 

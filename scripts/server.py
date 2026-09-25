@@ -23,6 +23,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 SCENARIOS_DIR = ROOT_DIR / "amrsim-participants" / "scenarios"
 TEAM_SCENARIOS_DIR = ROOT_DIR / "backend" / "scenarios"
+CUSTOM_SCENARIOS_DIR = ROOT_DIR / "custom_scenarios"
 OUT_DIR = ROOT_DIR / "out"
 RESULTS_DIR = ROOT_DIR / "results"
 
@@ -81,6 +82,10 @@ SCENARIO_META: dict[str, dict[str, str]] = {
         "title": "backend/s5_fog_inattentive.json (Туман и пешеход)",
         "description": "Собственный сценарий команды: плотный туман и внезапный пешеход поперек курса.",
     },
+    "c1_logistics_hub": {
+        "title": "custom_scenarios/c1_logistics_hub.json (Логистический хаб)",
+        "description": "Логистический хаб 160x140м: Т-образный кросс-докинг, зоны ограничения скорости, пешеходные переходы.",
+    },
 }
 
 POINT_LABELS: dict[str, str] = {
@@ -88,6 +93,10 @@ POINT_LABELS: dict[str, str] = {
     "shop_a": "Цех A",
     "shop_b": "Цех B",
     "charger": "Зарядка",
+    "dock_inbound": "Док разгрузки",
+    "dock_outbound": "Док отгрузки",
+    "dock_sort": "Сортировка",
+    "dock_charge": "Зарядка",
 }
 
 RULE_EXPLANATIONS: dict[str, str] = {
@@ -163,8 +172,8 @@ def get_scenario_file(scenario_id: str) -> Path | None:
     if rel_p.is_file() and rel_p.exists():
         return rel_p
 
-    # Search in standard and team scenario directories
-    for base in [SCENARIOS_DIR, TEAM_SCENARIOS_DIR]:
+    # Search in standard, team, and custom scenario directories
+    for base in [SCENARIOS_DIR, TEAM_SCENARIOS_DIR, CUSTOM_SCENARIOS_DIR]:
         if not base.exists():
             continue
         candidate = base / f"{norm_id}.json"
@@ -1070,6 +1079,24 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                             "id": sc_id,
                             "name": meta.get("title", f"backend/{sc_id}.json"),
                             "description": meta.get("description", "Собственный сценарий команды О4"),
+                            "type": "custom",
+                            "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
+                            "hasReport": rep is not None,
+                            "score": rep.get("score", {}).get("total") if rep else None,
+                        })
+
+            # Custom scenarios (e.g. custom_scenarios/c1_logistics_hub.json)
+            if CUSTOM_SCENARIOS_DIR.exists():
+                for f in sorted(CUSTOM_SCENARIOS_DIR.glob("*.json")):
+                    sc_id = f.stem
+                    if sc_id not in seen:
+                        seen.add(sc_id)
+                        meta = SCENARIO_META.get(sc_id, {})
+                        rep = get_scenario_report(sc_id)
+                        scenarios.append({
+                            "id": sc_id,
+                            "name": meta.get("title", f"custom/{sc_id}.json"),
+                            "description": meta.get("description", "Пользовательский сценарий логистического хаба"),
                             "type": "custom",
                             "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
                             "hasReport": rep is not None,
