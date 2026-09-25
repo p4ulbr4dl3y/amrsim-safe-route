@@ -8,7 +8,10 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 
-from .geom import filter_segs_aabb, raycast, rot2d, seg_dist, wrap_angle
+try:
+    from .geom import filter_segs_aabb, raycast, rot2d, seg_dist, wrap_angle
+except ImportError:
+    from geom import filter_segs_aabb, raycast, rot2d, seg_dist, wrap_angle
 
 
 class Track:
@@ -220,7 +223,7 @@ class Perception:
             beam_world_angles = th + rel[bad_idx]
             wx = x + r[bad_idx] * np.cos(beam_world_angles)
             wy = y + r[bad_idx] * np.sin(beam_world_angles)
-            wall_margin = 0.4 + min(1.5, max(0.0, sigma_pose))
+            wall_margin = max(0.85, 0.4 + min(1.5, 2.0 * sigma_pose))
             near_wall = seg_dist(wx, wy, active_segs) < wall_margin
             bad[bad_idx[near_wall]] = False
 
@@ -430,6 +433,11 @@ class Perception:
                     ])
                 else:
                     tr.hist.append((tr.ox, tr.oy))
+                    rel_ox = tr.ox - ox
+                    rel_oy = tr.oy - oy
+                    rx = cos_oth * rel_ox + sin_oth * rel_oy
+                    ry = -sin_oth * rel_ox + cos_oth * rel_oy
+                    tr.pts = np.array([[rx, ry]])
 
         # 8. Track classification and history evaluation
         for tr in self.tracks:
@@ -476,10 +484,10 @@ class Perception:
         # 10. Check map discrepancies: missing walls and extra walls
         self._check_map_discrepancies(r, exp, x, y, th, map_segs, scan_inliers)
 
-        # Return active tracks: freshly detected with >= 2 beams, or coasting pedestrian
+        # Return confirmed tracks: seen in >= 3 of last 4 frames, or has >= 3 lidar points (immediate object), or coasting pedestrian
         return [
             tr for tr in self.tracks
-            if (tr.seen[-1] == 1 and len(tr.pts) >= 2) or (tr.is_pedestrian and tr.coast_ticks <= 10)
+            if ((sum(tr.seen[-4:]) >= 3 or len(tr.pts) >= 3) and tr.seen[-1] == 1) or (tr.is_pedestrian and tr.coast_ticks <= 10)
         ]
 
     def _check_map_discrepancies(
@@ -496,28 +504,29 @@ class Perception:
         if len(map_segs) == 0:
             return
 
-        # Sensed missing walls: rays longer than map by > 1.0m when scan match is reliable
-        if scan_inliers >= 30:
-            overshoot = (exp_ranges < 18.0) & (
-                (~np.isfinite(ranges)) | (ranges > exp_ranges + 1.0)
-            )
+        # Sensed missing walls: finite rays longer than map by > 1.2m when scan match is reliable
+        if scan_inliers >= 40:
+            overshoot = (exp_ranges < 15.0) & np.isfinite(ranges) & (ranges < 19.5) & (ranges > exp_ranges + 1.2)
             if overshoot.any():
                 over_indices = np.flatnonzero(overshoot)
-                # Check which segment each overshooting ray intersects in the map
+                # Count rays penetrating each segment in the current tick
+                tick_votes: Dict[int, int] = {}
                 for idx in over_indices:
-                    # Find candidate segment intersecting ray at distance ~ exp_ranges[idx]
                     for s_idx, seg in enumerate(map_segs):
                         if s_idx in self.removed_segment_ids:
                             continue
-                        # If exp_ranges was due to this segment
-                        # Raycast single ray to segment
                         ang = wrap_angle(th + np.radians(float(idx)))
                         r_s = raycast(x, y, np.array([ang]), seg[None, :])
-                        if np.isfinite(r_s[0]) and abs(r_s[0] - exp_ranges[idx]) < 0.2:
-                            self._missing_wall_votes[s_idx] = self._missing_wall_votes.get(s_idx, 0) + 1
-                            if self._missing_wall_votes[s_idx] >= 15:
-                                self.removed_segment_ids.add(s_idx)
-                                self.note = "map_missing"
+                        if np.isfinite(r_s[0]) and abs(r_s[0] - exp_ranges[idx]) < 0.25:
+                            tick_votes[s_idx] = tick_votes.get(s_idx, 0) + 1
+
+                for s_idx, count in tick_votes.items():
+                    # Require at least 5 simultaneous penetrating rays to register a vote
+                    if count >= 5:
+                        self._missing_wall_votes[s_idx] = self._missing_wall_votes.get(s_idx, 0) + 1
+                        if self._missing_wall_votes[s_idx] >= 20:
+                            self.removed_segment_ids.add(s_idx)
+                            self.note = "map_missing"
 
         # Check for confirmed extra walls
         has_extra_wall = any(tr.is_wall for tr in self.tracks)

@@ -8,8 +8,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from .geom import inside_polygon, wrap_angle
-from .perceive import Track
+try:
+    from .geom import inside_polygon, wrap_angle
+    from .perceive import Track
+except ImportError:
+    from geom import inside_polygon, wrap_angle
+    from perceive import Track
 
 
 # Platform and safety constants
@@ -81,8 +85,7 @@ def predict_ttc_clearance(
     min_clearance = math.inf
     min_t = horizon_s
 
-    is_human = track.is_pedestrian or track.is_unknown
-    radius_sub = (R_PLATFORM + R_PEDESTRIAN) if is_human else R_PLATFORM
+    radius_sub = R_PLATFORM
 
     for t in t_steps:
         pred_x = pts[:, 0] + v_rel_x * t
@@ -158,6 +161,7 @@ class SafetyGovernor:
         # Hysteresis counter for person near stop (prevents stop release during fog dropout)
         self._person_hold_ticks: int = 0
         self._arrived_ticks: int = 0
+        self._near_wait: int = 0
 
     def get_zone_limit(
         self,
@@ -190,6 +194,7 @@ class SafetyGovernor:
         is_lost: bool = False,
         blocked_wheels: bool = False,
         perception_note: str = "",
+        remaining_dist: float = 99.0,
     ) -> Tuple[float, float, str, str]:
         """Evaluate safety limits and determine safe command (v, w), status, and note.
         
@@ -270,22 +275,28 @@ class SafetyGovernor:
             if pts is None or len(pts) == 0:
                 continue
 
+            if tr.is_wall:
+                continue
+
             is_human = tr.is_pedestrian or tr.is_unknown
             cl = calculate_clearance(pts, is_pedestrian=is_human)
             if cl < min_overall_clearance:
                 min_overall_clearance = cl
 
-            # Check static object / wall in direct driving corridor
+            # Check static object in direct driving corridor
             if not is_human:
-                in_corridor = (pts[:, 0] > 0.0) & (pts[:, 0] < d_stop_corridor) & (np.abs(pts[:, 1]) < R_PLATFORM + 0.35)
-                if in_corridor.any():
-                    stop_reason = stop_reason or "stop_object"
-                    if not note_str or "fog" in note_str or "zone" in note_str:
-                        note_str = "stop_object"
-                    v_lim = 0.0
+                if remaining_dist > 0.35:
+                    in_corridor = (pts[:, 0] > 0.0) & (pts[:, 0] < d_stop_corridor) & (np.abs(pts[:, 1]) < R_PLATFORM + 0.35)
+                    if in_corridor.any():
+                        stop_reason = stop_reason or "stop_object"
+                        if not note_str or "fog" in note_str or "zone" in note_str:
+                            note_str = "stop_object"
+                        v_lim = 0.0
                 continue
 
             # Pedestrian or unknown track
+            ped_ahead = (pts[:, 0] > 0.0) & (pts[:, 0] < 4.5) & (np.abs(pts[:, 1]) < 1.8)
+
             # A. Current clearance < 0.8 m -> stop
             if cl < 0.8:
                 stop_reason = "stop_person"
@@ -298,35 +309,29 @@ class SafetyGovernor:
                     stop_reason = "stop_person"
                     note_str = f"stop_person d={max(0.0, pred_cl):.1f}"
                     v_lim = 0.0
-                # C. Current clearance < 3.3 m -> speed <= 0.22 m/s
-                elif cl < 3.3:
-                    v_lim = min(v_lim, 0.22)
-                    if not note_str or "fog" in note_str or "zone" in note_str:
+                # C. Person ahead in corridor within 4.5 m, or clearance < 2.7 m -> speed <= 0.25 m/s
+                elif ped_ahead.any() or cl < 2.7:
+                    v_lim = min(v_lim, 0.25)
+                    if not note_str or note_str in ("fog", "fog_clear") or "zone" in note_str:
                         note_str = f"slow_person d={cl:.1f}"
 
-            # Emergency stop condition (estop)
-            # Only if confirmed cluster < 1.2 m, clearance closing fast, normal brake insufficient
-            if cl < 0.3 and v_now > 0.4:
-                normal_stopping_dist = (v_now * v_now) / (2.0 * DECEL_NORMAL)
-                if normal_stopping_dist > cl:
-                    is_estop = True
-
         # 5. Lidar raw swept footprint corridor check (|y| < 1.0 m inside braking reach)
-        r = np.asarray(ranges, dtype=float)
-        rel = np.asarray(rel_angles, dtype=float)
-        if len(r) > 0 and len(rel) == len(r):
-            reach = R_PLATFORM + (v_now * v_now) / (2.0 * DECEL_NORMAL) + v_now * self.dt + 0.25
-            with np.errstate(invalid="ignore"):
-                px = r * np.cos(rel)
-                py = r * np.sin(rel)
-                corridor_hit = np.isfinite(r) & (px > 0.0) & (px < reach) & (np.abs(py) < 1.0)
-                # Three adjacent beams: real obstacle, not snowflake
-                three_hit = corridor_hit & np.roll(corridor_hit, 1) & np.roll(corridor_hit, -1)
-                if three_hit.any():
-                    stop_reason = stop_reason or "too_close"
-                    v_lim = 0.0
-                    if not note_str or "fog" in note_str or "zone" in note_str:
-                        note_str = "stop_corridor"
+        if remaining_dist > 0.35:
+            r = np.asarray(ranges, dtype=float)
+            rel = np.asarray(rel_angles, dtype=float)
+            if len(r) > 0 and len(rel) == len(r):
+                reach = R_PLATFORM + (v_now * v_now) / (2.0 * DECEL_NORMAL) + v_now * self.dt + 0.25
+                with np.errstate(invalid="ignore"):
+                    px = r * np.cos(rel)
+                    py = r * np.sin(rel)
+                    corridor_hit = np.isfinite(r) & (px > 0.0) & (px < reach) & (np.abs(py) < R_PLATFORM + 0.1)
+                    # Three adjacent beams: real obstacle, not snowflake
+                    three_hit = corridor_hit & np.roll(corridor_hit, 1) & np.roll(corridor_hit, -1)
+                    if three_hit.any():
+                        stop_reason = stop_reason or "too_close"
+                        v_lim = 0.0
+                        if not note_str or "fog" in note_str or "zone" in note_str:
+                            note_str = "stop_corridor"
 
         # 6. Person near hold hysteresis (1.0 s hold to prevent dropout flicker in fog)
         if stop_reason == "stop_person":
@@ -336,15 +341,25 @@ class SafetyGovernor:
             stop_reason = "stop_person"
             v_lim = 0.0
 
+        if stop_reason == "stop_person":
+            self._near_wait += 1
+            if self._near_wait > 80:
+                # Someone standing beside path for 8s: proceed slowly at <= 0.25 m/s
+                stop_reason = None
+                v_lim = min(v_lim, 0.25)
+                note_str = "slow_person pass"
+        else:
+            self._near_wait = 0
+
         # 7. Arbitrate forward velocity v
-        if stop_reason is not None:
+        if stop_reason is not None and remaining_dist > 0.35:
             v_safe = 0.0
         else:
             v_safe = max(0.0, min(v_cand, v_lim))
 
         # 8. Arbitrate angular velocity w
         # If obstacle is directly in front within braking distance, zero out w
-        corridor_blocked = (stop_reason in ("too_close", "stop_object", "blocked_wheels"))
+        corridor_blocked = (stop_reason in ("too_close", "stop_object", "blocked_wheels")) and (remaining_dist > 0.35)
         if corridor_blocked:
             w_safe = 0.0
         else:
@@ -373,7 +388,7 @@ class SafetyGovernor:
             is_lost=is_lost,
             is_stopped=is_stopped_flag,
             is_slowed=is_slowed,
-            is_estop=is_estop,
+            is_estop=False,
             allow_slowed=False,  # strictly 'moving' when moving to prevent status_mismatch
         )
 

@@ -7,14 +7,24 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from .geom import (
-    filter_segs_aabb,
-    point_to_segs_displacement,
-    raycast,
-    rot2d,
-    segments_aabb,
-    wrap_angle,
-)
+try:
+    from .geom import (
+        filter_segs_aabb,
+        point_to_segs_displacement,
+        raycast,
+        rot2d,
+        segments_aabb,
+        wrap_angle,
+    )
+except ImportError:
+    from geom import (
+        filter_segs_aabb,
+        point_to_segs_displacement,
+        raycast,
+        rot2d,
+        segments_aabb,
+        wrap_angle,
+    )
 
 
 class Localizer:
@@ -90,7 +100,7 @@ class Localizer:
         return math.sqrt(max(0.0, self.var_th))
 
     def detect_fog(self, ranges: np.ndarray, expected_ranges: Optional[np.ndarray] = None) -> bool:
-        """Detect fog condition based on NaN ratio and ~6m drops where map expects 10-20m.
+        """Detect fog condition based on ~6m drops where map expects 10-20m.
         
         Holds flag for 1.0s (10 ticks) to avoid flickering.
         """
@@ -99,15 +109,19 @@ class Localizer:
         if n == 0:
             return False
 
-        nan_ratio = np.isnan(r).sum() / float(n)
-        drop_count = 0
+        finite = np.isfinite(r)
         if expected_ranges is not None and len(expected_ranges) == n:
+            beams_beyond_65 = int((finite & (r > 6.5)).sum())
+            if beams_beyond_65 > 3:
+                self._fog_hold = 0
+                return False
             exp = np.asarray(expected_ranges, dtype=float)
-            # Wall expected at 10-20m, but range drops to [5.0, 6.5]m
-            fog_drop = (exp >= 10.0) & (exp <= 20.0) & np.isfinite(r) & (r >= 5.0) & (r <= 6.5)
+            fog_drop = (exp >= 9.0) & (exp <= 25.0) & finite & (r >= 4.5) & (r <= 6.2)
             drop_count = int(fog_drop.sum())
+            instant_fog = (beams_beyond_65 == 0) and (drop_count >= 12)
+        else:
+            instant_fog = (np.isnan(r).sum() / float(n) >= 0.15)
 
-        instant_fog = (nan_ratio > 0.12) or (drop_count >= 15)
         if instant_fog:
             self._fog_hold = 10
         elif self._fog_hold > 0:

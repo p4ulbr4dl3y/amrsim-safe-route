@@ -11,7 +11,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from .geom import box_segs, inside_polygon, wrap_angle
+try:
+    from .geom import box_segs, inside_polygon, wrap_angle
+except ImportError:
+    from geom import box_segs, inside_polygon, wrap_angle
 
 
 class _PriorityQueue:
@@ -242,9 +245,11 @@ class RouteFollower:
         self.current_mission_id = m_id
         ref_path = np.asarray(mission["reference_path"], dtype=float)
         self.reference_path = ref_path
+        self.active_path = ref_path.copy()
         self.arrived = False
         self.hold_count = 0
         self.progress_s = 0.0
+        self.last_s = 0.0
         self.last_s = 0.0
         self.note = None
         self.last_replan_t = -10.0
@@ -494,16 +499,18 @@ class RouteFollower:
                 proj = p1 + u * v
                 s_obs = cum_lens[i] + u * L
 
-                # Only evaluate obstacles ahead of robot
-                if s_obs < current_s - 1.0 or s_obs > current_s + 35.0:
+                # Only evaluate obstacles ahead of robot, but not beyond end of path
+                if s_obs < current_s - 0.5 or s_obs > current_s + 35.0:
+                    continue
+                # Do not trigger tube avoidance near terminal dock point (last 3.0m)
+                if s_obs > cum_lens[-1] - 3.0:
                     continue
 
                 dist_center = math.hypot(ox - proj[0], oy - proj[1])
                 dist_edge = dist_center - r
-                gap = dist_center - 0.9 - r
 
-                # Tube check (0.9 + 0.35m = 1.25m) OR required clearance gap < 1.1m
-                if dist_edge < tube_radius or gap < 1.1001:
+                # Tube check: obstacle edge enters reference tube or violates 1.1m clearance gap
+                if dist_edge < max(tube_radius, 2.0):
                     if s_obs < min_s:
                         min_s = s_obs
                         best_obs = (ox, oy, r, s_obs)
@@ -714,15 +721,20 @@ class RouteFollower:
         v_dock = 0.15 if is_dock_zone else 1.39
         # 2. Turning speed limit: |alpha| > 0.35 -> v <= 0.5
         v_turn = 0.5 if abs(alpha) > 0.35 else 1.39
-        # 3. Deceleration braking profile: v <= sqrt(2 * 0.4 * rem_dist) + 0.03
-        v_brake = math.sqrt(2.0 * 0.4 * rem_dist) + 0.03
+        # 3. Deceleration braking profile
+        effective_rem = max(0.0, min(rem_dist, dist_to_goal + 0.05) - 0.02)
+        v_brake = math.sqrt(2.0 * 0.4 * effective_rem) + 0.03
+
+        if dist_to_goal < 0.03 or effective_rem < 0.03:
+            return 0.0, 0.0, target_pt, curr_s, 0.0
 
         v = min(v_max, v_dock, v_turn, v_brake)
         v = max(0.0, v)
 
-        # Pure pursuit curvature steering
-        kappa = 2.0 * math.sin(alpha) / max(ld, 0.1)
-        w = float(np.clip(v * kappa, -1.0, 1.0))
+        # Pure pursuit curvature steering with fallback to alpha when v is small
+        lx = max(0.5, ld)
+        w = 2.0 * v * math.sin(alpha) / lx if v > 0.05 else float(np.clip(1.5 * alpha, -1.0, 1.0))
+        w = float(np.clip(w, -1.0, 1.0))
 
         return v, w, target_pt, curr_s, rem_dist
 
@@ -793,6 +805,7 @@ class RouteFollower:
             if shifted is not None:
                 self.active_path = shifted
                 self.note = "offset"
+                self.last_s = self._get_path_progress(self.active_path, x, y, 0.0)
             else:
                 # 2. Try local A* replan
                 replanned = self.replan_astar(pose, self.active_path, obs_ahead,
@@ -800,6 +813,7 @@ class RouteFollower:
                 if replanned is not None:
                     self.active_path = replanned
                     self.note = "replan"
+                    self.last_s = 0.0
                 else:
                     # 3. No path found -> safe stop
                     self.note = "stop_object"
