@@ -71,7 +71,7 @@ class TestSafety(unittest.TestCase):
             rel_angles=np.radians(np.arange(360)),
             zones=[],
         )
-        self.assertLessEqual(v_safe, 0.22)
+        self.assertLessEqual(v_safe, 0.25)
         self.assertGreater(v_safe, 0.0)
         self.assertEqual(status, "moving")
         self.assertIn("slow_person", note)

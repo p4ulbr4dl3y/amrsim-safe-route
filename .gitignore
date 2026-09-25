@@ -40,3 +40,8 @@ htmlcov/
 .vscode/
 *.swp
 *.swo
+.serena/
+
+# Reports and outputs
+out/
+results/

@@ -1,0 +1,9 @@
+[project]
+name = "amr-controller"
+version = "0.1.0"
+description = "Autonomous mobile robot controller for Safe Route"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24.0",
+]
