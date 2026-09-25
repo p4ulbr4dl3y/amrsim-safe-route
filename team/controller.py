@@ -4,7 +4,7 @@ Strictly conforms to AMR-1.0 schema, isolation rules, and scoring thresholds.
 Only standard library and numpy are used.
 """
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -79,6 +79,9 @@ class Controller:
         self.visited_from: bool = False
         self.truth_pose: Optional[List[float]] = None
         self.last_recover_t: float = -1e9
+        # Track ids confirmed by two consecutive sightings (fallback while
+        # Perception.active_tracks is not exposed yet, task I).
+        self._confirmed_ids: Set[int] = set()
 
     @staticmethod
     def _extract_pole_centers(buildings: Any) -> np.ndarray:
@@ -122,6 +125,55 @@ class Controller:
         """Ground truth hook for local --cheat benchmarking only."""
         self.truth_pose = [float(p) for p in pose]
 
+    @staticmethod
+    def _track_world_xy(
+        trk: Any,
+        pose: Tuple[float, float, float],
+        odom_pose: Tuple[float, float, float],
+    ) -> Tuple[float, float]:
+        """Transform a track centroid from the pure odometry frame to world frame."""
+        cos_o, sin_o = math.cos(odom_pose[2]), math.sin(odom_pose[2])
+        cos_w, sin_w = math.cos(pose[2]), math.sin(pose[2])
+        dx_o = trk.ox - odom_pose[0]
+        dy_o = trk.oy - odom_pose[1]
+        # Odometry frame -> robot frame
+        rx = cos_o * dx_o + sin_o * dy_o
+        ry = -sin_o * dx_o + cos_o * dy_o
+        # Robot frame -> world frame
+        return (pose[0] + cos_w * rx - sin_w * ry,
+                pose[1] + sin_w * rx + cos_w * ry)
+
+    def _active_tracks(self) -> List[Any]:
+        """Return confirmed tracks only for safety and the obstacle layer.
+
+        Uses ``Perception.active_tracks`` when task I exposes it. Until then the
+        same frozen rule is applied locally: a track is confirmed once its
+        ``seen`` history contains two consecutive hits (1,1), and a confirmed
+        track stays confirmed while it coasts -- a fog dropout must not release
+        the brake (plan/03:20, plan/02:143-145).
+        """
+        active = getattr(self.perception, "active_tracks", None)
+        if active is not None:
+            return list(active)
+
+        live_ids: Set[int] = set()
+        for tr in self.perception.tracks:
+            live_ids.add(tr.track_id)
+            if tr.track_id in self._confirmed_ids:
+                continue
+            run = 0
+            for seen in tr.seen:
+                if seen:
+                    run += 1
+                    if run >= 2:
+                        self._confirmed_ids.add(tr.track_id)
+                        break
+                else:
+                    run = 0
+        # Track ids are never reused, so a pruned track can drop its confirmation.
+        self._confirmed_ids &= live_ids
+        return [tr for tr in self.perception.tracks if tr.track_id in self._confirmed_ids]
+
     def step(self, obs: Dict[str, Any]) -> Dict[str, Any]:
         """Perform one control cycle for the AMR platform."""
         # 1. Predict pose using odometry and IMU
@@ -156,15 +208,23 @@ class Controller:
 
         self.localizer.update_scan(ranges, rel_angles, active_segs, is_fog=is_fog)
 
-        # 2b. Lost-pose recovery: standing platform re-searches the map (plan/02:135+).
+        # 2b. Lost-pose recovery: the standing platform re-searches the map
+        # (plan/02:143-145). try_recover() refuses to run unless the platform is
+        # actually stopped, so the `stopped` verdict must be passed explicitly --
+        # calling it without it left the search dead. At most one attempt per second.
         v_odom = dx_odom / self.dt
-        if self.localizer.is_lost and abs(v_odom) < 0.04:
+        if self.localizer.is_lost:
             now_t = float(obs.get("t", 0.0))
             if now_t - self.last_recover_t >= 1.0:
                 self.last_recover_t = now_t
                 recover = getattr(self.localizer, "try_recover", None)
                 if callable(recover):
-                    recover(ranges=ranges, rel_angles=rel_angles, segs=active_segs)
+                    recover(
+                        ranges=ranges,
+                        rel_angles=rel_angles,
+                        segs=active_segs,
+                        stopped=(abs(v_odom) < 0.04),
+                    )
 
         # 3. GNSS update with innovation gating
         gnss = obs.get("gnss", {})
@@ -229,7 +289,7 @@ class Controller:
             }
 
         # 5. Perception: track dynamic & static obstacles in clean odometry frame
-        tracks = self.perception.step(
+        self.perception.step(
             ranges=ranges,
             rel_angles=rel_angles,
             pose=pose,
@@ -241,27 +301,31 @@ class Controller:
             scan_inliers=self.localizer.scan_inliers,
         )
 
+        # Only *confirmed* tracks reach the safety governor and the route obstacle
+        # layer (frozen wave-3 interface). A lone/paired snow return never repeats
+        # at the same world point from tick to tick (plan/03:18), so it must not be
+        # allowed to act as a phantom person and freeze the mission.
+        active_tracks = self._active_tracks()
+
         # Extract confirmed static obstacles for route planner
-        static_obs = []
-        for trk in tracks:
+        static_obs: List[Tuple[float, float, float]] = []
+        confirmed_xy: List[Tuple[float, float]] = []
+        for trk in active_tracks:
+            if trk.is_pedestrian or trk.is_unknown:
+                continue
+            wx, wy = self._track_world_xy(trk, pose, odom_pose)
+            confirmed_xy.append((wx, wy))
             if trk.is_static_object and not trk.is_wall:
-                # Transform track centroid from odom frame to world coordinates
-                cos_o, sin_o = math.cos(odom_pose[2]), math.sin(odom_pose[2])
-                cos_w, sin_w = math.cos(pose[2]), math.sin(pose[2])
-                dx_o = trk.ox - odom_pose[0]
-                dy_o = trk.oy - odom_pose[1]
-                # In robot frame
-                rx = cos_o * dx_o + sin_o * dy_o
-                ry = -sin_o * dx_o + cos_o * dy_o
-                # In world frame
-                wx = pose[0] + cos_w * rx - sin_w * ry
-                wy = pose[1] + sin_w * rx + cos_w * ry
                 r_obs = max(0.4, 0.5 * min(2.0, trk.length))
                 static_obs.append((wx, wy, r_obs))
 
         # Map discrepancies (map_extra / wall_extra) must feed the route obstacle
         # layer too, otherwise an unmapped map patch is crossed head-on (audit gap 9).
+        # The extra layer is admitted only where it belongs to a confirmed track, so
+        # an unconfirmed phantom wall cannot rewrite the route either.
         for ex, ey, er in self.perception.get_extra_obstacles():
+            if not any(math.hypot(ex - cx, ey - cy) < 0.35 for cx, cy in confirmed_xy):
+                continue
             if any(math.hypot(ex - sx, ey - sy) < 0.35 for sx, sy, _ in static_obs):
                 continue
             static_obs.append((float(ex), float(ey), float(er)))
@@ -309,7 +373,7 @@ class Controller:
             w_odom=w_odom,
             pose=pose,
             odom_pose=odom_pose,
-            tracks=tracks,
+            tracks=active_tracks,
             ranges=ranges,
             rel_angles=rel_angles,
             zones=self.zones,

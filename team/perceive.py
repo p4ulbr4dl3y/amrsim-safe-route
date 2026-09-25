@@ -23,10 +23,55 @@ STATIC_SHIFT_M = 0.25
 # near-stop gate (|v| < 0.02), which is unreachable for an object that itself
 # forces a 0.22 m/s crawl (safety human limits). 0.35 m/s keeps that case.
 STATIC_OBJECT_V_GATE = 0.35
-# ~1.0 s of history at dt = 0.1 s before a still cluster can become an object.
-STATIC_HISTORY_TICKS = 10
+# 1.5 s of history at dt = 0.1 s before a still cluster can become an object
+# (plan/03:29, task I.4c): snow does not repeat in one world point from tick to
+# tick, so a commitment needs a long stable world track, not one lucky frame.
+STATIC_HISTORY_TICKS = 15
+# A cluster in front of the platform inside the swept corridor is a human until it
+# has been stable for >= 2.0 s: safety must use human limits there, the route plans
+# the side offset around a real object (plan/03:28-30, plan/04:32-41).
+FRONTAL_STATIC_HISTORY_TICKS = 20
+FRONTAL_CORRIDOR_FWD_M = 5.0
+FRONTAL_CORRIDOR_LAT_M = 1.6
 # "Compact" cluster: a pallet/box, not a wall or a long fence.
 COMPACT_CLUSTER_LENGTH_M = 1.0
+# Platform body radius (m). Duplicated from safety to avoid a circular import.
+# A candidate point closer than R_PLATFORM - 0.05 sits inside the hull and is a
+# phantom: it can never be confirmed into the active obstacle set (plan/03:18).
+PLATFORM_RADIUS_M = 0.9
+PLATFORM_BODY_MARGIN_M = 0.05
+
+
+def seen_has_pair(seen: List[int]) -> bool:
+    """True when `seen` contains two adjacent detection hits (1, 1).
+
+    A track confirmed by an adjacent pair stays confirmed forever (coasting through
+    fog must not drop an already validated person back to unknown, plan/03:20).
+    """
+    for i in range(len(seen) - 1):
+        if seen[i] == 1 and seen[i + 1] == 1:
+            return True
+    return False
+
+
+def track_forward_lateral(tr: "Track") -> Tuple[float, float]:
+    """Centroid of a track in the current robot frame: (forward, lateral) metres.
+
+    ``Track.pts`` already lives in the robot frame (relative to the pure odometry
+    pose of the last step). An empty footprint is reported as (inf, inf) so it is
+    never mistaken for a cluster inside the swept corridor.
+    """
+    pts = tr.pts
+    if pts is None or len(pts) == 0:
+        return math.inf, math.inf
+    return float(pts[:, 0].mean()), float(pts[:, 1].mean())
+
+
+def track_world_shift(tr: "Track") -> float:
+    """Displacement of a track in the pure odometry frame over its history window."""
+    if len(tr.hist) < 2:
+        return 0.0
+    return math.hypot(tr.hist[-1][0] - tr.hist[0][0], tr.hist[-1][1] - tr.hist[0][1])
 
 
 class Track:
@@ -48,6 +93,7 @@ class Track:
         "length",                # Cluster length along principal axis (m)
         "thickness",             # Cluster thickness 80th percentile across axis (m)
         "coast_ticks",           # Ticks since last sensor detection
+        "confirmed",             # Latched: two adjacent detection hits seen at least once
     )
 
     def __init__(self, track_id: int, ox: float, oy: float, pts: Optional[np.ndarray] = None):
@@ -65,6 +111,34 @@ class Track:
         self.length: float = 0.0
         self.thickness: float = 0.0
         self.coast_ticks: int = 0
+        self.confirmed: bool = False
+
+    def inside_platform_body(self) -> bool:
+        """True when the current footprint sits inside the platform hull.
+
+        A return closer than ``R_PLATFORM - 0.05`` m is physically impossible without a
+        reported contact: it is a phantom (a stray snowflake or a lidar artifact), so
+        its points are discarded from the active obstacle set (plan/03:18).
+        """
+        pts = self.pts
+        if pts is None or len(pts) == 0:
+            return False
+        return float(np.hypot(pts[:, 0], pts[:, 1]).min()) < (PLATFORM_RADIUS_M - PLATFORM_BODY_MARGIN_M)
+
+    def refresh_confirmed(self) -> bool:
+        """Latch confirmation once `seen` holds two adjacent hits; never unset it.
+
+        A cluster whose points currently lie inside the platform body cannot confirm:
+        that is the close-phantom safeguard (plan/03:18). Discarding the points here,
+        rather than at cluster assembly, keeps the segmentation of real returns -- and
+        therefore track association -- untouched. A track that is already confirmed
+        never loses the flag, so a real body at contact still brakes.
+        """
+        if self.inside_platform_body():
+            return self.confirmed
+        if not self.confirmed and seen_has_pair(self.seen):
+            self.confirmed = True
+        return self.confirmed
 
     @property
     def is_pedestrian(self) -> bool:
@@ -186,6 +260,22 @@ class Perception:
         self._note_hold = 0
         self._last_pose = None
         self._last_odom_pose = None
+
+    @property
+    def active_tracks(self) -> List[Track]:
+        """Confirmed tracks only: two adjacent detections seen at least once.
+
+        A lone or paired snow return never repeats in one world point from tick to
+        tick (plan/03:18), so it can never confirm; a confirmed track stays
+        confirmed while it coasts through fog (plan/03:20). Safety and the route
+        obstacle layer must consume this list, ``tracks`` stays the full set used
+        for association and coasting.
+        """
+        active: List[Track] = []
+        for tr in self.tracks:
+            if tr.refresh_confirmed():
+                active.append(tr)
+        return active
 
     def step(
         self,
@@ -406,8 +496,13 @@ class Perception:
                 tr.seen.append(1)
                 tr.coast_ticks = 0
 
-                # Geometry classification
-                if c_dict["is_wall"] or c_dict["is_wall_piece"]:
+                # Geometry classification. A track with human motion history is never
+                # demoted to a wall: a real wall does not move in the clean odometry
+                # frame, while a person whose momentary footprint looks like a thin
+                # wall piece does (plan/03:26-28). Otherwise the latched human class
+                # would be overwritten and the person would stop limiting speed.
+                if (c_dict["is_wall"] or c_dict["is_wall_piece"]) and tr.dyn is not True \
+                        and track_world_shift(tr) < PEDESTRIAN_SHIFT_M:
                     tr.class_label = "wall_extra"
                     tr.dyn = False
             else:
@@ -468,14 +563,32 @@ class Perception:
         #    (a) A track that ever shifted >= 0.6 m over the ~1 s window is a
         #        pedestrian forever (plan/03:28): it must never be rewritten as a
         #        static object and must never enter the obstacle map.
-        #    (b) A compact cluster with no world motion over the full ~1 s window
-        #        and no motion history, while the platform is slow/stopped, is a
-        #        static object for the obstacle layer (plan/03:29). The plan's
+        #    (b) A compact cluster with no world motion, no motion history and a
+        #        long stable stay in the world, while the platform is slow/stopped,
+        #        is a static object for the obstacle layer (plan/03:29). The plan's
         #        near-stop gate |v_odom| < 0.02 is unreachable when the object
         #        itself forces the 0.22 m/s human-limit crawl, so the gate is 0.35.
+        #    (c) A cluster in front of the platform inside the swept corridor stays
+        #        a human until it has been stable for >= 2.0 s: safety keeps human
+        #        limits there and the route plans the side offset around a genuine
+        #        object (plan/03:28-30, plan/04:32-41).
         for tr in self.tracks:
             tr.hist = tr.hist[-11:]
             tr.seen = tr.seen[-11:]
+            tr.refresh_confirmed()
+
+            # World motion outranks the geometry label: a real wall does not move in
+            # the clean odometry frame, so a "wall piece" that shifted >= 0.6 m over
+            # the window is a person misread from a momentary footprint and must not
+            # stay in the obstacle layer (plan/03:26-28).
+            shift = 0.0
+            if len(tr.hist) >= 5:
+                shift = track_world_shift(tr)
+                if shift >= PEDESTRIAN_SHIFT_M:
+                    tr.class_label = "pedestrian"
+                    tr.dyn = True
+                    tr.still_ticks = 0
+                    continue
 
             if tr.is_wall:
                 continue
@@ -483,27 +596,24 @@ class Perception:
             # Latched pedestrian: keep the human class, never becomes an object.
             if tr.dyn is True:
                 tr.class_label = "pedestrian"
+                tr.still_ticks = 0
                 continue
 
             if len(tr.hist) >= 5:
-                # Shift over the history window (up to 1.0 s)
-                shift = math.hypot(tr.hist[-1][0] - tr.hist[0][0], tr.hist[-1][1] - tr.hist[0][1])
-
-                if shift >= PEDESTRIAN_SHIFT_M:
-                    tr.class_label = "pedestrian"
-                    tr.dyn = True
-                    tr.still_ticks = 0
-                    continue
-
-                # Stable world position over the full window, compact shape, and
-                # the platform crawling or stopped -> object, not unknown human.
-                if (len(tr.hist) >= STATIC_HISTORY_TICKS and shift < STATIC_SHIFT_M
-                        and slow_platform and tr.length <= COMPACT_CLUSTER_LENGTH_M):
+                stable = shift < STATIC_SHIFT_M
+                if stable and slow_platform:
                     tr.still_ticks += 1
-                    tr.class_label = "static_object"
-                    tr.dyn = False
                 else:
                     tr.still_ticks = 0
+
+                if stable and slow_platform and tr.length <= COMPACT_CLUSTER_LENGTH_M:
+                    fwd, lat = track_forward_lateral(tr)
+                    in_corridor = (0.0 < fwd < FRONTAL_CORRIDOR_FWD_M) and (abs(lat) < FRONTAL_CORRIDOR_LAT_M)
+                    required_ticks = (FRONTAL_STATIC_HISTORY_TICKS if in_corridor
+                                      else STATIC_HISTORY_TICKS)
+                    if tr.still_ticks >= required_ticks:
+                        tr.class_label = "static_object"
+                        tr.dyn = False
 
             if tr.dyn is None:
                 tr.class_label = "unknown"
@@ -518,11 +628,9 @@ class Perception:
         # 10. Check map discrepancies: missing walls and extra walls
         self._check_map_discrepancies(r, exp, x, y, th, map_segs, scan_inliers)
 
-        # Return confirmed tracks: seen in >= 3 of last 4 frames, or has >= 3 lidar points (immediate object), or coasting pedestrian
-        return [
-            tr for tr in self.tracks
-            if ((sum(tr.seen[-4:]) >= 3 or len(tr.pts) >= 3) and tr.seen[-1] == 1) or (tr.is_pedestrian and tr.coast_ticks <= 10)
-        ]
+        # Return only confirmed tracks: a lone/paired snow return cannot confirm
+        # and a confirmed track survives coasting (plan/03:18, plan/03:20).
+        return self.active_tracks
 
     def _check_map_discrepancies(
         self,
@@ -583,6 +691,8 @@ class Perception:
 
         Tracks are maintained in the pure odometry frame; they are transformed back
         into world coordinates using the pose pair of the most recent step().
+        Only confirmed tracks are exported: an unconfirmed phantom wall must not
+        rewrite the route (frozen wave-3 interface).
         """
         obs: List[Tuple[float, float, float]] = []
         if self._last_pose is None or self._last_odom_pose is None:
@@ -595,6 +705,8 @@ class Perception:
 
         for tr in self.tracks:
             if not (tr.is_wall or tr.is_static_object):
+                continue
+            if not tr.refresh_confirmed():
                 continue
             # Odom frame -> robot frame -> world frame
             dx_o = tr.ox - ox

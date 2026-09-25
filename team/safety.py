@@ -27,6 +27,10 @@ V_MAX_DEFAULT = 1.39     # Maximum vehicle speed (m/s)
 SLOW_PERSON_GAP = 3.3    # Current clearance below which a human caps v at <= 0.22 m/s
 SLOW_PERSON_V = 0.22     # Speed cap next to a person/unknown (plan/03:55)
 STOP_GAP = 0.8           # Current or predicted clearance below which v = 0
+# A static object whose honest gap (no 0.3 m pedestrian radius subtracted) falls
+# below this is close enough that a misclassification would matter: safety applies
+# the human limits to it anyway (task I.5).
+STATIC_OBJECT_NEAR_GAP = 1.5
 ESTOP_GAP = 1.2          # Confirmed cluster distance enabling emergency braking
 ESTOP_SAFE_GAP = 1.5     # False estop penalty threshold (scoring THRESH["estop_gap"])
 
@@ -367,6 +371,23 @@ class SafetyGovernor:
                 #      rest the normal brake could no longer stop in time.
                 # Otherwise the object does not limit v: the route plans a side offset around
                 # it (plan/04:3, plan/04:29-30).
+                # Near-miss guard (task I.5): a *static object* whose honest gap is below
+                # STATIC_OBJECT_NEAR_GAP still gets the human limits (<= 0.22, and 0 below
+                # STOP_GAP). If the classifier confused a person with a pallet, the gap is
+                # what protects, not the label (plan/03:3, plan/03:47). The dock pallet on
+                # 04 keeps a ~1.9 m honest gap and is unaffected; walls are not covered.
+                cl_honest = calculate_clearance(pts, is_pedestrian=False)
+                if tr.is_static_object and cl_honest < STATIC_OBJECT_NEAR_GAP:
+                    pred_cl, _ = predict_ttc_clearance(
+                        tr, v_platform=v_now, oth=oth, horizon_s=2.0, dt_step=0.2
+                    )
+                    if cl_honest < STOP_GAP or pred_cl < STOP_GAP:
+                        stop_reason = stop_reason or "stop_object"
+                        notes["stop_object"] = "stop_object"
+                        v_lim = 0.0
+                    elif cl_honest < SLOW_PERSON_GAP:
+                        v_lim = min(v_lim, SLOW_PERSON_V)
+
                 if remaining_dist > 0.35:
                     in_corridor = ahead & (pts[:, 0] < d_stop_corridor)
                     front_gap = math.inf
