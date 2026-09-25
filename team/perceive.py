@@ -14,6 +14,21 @@ except ImportError:
     from geom import filter_segs_aabb, raycast, rot2d, seg_dist, wrap_angle
 
 
+# Track classification thresholds (plan/03:28-30).
+# A track that shifts >= 0.6 m over the ~1 s history window is a human forever.
+PEDESTRIAN_SHIFT_M = 0.6
+# Below this shift over the full window the track has no world motion.
+STATIC_SHIFT_M = 0.25
+# Commit an object only while the platform is slow/stopped: the plan used a
+# near-stop gate (|v| < 0.02), which is unreachable for an object that itself
+# forces a 0.22 m/s crawl (safety human limits). 0.35 m/s keeps that case.
+STATIC_OBJECT_V_GATE = 0.35
+# ~1.0 s of history at dt = 0.1 s before a still cluster can become an object.
+STATIC_HISTORY_TICKS = 10
+# "Compact" cluster: a pallet/box, not a wall or a long fence.
+COMPACT_CLUSTER_LENGTH_M = 1.0
+
+
 class Track:
     """Obstacle track maintained in pure odometry coordinates (ox, oy, oth).
     
@@ -417,7 +432,7 @@ class Perception:
                 matched_cluster_indices.add(c_idx)
 
         # 7. Unmatched tracks: Coasting / prediction for dynamic tracks
-        robot_still = abs(v_odom) < 0.02
+        slow_platform = abs(v_odom) < STATIC_OBJECT_V_GATE
         for t_idx, tr in enumerate(self.tracks):
             if t_idx not in used_tracks:
                 tr.seen.append(0)
@@ -450,6 +465,14 @@ class Perception:
                     tr.pts = np.array([[rx, ry]])
 
         # 8. Track classification and history evaluation
+        #    (a) A track that ever shifted >= 0.6 m over the ~1 s window is a
+        #        pedestrian forever (plan/03:28): it must never be rewritten as a
+        #        static object and must never enter the obstacle map.
+        #    (b) A compact cluster with no world motion over the full ~1 s window
+        #        and no motion history, while the platform is slow/stopped, is a
+        #        static object for the obstacle layer (plan/03:29). The plan's
+        #        near-stop gate |v_odom| < 0.02 is unreachable when the object
+        #        itself forces the 0.22 m/s human-limit crawl, so the gate is 0.35.
         for tr in self.tracks:
             tr.hist = tr.hist[-11:]
             tr.seen = tr.seen[-11:]
@@ -457,30 +480,31 @@ class Perception:
             if tr.is_wall:
                 continue
 
+            # Latched pedestrian: keep the human class, never becomes an object.
+            if tr.dyn is True:
+                tr.class_label = "pedestrian"
+                continue
+
             if len(tr.hist) >= 5:
-                # Shift over history window (up to 1.0 s)
-                dt_span = len(tr.hist) * self.dt
+                # Shift over the history window (up to 1.0 s)
                 shift = math.hypot(tr.hist[-1][0] - tr.hist[0][0], tr.hist[-1][1] - tr.hist[0][1])
 
-                if shift >= 0.6:
+                if shift >= PEDESTRIAN_SHIFT_M:
                     tr.class_label = "pedestrian"
                     tr.dyn = True
                     tr.still_ticks = 0
-                elif shift < 0.25:
-                    if robot_still:
-                        tr.still_ticks += 1
-                    else:
-                        tr.still_ticks = 0
+                    continue
 
-                    # Stationary >= 1.0 s (10 ticks) while AMR is stopped -> static object
-                    if tr.still_ticks >= 10:
-                        tr.class_label = "static_object"
-                        tr.dyn = False
-                    elif tr.dyn is None and sum(tr.seen) >= 8:
-                        # Frequently seen without motion
-                        if tr.still_ticks >= 5:
-                            tr.class_label = "static_object"
-                            tr.dyn = False
+                # Stable world position over the full window, compact shape, and
+                # the platform crawling or stopped -> object, not unknown human.
+                if (len(tr.hist) >= STATIC_HISTORY_TICKS and shift < STATIC_SHIFT_M
+                        and slow_platform and tr.length <= COMPACT_CLUSTER_LENGTH_M):
+                    tr.still_ticks += 1
+                    tr.class_label = "static_object"
+                    tr.dyn = False
+                else:
+                    tr.still_ticks = 0
+
             if tr.dyn is None:
                 tr.class_label = "unknown"
 

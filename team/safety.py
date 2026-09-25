@@ -358,10 +358,21 @@ class SafetyGovernor:
                     if cl < person_slow_cl:
                         person_slow_cl = cl
             else:
-                # Static object or unmapped wall in the driving corridor: stop.
+                # Confirmed static object (is_static_object) or unmapped wall (is_wall): the
+                # human limits above never apply here. Two stop conditions only (plan/03:56,
+                # plan/04:32-45):
+                #   a) the cluster really sits in the swept corridor inside the braking reach;
+                #   b) the honest gap (this branch already omits the 0.3 m pedestrian radius)
+                #      of a point in the swept frontal band is below STOP_GAP, so even from
+                #      rest the normal brake could no longer stop in time.
+                # Otherwise the object does not limit v: the route plans a side offset around
+                # it (plan/04:3, plan/04:29-30).
                 if remaining_dist > 0.35:
                     in_corridor = ahead & (pts[:, 0] < d_stop_corridor)
-                    if in_corridor.any():
+                    front_gap = math.inf
+                    if ahead.any():
+                        front_gap = calculate_clearance(pts[ahead], is_pedestrian=False)
+                    if in_corridor.any() or front_gap < STOP_GAP:
                         stop_reason = stop_reason or "stop_object"
                         notes["stop_object"] = "stop_object"
                         v_lim = 0.0

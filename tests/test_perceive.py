@@ -201,6 +201,94 @@ class TestPerception(unittest.TestCase):
         self.assertTrue(tr.is_static_object)
         self.assertFalse(tr.dyn)
 
+    def _tick_with_object(self, robot_x, object_x, v_odom=0.0):
+        """Run one perception tick with a compact object directly ahead of the robot.
+
+        Robot drives along +X at y=40 in world coordinates; the object sits at
+        (object_x, 40). Five adjacent beams are shortened to the true range, and
+        pure odometry follows the world motion exactly.
+        """
+        rel_angles = np.radians(np.arange(360))
+        pose = (robot_x, 40.0, 0.0)
+        odom = (robot_x - 10.0, 0.0, 0.0)
+        ranges = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
+        dist = float(object_x - robot_x)
+        for d in range(-2, 3):
+            ranges[d % 360] = dist
+        tracks = self.perc.step(
+            ranges=ranges, rel_angles=rel_angles, pose=pose, odom_pose=odom,
+            map_segs=self.map_segs, sigma_pose=0.05, is_fog=False,
+            v_odom=v_odom, scan_inliers=50,
+        )
+        return tracks
+
+    def test_dropped_object_becomes_static_object_while_crawling(self):
+        # Task D1 / plan/03:29: an unmapped compact pallet that never moves in the
+        # world must become a static object within ~1 s even though the platform
+        # keeps crawling at 0.22 m/s and never reaches |v_odom| < 0.02.
+        classified_at = None
+        for k in range(14):
+            robot_x = 10.0 + 0.022 * k      # 0.22 m/s: the platform never stops
+            object_x = 13.0                  # static in the world
+            tracks = self._tick_with_object(robot_x, object_x, v_odom=0.22)
+            if classified_at is None and any(t.is_static_object for t in tracks):
+                classified_at = k
+        self.assertIsNotNone(classified_at)
+        self.assertLessEqual(classified_at, 12)
+
+        tr = [t for t in self.perc.tracks if t.is_static_object][0]
+        self.assertFalse(tr.is_pedestrian)
+        self.assertFalse(tr.is_unknown)
+        # The object must reach the route obstacle layer (controller forwards
+        # is_static_object tracks via static_obs / get_extra_obstacles).
+        obs = self.perc.get_extra_obstacles()
+        self.assertTrue(any(math.hypot(ox - 13.0, oy - 40.0) < 0.5 for ox, oy, _ in obs))
+
+    def test_moving_track_stays_pedestrian_and_not_in_obstacles(self):
+        # Shift >= 0.6 m over ~1 s latches the human class forever (plan/03:28):
+        # a moving track must never become an obstacle (else it hijacks the route).
+        for k in range(12):
+            self._tick_with_object(10.0, 13.0 + 0.08 * k, v_odom=0.0)
+        moving = [t for t in self.perc.tracks if t.is_pedestrian]
+        self.assertTrue(moving)
+        self.assertFalse(moving[0].is_static_object)
+        self.assertFalse(moving[0].is_unknown)
+        self.assertEqual(self.perc.get_extra_obstacles(), [])
+
+    def test_frozen_after_motion_stays_pedestrian(self):
+        # A frozen attentive pedestrian with motion history is NOT a static object
+        # (task D1 boundary 3): it must keep human limits and stay out of the map.
+        for k in range(12):
+            self._tick_with_object(10.0, 13.0 + 0.08 * k, v_odom=0.0)
+        frozen_x = 13.0 + 0.08 * 11
+        for _ in range(15):
+            self._tick_with_object(10.0, frozen_x, v_odom=0.22)
+
+        self.assertTrue(self.perc.tracks)
+        self.assertTrue(all(t.is_pedestrian for t in self.perc.tracks))
+        self.assertTrue(all(not t.is_static_object for t in self.perc.tracks))
+        self.assertEqual(self.perc.get_extra_obstacles(), [])
+
+    def test_wall_track_not_reclassified_as_object(self):
+        # Boundary 2: an unmapped wall/fence keeps its class and stays a route
+        # obstacle even while the platform is stopped (never becomes a pallet).
+        pose = (10.0, 40.0, math.pi / 2)
+        odom = (0.0, 0.0, 0.0)
+        rel_angles = np.radians(np.arange(360))
+        ranges = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
+        tr = Track(track_id=1, ox=0.0, oy=2.0)
+        tr.class_label = "wall_extra"
+        tr.dyn = False
+        tr.length = 2.0
+        tr.hist = [(0.0, 2.0)] * 15
+        self.perc.tracks = [tr]
+        self.perc.step(ranges=ranges, rel_angles=rel_angles, pose=pose,
+                       odom_pose=odom, map_segs=self.map_segs, v_odom=0.0)
+
+        self.assertTrue(tr.is_wall)
+        self.assertFalse(tr.is_static_object)
+        self.assertEqual(len(self.perc.get_extra_obstacles()), 1)
+
     def test_dynamic_track_coasting_during_fog(self):
         # Dynamic pedestrian track should be predicted forward up to 1.0s (10 ticks) during dropout
         pose = (10.0, 40.0, 0.0)

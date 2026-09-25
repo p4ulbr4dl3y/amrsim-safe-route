@@ -319,6 +319,8 @@ class Controller:
             blocked_wheels=self.localizer.blocked_wheels,
             perception_note=self.perception.note,
             remaining_dist=rem_dist,
+            # Lateral pose sigma feeds the `lost s_lat=<m>` note (plan/03:120).
+            sigma_cross=self.localizer.sigma_cross,
         )
 
         # Combine notes: active safety reasons outrank route notes, but a stale
