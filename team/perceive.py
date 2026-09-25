@@ -35,6 +35,15 @@ FRONTAL_CORRIDOR_FWD_M = 5.0
 FRONTAL_CORRIDOR_LAT_M = 1.6
 # "Compact" cluster: a pallet/box, not a wall or a long fence.
 COMPACT_CLUSTER_LENGTH_M = 1.0
+# Upper bound on a pedestrian contour (plan/03:26-28). A human footprint is 0.3-0.6 m
+# long, so a cluster longer than this can never be a person: a large *static* planar
+# body (an unmapped container, a wall the map does not know) has a centroid that
+# wanders whenever the visible share of its outline changes -- the body itself stands
+# still. The shift->human latch below must therefore only fire on a compact contour,
+# otherwise a container parked across the aisle latches as a pedestrian forever and
+# safety holds an eternal `stop_person` (own scenario s2_container_block, seed 7:
+# track id=1, length 2.7-4.2 m, centroid jump 0.69 m in a single tick).
+PEDESTRIAN_CONTOUR_MAX_M = 1.2
 # Platform body radius (m). Duplicated from safety to avoid a circular import.
 # A candidate point closer than R_PLATFORM - 0.05 sits inside the hull and is a
 # phantom: it can never be confirmed into the active obstacle set (plan/03:18).
@@ -569,11 +578,14 @@ class Perception:
             # World motion outranks the geometry label: a real wall does not move in
             # the clean odometry frame, so a "wall piece" that shifted >= 0.6 m over
             # the window is a person misread from a momentary footprint and must not
-            # stay in the obstacle layer (plan/03:26-28).
+            # stay in the obstacle layer (plan/03:26-28). The rule is deliberately
+            # limited to a *compact* contour: a large static body (container, unmapped
+            # wall) sweeps its visible centroid when the visible part of the outline
+            # changes, which is not world motion (PEDESTRIAN_CONTOUR_MAX_M).
             shift = 0.0
             if len(tr.hist) >= 5:
                 shift = track_world_shift(tr)
-                if shift >= PEDESTRIAN_SHIFT_M:
+                if shift >= PEDESTRIAN_SHIFT_M and tr.length <= PEDESTRIAN_CONTOUR_MAX_M:
                     tr.class_label = "pedestrian"
                     tr.dyn = True
                     tr.still_ticks = 0
@@ -582,9 +594,24 @@ class Perception:
             if tr.is_wall:
                 continue
 
-            # Latched pedestrian: keep the human class, never becomes an object.
+            # Latched pedestrian: keep the human class, never becomes an object. This
+            # outranks the large-cluster rule below, so a person whose contour grows
+            # (a merged footprint, a partial view) is not demoted into the obstacle
+            # layer and never rewrites the route (plan/03:28, own s2 container keeps
+            # the wave-3 rescue of the compact body on 04 seed 42).
             if tr.dyn is True:
                 tr.class_label = "pedestrian"
+                tr.still_ticks = 0
+                continue
+
+            # A long cluster that is not a mapped wall is a *body* in the world, not an
+            # unknown human (plan/03:38): it belongs in the obstacle layer as
+            # `wall_extra` so the route can plan the bypass. Leaving it `unknown` makes
+            # safety treat it as a person and hold an eternal stop, which is exactly the
+            # s2 deadlock (robot frozen at (186.5, 93.1) for 90 s).
+            if tr.length > PEDESTRIAN_CONTOUR_MAX_M:
+                tr.class_label = "wall_extra"
+                tr.dyn = False
                 tr.still_ticks = 0
                 continue
 

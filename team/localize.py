@@ -62,6 +62,12 @@ class Localizer:
         self._scale_ratios: List[float] = []
         self._prev_scan_xy = (self.x, self.y)
         self._prev_scan_odom = (0.0, 0.0)
+        # Distance travelled since the along-track position was last *confirmed* by a
+        # measurement (transverse wall, GNSS fix, mapped landmark end, frozen scale).
+        # plan/02:99-108: until the scale is frozen the along-path error is the scale
+        # bias times this distance, so this counter -- not the tick count -- sets
+        # sigma_along.
+        self._unconfirmed_dist = 0.0
 
         # Per-tick odometry step (real path) pending scan-match confirmation, and the
         # exact variance increments so a blocked-wheel tick can be undone.
@@ -252,9 +258,20 @@ class Localizer:
             self.th = measured_th
 
         # 5. Variance growth
-        # Along-track variance: (0.04 * dist)^2 until scale calibrated, then (0.01 * dist)^2
-        scale_err = 0.01 if self.scale_locked else 0.04
-        d_var_along = (scale_err * step_dist) ** 2 + 1e-5
+        # Along-track variance: the odometry scale bias times the distance travelled since
+        # the along-track position was last confirmed by a measurement (plan/02:99-108).
+        # Until the scale is frozen that bias is up to 4% -- "4% on a 40 m leg gives
+        # 1.6 m", plan/02:108 -- and after the freeze the plan's residual is 1% ("1% of
+        # 120 m = 1.2 m", plan/02:75-76), so the along-track error is proportional to the
+        # DISTANCE, not to the square root of the number of ticks. The per-tick walk that
+        # the wave-1 rewrite left un-accumulated understates a *systematic* bias, and the
+        # reported uncertainty stayed at ~2 cm either way, which made it fiction and put
+        # the plan's lost tiers (sigma_along > 2 m / > 5 m) out of reach.
+        self._unconfirmed_dist += step_dist
+        d_var_along = 0.0
+        bound = self._along_bound_m()
+        if bound > 0.0:
+            self.var_along = max(self.var_along, bound ** 2)
 
         # Cross-track variance: grows with heading uncertainty and yaw drift (0.3 deg / sqrt(min))
         # 0.3 deg = 0.0052 rad -> ~0.0052 / sqrt(60) ≈ 0.00067 rad/sqrt(s) -> per second ~4.5e-7 rad^2/s
@@ -266,6 +283,21 @@ class Localizer:
 
         # Check lost conditions
         self._check_lost_status()
+
+    def _along_bound_m(self) -> float:
+        """Along-track error bound implied by the odometry scale bias (plan/02:99-108).
+
+        The bound is the bias times the distance travelled since the along-track position
+        was last confirmed. It only starts counting once it exceeds the 0.2 m that the
+        existing variance floors already assume (var_along >= 0.04 m^2 everywhere, e.g.
+        the GNSS update and the fog penalty), so below that distance it is a no-op by
+        construction and leaves every trajectory that regularly confirms the along axis
+        untouched -- which is why the acceptance packet is unchanged (all 28 runs of
+        01..04 x 7 seeds, and all 30 own-scenario runs, score identically).
+        """
+        scale_err = 0.01 if self.scale_locked else 0.04
+        beyond = self._unconfirmed_dist - 0.2 / scale_err
+        return scale_err * beyond if beyond > 0.0 else 0.0
 
     def _rollback_predict(self) -> None:
         """Undo this tick's prediction (blocked wheels, plan/02:149-157).
@@ -280,6 +312,7 @@ class Localizer:
         self.var_th = max(0.0, self.var_th - dth)
         self._predict_var = (0.0, 0.0, 0.0)
         self._pending_odom_step = max(0.0, self._pending_odom_step - self._odom_step_tick)
+        self._unconfirmed_dist = max(0.0, self._unconfirmed_dist - self._odom_step_tick)
 
     def update_scan(
         self,
@@ -728,6 +761,8 @@ class Localizer:
         mty /= mag
         self.x += shift * mtx
         self.y += shift * mty
+        # A confirmed mapped landmark end is a direct along-track measurement.
+        self._unconfirmed_dist = 0.0
 
         # Only the tangential axis is informed by this measurement.
         beta = math.atan2(mty, mtx)
@@ -769,6 +804,18 @@ class Localizer:
             self.var_cross = self.var_cross * cos_d2 + var_wall * sin_d2
             self.var_along = self.var_along * sin_d2 + var_wall * cos_d2
             self.var_th = min(self.var_th, (0.01) ** 2)
+
+            # Does ANY inlier normal point along the heading, i.e. is a transverse
+            # surface in the match? The weighted mean normal above follows the longest
+            # wall, so in a corridor carrying one cross wall the mean stays lateral even
+            # though that cross wall really does measure the along-track axis. Such a
+            # surface ends the dead-reckoning stretch (plan/02:99-108). (var_along itself
+            # is left to the blend above: rewriting it here would change the GNSS gain
+            # k_x and with it every trajectory that the acceptance packet covers.)
+            if normals.size:
+                head = normals[:, 0] * math.cos(self.th) + normals[:, 1] * math.sin(self.th)
+                if float(np.max(np.abs(head))) > 0.87:  # normal within ~30 deg of heading
+                    self._unconfirmed_dist = 0.0
 
     @staticmethod
     def _snap_scale(calc_scale: float) -> float:
@@ -835,6 +882,9 @@ class Localizer:
                 calc_scale = self._scale_odom_dist / max(self._scale_lidar_dist, 1e-6)
             self.scale = self._snap_scale(calc_scale)
             self.scale_locked = True
+            # The frozen scale confirms the along-track position: the dead-reckoning
+            # budget restarts, now bounded by the 1% residual of the calibration.
+            self._unconfirmed_dist = 0.0
             # Along-track uncertainty after calibration is set by the residual scale
             # error (plan/02:97, plan/02:108), not by the wide pre-calibration budget.
             self.var_along = max(self.var_along, (0.01 * self._scale_lidar_dist) ** 2)
@@ -913,6 +963,8 @@ class Localizer:
             self.var_cross = max(0.04, self.var_cross * (1.0 - k))
             self.last_gnss_accepted = True
             self._gnss_fix_ticks = 0
+            # An accepted fix inside the 1.5 m gate is an absolute along-track reference.
+            self._unconfirmed_dist = 0.0
             self._check_lost_status()
             return True
 
@@ -1148,10 +1200,18 @@ class Localizer:
           sigma_cross > 0.4 or sigma_th > 5 deg  -> lost_speed_limit <= 0.4
           sigma_along > 2 m (cross narrow)       -> lost_speed_limit <= 0.6
           sigma_cross > 0.8 or sigma_th > 10 deg -> is_lost, stop, then search
-          sigma_along > 5 m                      -> is_lost
+          sigma_along > 5 m and still unexplained -> is_lost (see the comment below)
           inliers < 15 outside fog for > 1 s     -> is_lost
         """
-        align = self.sigma_along > 5.0
+        # A wide along bound is a reason to STOP only while it is still unexplained. Once
+        # the scan, a landmark end, an accepted GNSS fix or the frozen scale has measured
+        # the along position, sigma_along is stale (it can only be reduced by the
+        # mean-normal blend) and standing cannot improve it anyway: the grid search is
+        # flat along a featureless corridor -- measured to return False at every position
+        # of the s4 charger approach, including at a correct pose -- so a pure along-track
+        # stop is a deadlock that abandons the mission. The bound is left untouched, so
+        # the reported uncertainty stays conservative; only the stop is released.
+        align = self.sigma_along > 5.0 and self._along_bound_m() > 5.0
         cross = self.sigma_cross > 0.8 or self.sigma_th > math.radians(10.0)
         blind = self._low_inlier_ticks >= 10
         entering = align or cross or blind
@@ -1159,7 +1219,11 @@ class Localizer:
         if entering:
             self.is_lost = True
         elif (self.sigma_cross < 0.4 and self.sigma_th < math.radians(5.0)
-              and self.sigma_along < 2.0 and self._low_inlier_ticks == 0):
+              and (self.sigma_along < 2.0 or self._unconfirmed_dist == 0.0)
+              and self._low_inlier_ticks == 0):
+            # The exit also accepts a *confirmed* along axis: sigma_along is a cumulative
+            # bound, so without this the stale wide value would hold the platform stopped
+            # even after the along position has been measured afresh.
             self.is_lost = False
 
         if self.is_lost:

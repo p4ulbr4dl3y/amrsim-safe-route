@@ -124,7 +124,10 @@ class TestSafety(unittest.TestCase):
             zones=[],
         )
         self.assertEqual(v_safe, 0.0)
-        self.assertEqual(w_safe, 0.0)  # corridor blocked -> zero out rotation
+        # The corridor holds v = 0, but rotation stays available: the hull is a 0.9 m
+        # disc and the beam sits at 1.2 m, so an in-place turn cannot cause a contact.
+        # Freezing w here is what pinned the platform in front of the s2 container.
+        self.assertEqual(w_safe, 0.2)
         self.assertIn("stop_corridor", note)
 
     def test_fog_speed_limits(self):
@@ -540,11 +543,13 @@ class TestSafety(unittest.TestCase):
         self.assertNotIn("stop_object", note)
 
     def test_object_in_swept_corridor_stops(self):
-        # (b) Confirmed static object inside the swept corridor: v = 0 and rotation is zeroed.
+        # (b) Confirmed static object inside the swept corridor: v = 0. Rotation stays
+        # available because the object is outside the 0.9 m hull, so the route can still
+        # steer the platform onto the bypass it has already planned (own s2 container).
         obj = self._track(1.2, 0.0, "static_object", False)
         v_safe, w_safe, _, note = self._eval([obj], v_cand=1.39, v_odom=0.3, w_cand=0.4)
         self.assertEqual(v_safe, 0.0)
-        self.assertEqual(w_safe, 0.0)
+        self.assertEqual(w_safe, 0.4)
         self.assertIn("stop_object", note)
 
     def test_human_gap_three_meters_caps_speed(self):
@@ -587,13 +592,14 @@ class TestSafety(unittest.TestCase):
         self.assertNotIn("slow_person", note_wall)
         self.assertNotIn("stop_person", note_wall)
 
-        # The same wall inside the corridor is still a hard stop with the object note.
+        # The same wall inside the corridor is still a hard stop with the object note,
+        # but rotation is kept so the route can steer onto its bypass.
         wall_close = self._track(1.5, 0.0, "wall_extra", False)
         v_close, w_close, _, note_close = self._eval(
             [wall_close], v_cand=1.39, v_odom=0.3, w_cand=0.4
         )
         self.assertEqual(v_close, 0.0)
-        self.assertEqual(w_close, 0.0)
+        self.assertEqual(w_close, 0.4)
         self.assertIn("stop_object", note_close)
         self.assertNotIn("stop_person", note_close)
 
@@ -607,13 +613,41 @@ class TestSafety(unittest.TestCase):
             [obj], v_cand=1.39, v_odom=0.0, w_cand=0.3
         )
         self.assertEqual(v_safe, 0.0)
-        self.assertEqual(w_safe, 0.0)
+        # 1.649 m from the centre is still outside the 0.9 m hull -> rotation allowed.
+        self.assertEqual(w_safe, 0.3)
         self.assertIn("stop_object", note)
 
         # Just above the threshold the object stays permissive (gap 0.824 m > 0.8 m).
         obj_ok = self._track(1.65, 0.5, "static_object", False)
         v_ok, _, _, _ = self._eval([obj_ok], v_cand=1.39, v_odom=0.0)
         self.assertGreater(v_ok, 0.0)
+
+    def test_wall_block_keeps_rotation_until_hull_contact(self):
+        # Requirement T.4: a wall/object blocking the swept corridor holds v = 0 but must
+        # not freeze w, otherwise the route's steer command (the A* bypass it has already
+        # planned) is discarded and the platform deadlocks in front of the body. The hull
+        # is a 0.9 m disc, so an in-place turn is safe while the cluster is outside it.
+        wall = self._track(1.5, 0.0, "wall_extra", False)
+        v_safe, w_safe, _, note = self._eval([wall], v_cand=1.39, v_odom=0.0, w_cand=-0.5)
+        self.assertEqual(v_safe, 0.0)
+        self.assertEqual(w_safe, -0.5)
+        self.assertIn("stop_object", note)
+
+        # A raw three-beam lidar blocker (no confirmed track yet) behaves the same way.
+        ranges = np.full(360, 20.0)
+        ranges[359] = ranges[0] = ranges[1] = 1.0
+        v_ray, w_ray, _, note_ray = self._eval(
+            [], v_cand=0.5, v_odom=0.0, w_cand=0.3, ranges=ranges
+        )
+        self.assertEqual(v_ray, 0.0)
+        self.assertEqual(w_ray, 0.3)
+        self.assertIn("stop_corridor", note_ray)
+
+        # Real hull contact (a point inside the 0.9 m disc): rotation is forbidden.
+        contact = self._track(0.7, 0.0, "wall_extra", False)
+        v_c, w_c, _, _ = self._eval([contact], v_cand=1.39, v_odom=0.0, w_cand=-0.5)
+        self.assertEqual(v_c, 0.0)
+        self.assertEqual(w_c, 0.0)
 
     def test_object_does_not_hold_person_latch(self):
         # The person-stop latch is human-only: once the person is gone, a static object ahead

@@ -379,11 +379,16 @@ class TestLocalizer(unittest.TestCase):
         self.assertTrue(loc.is_lost)
         self.assertEqual(loc.lost_speed_limit, 0.0)
 
-        # sigma_along > 5 -> lost as well.
+        # sigma_along > 5 m *while the along axis is still unconfirmed* -> lost as well.
         loc.var_cross = 0.1 ** 2
         loc.var_along = 5.5 ** 2
+        loc._unconfirmed_dist = 0.0
+        loc._check_lost_status()
+        self.assertFalse(loc.is_lost, "a stale wide bound must not stop the platform")
+        loc._unconfirmed_dist = 140.0      # 4% of 140 m > 5 m: still unexplained
         loc._check_lost_status()
         self.assertTrue(loc.is_lost)
+        self.assertEqual(loc.lost_speed_limit, 0.0)
 
         # Search runs only while stopped and lost, and shifts the hypothesis to the peak.
         ranges = raycast(98.0, 50.0, ANGLES, segs, max_range=19.0)
@@ -397,6 +402,20 @@ class TestLocalizer(unittest.TestCase):
         self.assertEqual(loc.lost_speed_limit, 1.39)
         self.assertAlmostEqual(loc.x, 98.0, delta=0.5)
         self.assertAlmostEqual(loc.y, 50.0, delta=0.5)
+
+        # A wide bound that is no longer unexplained must release the stop: while the
+        # platform stands and looks, a transverse surface finally measures the along axis
+        # (the grid search is flat along a featureless corridor, so standing there
+        # forever would abandon the mission).
+        loc.var_along = 5.5 ** 2
+        loc.var_cross = 0.1 ** 2
+        loc._unconfirmed_dist = 130.0
+        loc.is_lost = True
+        loc._unconfirmed_dist = 0.0
+        loc._check_lost_status()
+        self.assertFalse(loc.is_lost)
+        loc._check_lost_status()
+        self.assertFalse(loc.is_lost)
 
     def test_lost_from_low_inliers(self):
         """Inliers < 15 outside fog for more than 1 s -> lost (plan/02:141)."""
@@ -576,6 +595,132 @@ class TestLocalizer(unittest.TestCase):
         # The neighbouring walls still hold the pose: no jump.
         self.assertAlmostEqual(loc_phantom.y, 50.0, delta=0.05)
         self.assertAlmostEqual(loc_phantom.th, 0.0, delta=0.01)
+
+    # ------------------------------------------- along-track honesty (plan/02:99-108)
+
+    @staticmethod
+    def _drive(loc, distance_m, step=0.139, scale_true=1.0, heading=0.0):
+        """Integrate `distance_m` of odometry (biased by `scale_true`) through predict()."""
+        odom_step = step
+        for _ in range(int(round(distance_m / odom_step))):
+            loc.predict(odom_step, 0.0, 0.0, heading, 0.0, 0.1)
+        return int(round(distance_m / odom_step))
+
+    def test_var_along_accumulates_between_along_track_confirmations(self):
+        """sigma_along must follow the scale model (0.04 * distance), not the tick count.
+
+        plan/02:99-108: before the scale is frozen the odometry is a dead-reckoning
+        integral with a bias of up to 4%, so the along-path uncertainty is proportional
+        to the DISTANCE travelled since the last along-track confirmation ("4% on a 40 m
+        leg gives 1.6 m", plan/02:108). A per-tick random walk understates that, and the
+        wave-1 rewrite dropped the accumulation altogether, so var_along could only
+        shrink: sigma_along stayed at centimetres, which made the reported pose
+        uncertainty fiction and put the plan's lost tiers (2 m / 5 m) out of reach.
+        The bound only starts at the distance where it exceeds the 0.2 m that the
+        existing variance floors already assume (0.2 / 0.04 = 5 m), so that it is a
+        no-op wherever the along axis is regularly confirmed.
+        """
+        loc = Localizer((0.0, 0.0, 0.0))
+        self.assertEqual(loc.sigma_along, 0.0)
+
+        self._drive(loc, 40.0)
+        # The bound is 4% of the travel beyond the 0.2 m floor: 0.04 * 35 m = 1.4 m.
+        self.assertGreater(loc.sigma_along, 1.3)
+        self.assertLess(loc.sigma_along, 1.45)
+        # The mission pose tolerance is 1 m: after 40 m of unconfirmed travel the
+        # localizer must say so instead of claiming centimetres.
+        self.assertGreater(loc.sigma_along, 1.0)
+
+        # Twice the distance, twice the uncertainty minus the constant floor.
+        self._drive(loc, 40.0)
+        self.assertGreater(loc.sigma_along, 2.9)
+        self.assertLess(loc.sigma_along, 3.1)
+
+    def test_along_sigma_resets_only_when_a_measurement_constrains_along(self):
+        """A transverse wall confirms the along axis; a parallel facade does not.
+
+        This is the s4 corridor in miniature: two facades parallel to the direction of
+        travel leave the along-track position in a genuine null space (the walls are the
+        same segment, only translated), so driving along them must NOT reset the
+        dead-reckoning budget, while one transverse surface in the inlier set must.
+        The drive starts 100 m from either facade end so the lidar's range truncation
+        cannot masquerade as a mapped wall end.
+        """
+        parallel = np.array([[0.0, -5.0, 300.0, -5.0], [0.0, 5.0, 300.0, 5.0]])
+        angles_rel = np.radians(np.arange(360))
+
+        loc = Localizer((100.0, 0.0, 0.0))
+        true_x = 100.0
+        self._drive(loc, 30.0)
+        true_x += 30.0
+        budget = loc._unconfirmed_dist
+        self.assertGreater(budget, 25.0)
+        ranges = raycast(true_x, 0.0, angles_rel, parallel, max_range=19.0)
+        self.assertTrue(loc.update_scan(ranges, angles_rel, parallel, is_fog=False))
+        # Parallel walls: the along-track stays unconfirmed, the budget keeps growing.
+        self.assertGreater(loc._unconfirmed_dist, 0.99 * budget)
+
+        transverse = np.vstack([parallel, np.array([[true_x + 10.0, -5.0, true_x + 10.0, 5.0]])])
+        ranges_t = raycast(true_x, 0.0, angles_rel, transverse, max_range=19.0)
+        self.assertTrue(loc.update_scan(ranges_t, angles_rel, transverse, is_fog=False))
+        # The transverse wall measures the along axis: the budget restarts.
+        self.assertEqual(loc._unconfirmed_dist, 0.0)
+
+    def test_cross_wall_inside_corridor_resets_along_budget(self):
+        """A single transverse surface confirms the along axis even beside long facades.
+
+        The weighted mean normal of such a scan follows the long side walls, so a
+        mean-based rule would conclude that the along-track is unconstrained while the
+        cross wall really does measure it. The pose uncertainty must therefore be reset
+        on ANY transverse normal in the match -- otherwise the dead-reckoning bound can
+        only grow, which is what latched the lost contour on one featureless stretch.
+        """
+        segs = corridor_segs()  # side walls plus transverse pillars
+        loc = Localizer((100.0, 50.0, 0.0))
+        self._drive(loc, 12.0, heading=0.0)
+        loc.x, loc.y, loc.th = 100.0, 50.0, 0.0
+        self.assertGreater(loc._unconfirmed_dist, 10.0)
+
+        ranges = raycast(100.0, 50.0, ANGLES, segs, max_range=20.0)
+        self.assertTrue(loc.update_scan(ranges, ANGLES, segs, is_fog=False))
+        self.assertEqual(loc._unconfirmed_dist, 0.0)
+
+    def test_parallel_facades_cannot_calibrate_odometry_scale(self):
+        """The scan in a parallel-wall corridor carries no scale information (plan/02:99-108).
+
+        The scale is the ratio of the odometry path to the scan-matched path. When both
+        walls are parallel to the motion every along-track hypothesis has the same
+        residual, so the ratio is identically 1 (<=> the 0.99..1.01 gap that
+        `_snap_scale` refuses to accept): the gate must stay shut and the along-track
+        error must remain exactly the odometry scale error, uncorrected, however many
+        inliers there are.
+        """
+        # Both facades end 200 m away -- far outside the 20 m lidar -- so no mapped
+        # segment end can act as a longitudinal landmark either, and the drive starts
+        # mid-corridor so the lidar's range truncation cannot impersonate one.
+        walls = np.array([[0.0, -5.0, 300.0, -5.0], [0.0, 5.0, 300.0, 5.0]])
+        angles_rel = np.radians(np.arange(360))
+
+        loc = Localizer((100.0, 0.0, 0.0))
+        bias = 0.025  # odometry over-reports by 2.5% (seed 7 of the own shadow scenario)
+        true_x = 100.0
+        for _ in range(260):
+            loc.predict(0.139, 0.0, 0.0, 0.0, 0.0, 0.1)
+            true_x += 0.139 / (1.0 + bias)
+            # The scan is cast from the TRUE pose: it is the odometry that drifts.
+            ranges = raycast(true_x, 0.0, angles_rel, walls, max_range=19.0)
+            loc.update_scan(ranges, angles_rel, walls, is_fog=False)
+
+        # Ample inliers, yet the walls are parallel: the gate never opens ...
+        self.assertGreater(loc.scan_inliers, 80)
+        self.assertEqual(loc._scale_lidar_dist, 0.0)
+        self.assertFalse(loc.scale_locked)
+        self.assertEqual(loc.scale, 1.0)
+        # ... and the along-track error is the whole odometry drift, uncorrected:
+        # the scan cannot see it, and the localizer now reports it honestly.
+        drift = loc.x - true_x
+        self.assertAlmostEqual(drift, 0.025 * (true_x - 100.0), delta=0.15)
+        self.assertGreater(loc.sigma_along, 0.8)
 
 
 if __name__ == "__main__":

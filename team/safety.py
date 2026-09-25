@@ -340,7 +340,6 @@ class SafetyGovernor:
         # 4. Track clearances and predictive TTC. Unmapped walls (is_wall=True, map_extra)
         #    MUST count as obstacles here, not be skipped.
         d_stop_corridor = R_PLATFORM + (v_now * v_now) / (2.0 * DECEL_NORMAL) + 0.6
-        brake_dist = R_PLATFORM + (v_now * v_now) / (2.0 * DECEL_NORMAL)
 
         min_overall_clearance = math.inf
         human_pred_min = math.inf
@@ -348,12 +347,20 @@ class SafetyGovernor:
         person_slow = False
         person_slow_cl = math.inf
         front_hit = False          # a cluster is directly ahead inside the corridor
-        front_brake_hit = False    # a cluster is directly ahead inside the braking path
+        # True-contact flag: the shortest *centre-to-point* distance over every cluster.
+        # The braking path is about translation, but the hull is a 0.9 m disc, so an
+        # in-place turn is safe while the nearest point stays outside the disc. This is
+        # what decides whether w may be kept while the corridor holds v = 0.
+        min_point_dist = math.inf
 
         for tr in tracks:
             pts = tr.pts
             if pts is None or len(pts) == 0:
                 continue
+
+            d_pts = float(np.hypot(pts[:, 0], pts[:, 1]).min())
+            if d_pts < min_point_dist:
+                min_point_dist = d_pts
 
             is_human = tr.is_pedestrian or tr.is_unknown
             cl = calculate_clearance(pts, is_pedestrian=is_human)
@@ -363,8 +370,6 @@ class SafetyGovernor:
             ahead = (pts[:, 0] > 0.0) & (np.abs(pts[:, 1]) < R_PLATFORM + 0.35)
             if (ahead & (pts[:, 0] < d_stop_corridor)).any():
                 front_hit = True
-            if (ahead & (pts[:, 0] < brake_dist)).any():
-                front_brake_hit = True
 
             if is_human:
                 ped_ahead = (pts[:, 0] > 0.0) & (pts[:, 0] < 4.5) & (np.abs(pts[:, 1]) < 1.8)
@@ -518,10 +523,18 @@ class SafetyGovernor:
         else:
             v_safe = max(0.0, min(v_cand, v_lim))
 
-        # 9. Arbitrate angular velocity w. Rotating on spot beside a person is allowed, but a
-        #    cluster directly ahead inside the braking path forbids rotation (plan/03:76).
-        corridor_blocked = (stop_reason in ("too_close", "stop_object", "blocked_wheels")) and (remaining_dist > 0.35)
-        if is_estop or corridor_blocked or front_brake_hit:
+        # 9. Arbitrate angular velocity w. Rotating on the spot beside a body is allowed
+        #    (plan/03:71, plan/03:76): the hull is a 0.9 m disc, so an in-place turn cannot
+        #    bring it closer to a cluster it is not already touching. A wall or an object
+        #    in the swept corridor therefore keeps v = 0 but must NOT freeze w: the route
+        #    has already planned the A* bypass around it, and zeroing w pins the platform
+        #    in front of the body forever -- the route command to steer away is discarded
+        #    and the mission times out (own s2_container_block seed 7: frozen at
+        #    (190.8, 93.0) from t=154 to 252 while route asked v=1.39 w=-0.49). Only a
+        #    real hull contact (a cluster point inside the disc), an emergency stop or a
+        #    wheel jam rules rotation out.
+        hull_contact = math.isfinite(min_point_dist) and min_point_dist < R_PLATFORM + 0.05
+        if is_estop or blocked_wheels or hull_contact:
             w_safe = 0.0
         else:
             w_safe = w_cand

@@ -6,6 +6,7 @@ import numpy as np
 
 from team.geom import box_segs, raycast
 from team.perceive import (
+    PEDESTRIAN_CONTOUR_MAX_M,
     Perception,
     Track,
     fit_cluster_geometry,
@@ -477,6 +478,100 @@ class TestPerception(unittest.TestCase):
         self.assertTrue(tr.is_wall)
         self.assertFalse(tr.is_static_object)
         self.assertEqual(len(self.perc.get_extra_obstacles()), 1)
+
+    # ------------------------------------------------------ large body vs pedestrian
+
+    def _coast_one_tick(self):
+        """Advance one clear-scan tick so the injected tracks are evaluated, no new cluster."""
+        pose = (10.0, 40.0, math.pi / 2)
+        odom = (0.0, 0.0, 0.0)
+        rel_angles = np.radians(np.arange(360))
+        ranges = raycast(pose[0], pose[1], pose[2] + rel_angles, self.map_segs)
+        self.perc.step(ranges=ranges, rel_angles=rel_angles, pose=pose,
+                       odom_pose=odom, map_segs=self.map_segs, v_odom=0.0)
+
+    def test_large_cluster_does_not_latch_pedestrian_on_shift(self):
+        # Task T.1 / plan/03:26-28: a large (non-pedestrian-contour) cluster whose
+        # centroid shifts >= 0.6 m is an unmapped body, not a person. Its visible
+        # centroid wanders while the body stands still (s2_container_block seed 7:
+        # track id=1, length 2.7-4.2 m, a 0.69 m jump in a single tick), and latching
+        # it as a pedestrian is exactly what produced the eternal `stop_person`.
+        tr = Track(track_id=1, ox=0.0, oy=3.0)
+        tr.class_label = "wall_extra"
+        tr.dyn = False
+        tr.length = PEDESTRIAN_CONTOUR_MAX_M + 1.8
+        tr.thickness = 0.02
+        tr.seen = [1, 1]
+        tr.hist = [(0.0, 5.0), (0.0, 4.5), (0.0, 4.0), (0.0, 3.5), (0.0, 3.0)]
+        self.perc.tracks = [tr]
+
+        self._coast_one_tick()
+
+        self.assertTrue(tr.is_wall)
+        self.assertFalse(tr.is_pedestrian)
+        self.assertNotEqual(tr.class_label, "pedestrian")
+        # It is in the obstacle layer right away, so the route can start the bypass
+        # immediately instead of waiting 1-2 s of our own stop (task T.3).
+        self.assertEqual(len(self.perc.get_extra_obstacles()), 1)
+
+    def test_compact_contour_shift_still_latches_pedestrian(self):
+        # The wave-3 rescue must survive (04 seed 42): a compact body whose momentary
+        # footprint looked like a thin wall piece returns to the human class through its
+        # world motion, so safety keeps human limits and the route is not rewritten.
+        tr = Track(track_id=1, ox=0.0, oy=3.0)
+        tr.class_label = "wall_extra"
+        tr.dyn = False
+        tr.length = 0.5
+        tr.thickness = 0.05
+        tr.seen = [1, 1]
+        tr.hist = [(0.0, 3.8), (0.0, 3.6), (0.0, 3.4), (0.0, 3.2), (0.0, 3.0)]
+        self.perc.tracks = [tr]
+
+        self._coast_one_tick()
+
+        self.assertTrue(tr.is_pedestrian)
+        self.assertFalse(tr.is_wall)
+        self.assertEqual(self.perc.get_extra_obstacles(), [])
+
+    def test_large_thick_cluster_becomes_wall_extra_not_unknown(self):
+        # Task T.2 / plan/03:38: a long unexplained body that is *not* a thin mapped wall
+        # (thickness >= 0.1 m, so is_wall is False) must still join the obstacle layer as
+        # `wall_extra`. Left `unknown`, safety treats it as a person, holds an eternal
+        # stop and the bypass can never start; a container face is thick, not a fence.
+        tr = Track(track_id=1, ox=0.0, oy=3.0)
+        tr.class_label = "unknown"
+        tr.dyn = None
+        tr.length = 2.5
+        tr.thickness = 0.4
+        tr.seen = [1, 1]
+        tr.hist = [(0.0, 3.0)] * 6
+        self.perc.tracks = [tr]
+
+        self._coast_one_tick()
+
+        self.assertTrue(tr.is_wall)
+        self.assertFalse(tr.is_unknown)
+        self.assertFalse(tr.is_pedestrian)
+        self.assertEqual(len(self.perc.get_extra_obstacles()), 1)
+
+    def test_latched_pedestrian_with_growing_contour_stays_human(self):
+        # A person latched while compact must never be demoted into the obstacle layer
+        # when the contour later grows (a merged or partial footprint): a moving human
+        # must not rewrite the route (plan/03:28).
+        tr = Track(track_id=1, ox=0.0, oy=3.0)
+        tr.class_label = "pedestrian"
+        tr.dyn = True
+        tr.length = PEDESTRIAN_CONTOUR_MAX_M + 1.8
+        tr.thickness = 0.02
+        tr.seen = [1, 1]
+        tr.hist = [(0.0, 5.0), (0.0, 4.5), (0.0, 4.0), (0.0, 3.5), (0.0, 3.0)]
+        self.perc.tracks = [tr]
+
+        self._coast_one_tick()
+
+        self.assertTrue(tr.is_pedestrian)
+        self.assertFalse(tr.is_wall)
+        self.assertEqual(self.perc.get_extra_obstacles(), [])
 
     def test_dynamic_track_coasting_during_fog(self):
         # Dynamic pedestrian track should be predicted forward up to 1.0s (10 ticks) during dropout
