@@ -17,7 +17,7 @@
 ## Требования
 
 - Python >= 3.10 (см. `pyproject.toml`, `requires-python = ">=3.10"`);
-- только `numpy` (в `requirements.txt` и `team_dreamteam_4_0/requirements.txt`: `numpy>=1.24.0`);
+- только `numpy` (в корневом `requirements.txt`: `numpy>=1.24.0`, в `team_dreamteam_4_0/requirements.txt`: `numpy`);
 - симулятор `amrsim` лежит в `amrsim-participants/` и запускается через
   `PYTHONPATH=amrsim-participants`; кроме numpy он ничего не требует.
 
@@ -69,7 +69,7 @@ PYTHONPATH=amrsim-participants python -m amrsim batch \
 
 ```bash
 uv run ruff check       # Быстрый линтинг Python
-uv run pytest -v        # 237 автоматических тестов (алгоритмы, сервер, оценка)
+uv run pytest -v        # 239 автоматических тестов (алгоритмы, сервер, оценка)
 ```
 
 ## АРМ Оператора (Критерий О3 — 15 баллов)
@@ -87,7 +87,7 @@ python arm/server.py --port 8000
 cd arm/frontend
 npm install
 npm run lint    # Проверка типов TypeScript (tsc --noEmit)
-npm test        # 87 тестов Vitest
+npm test        # 88 тестов Vitest
 npm run build   # Сборка SPA в arm/frontend/dist
 ```
 
@@ -101,7 +101,7 @@ team_dreamteam_4_0/    # Модули алгоритма контроллера 
   perceive.py          # Восприятие: кластеры, треки, классы, map_missing/map_extra
   route.py             # Маршрут: pure pursuit, сдвиг, A*, зоны скорости
   safety.py            # Безопасность: зазоры, коридор, estop, статусы и note
-  APPROACH.md          # 26 строк о локализации, маршруте, безопасности и ограничениях
+  APPROACH.md          # 25 строк о локализации, маршруте, безопасности и ограничениях
   requirements.txt     # Одна строка: numpy
   scenarios/           # Свои проверки О4 (s1..s5)
 arm/                   # Рабочее место оператора (критерий О3)
@@ -110,8 +110,8 @@ arm/                   # Рабочее место оператора (крит�
   README.md            # Инструкция запуска АРМ
   frontend/            # React + Vite + Tailwind + Canvas 2D + KaTeX
 scenarios/             # Открытые (01..04) и кастомные сценарии (s1..s5, критерий О4)
-tests/                 # 237 модульных тестов: алгоритмы, сервер, метрики (критерий Т5)
-results/               # Отчёты score: baseline_*.json и team_*.json по сценариям 01-04
+tests/                 # 239 модульных тестов: алгоритмы, сервер, метрики (критерий Т5)
+results/               # Отчёты score: seed_packet (4x7), свои сценарии и логи, моменты (О2, О4)
 APPROACH.md            # Корневой файл обоснования подхода (критерии Т3, О1)
 presentation.pdf       # Презентация к защите до 12 слайдов (критерий О5)
 .github/workflows/ci.yml # Автоматический CI (тесты, линтеры, сборка, симуляция)
