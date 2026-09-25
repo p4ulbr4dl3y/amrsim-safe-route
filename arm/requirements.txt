@@ -1,0 +1,3 @@
+# AMR Operator Workstation (ARM) Requirements
+# The web server uses Python 3 stdlib (http.server, json, urllib, subprocess).
+numpy>=1.24.0
