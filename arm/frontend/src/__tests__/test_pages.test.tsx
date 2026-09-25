@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 import { DashboardPage } from '../pages/DashboardPage';
 import { EpisodesPage } from '../pages/EpisodesPage';
@@ -100,6 +100,44 @@ describe('Operator Workstation Pages', () => {
       expect(searchInput).toBeTruthy();
       fireEvent.change(searchInput, { target: { value: 'person' } });
       expect((searchInput as HTMLInputElement).value).toBe('person');
+    });
+
+    it('separates rows by source and formats penalty column properly (dash for non-report)', async () => {
+      render(<EpisodesPage onNavigate={onNavigateMock} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Эпизоды безопасности/i)).toBeTruthy();
+      });
+
+      // Check header column for Source
+      const table = screen.getByRole('table');
+      expect(within(table).getByRole('columnheader', { name: /Источник/i })).toBeTruthy();
+
+      // Check source badges in table rows: report, mission, checkpoint
+      expect(within(table).getAllByText('Отчет').length).toBeGreaterThan(0);
+      expect(within(table).getAllByText('Миссия').length).toBeGreaterThan(0);
+      expect(within(table).getAllByText('Чекпоинт').length).toBeGreaterThan(0);
+
+      // Verify that non-report milestones display dash "—" in penalty column
+      const dashes = within(table).getAllByText('—');
+      expect(dashes.length).toBeGreaterThan(0);
+
+      // Click on a mission milestone row to verify details panel displays dash for cost and source badge
+      const missionCell = within(table).getAllByText('Миссия')[0];
+      const missionRow = missionCell.closest('tr');
+      expect(missionRow).toBeTruthy();
+      if (missionRow) {
+        fireEvent.click(missionRow);
+      }
+
+      // In details panel, cost for mission should display dash "—" rather than numeric penalty
+      const detailTitle = screen.getByText('Детали эпизода');
+      const detailContainer = detailTitle.parentElement?.parentElement;
+      expect(detailContainer).toBeTruthy();
+      if (detailContainer) {
+        expect(within(detailContainer).getAllByText('—').length).toBeGreaterThan(0);
+        expect(within(detailContainer).getByText('Миссия')).toBeTruthy();
+      }
     });
   });
 

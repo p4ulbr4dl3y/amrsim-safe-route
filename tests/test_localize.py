@@ -888,6 +888,36 @@ class TestLocalizeCoverage(unittest.TestCase):
         loc.predict(0.01, 0.0, 0.0, 0.0, 0.0, 0.1)
         self.assertFalse(loc.is_lost)
 
+    def test_recovery_grid_half_step_between_nodes(self):
+        """Восстановление позы со сдвигом 0.25 м между узлами сетки (дефект O2).
+
+        Стоящая платформа при x_true=10.25 м, y=4.0 м, yaw=0.0 рад и начальной оценке
+        (10.0, 4.0, 0.0) находит правильную гипотезу, набирает инлайнеры и снимает is_lost.
+        """
+        poly = np.array(
+            [[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [8.0, 10.0], [8.0, 5.0], [0.0, 5.0]]
+        )
+        segs = box_segs(poly)
+        angles = np.radians(np.arange(360))
+        x_true, y_true, th_true = 10.25, 4.0, 0.0
+        ranges = raycast(x_true, y_true, angles + th_true, segs)
+
+        loc = Localizer((10.0, 4.0, 0.0))
+        loc.is_lost = True
+        loc._unconfirmed_dist = 150.0
+
+        # Платформа в движении не должна запускать поиск
+        self.assertFalse(loc.try_recover(ranges, angles, segs, stopped=False))
+        self.assertTrue(loc.is_lost)
+
+        # Неподвижная платформа находит пик гипотезы со сдвигом 0.25 м
+        ok = loc.try_recover(ranges, angles, segs, stopped=True)
+        self.assertTrue(ok)
+        self.assertFalse(loc.is_lost)
+        self.assertAlmostEqual(loc.x, 10.25, delta=0.01)
+        self.assertAlmostEqual(loc.y, 4.0, delta=0.01)
+        self.assertAlmostEqual(loc.th, 0.0, delta=0.05)
+
     def test_import_fallback(self):
         import sys
 

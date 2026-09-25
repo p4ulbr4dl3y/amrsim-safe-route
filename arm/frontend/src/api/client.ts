@@ -185,7 +185,7 @@ const fallbackData = {
       summary: {
         totalCost: -0.6,
         fatalCount: 0,
-        warningsCount: mockEpisodes.length,
+        warningsCount: mockEpisodes.filter(e => (e.source || 'report') === 'report').length,
         ruleViolationsCount: 1,
       },
       episodes: mockEpisodes,

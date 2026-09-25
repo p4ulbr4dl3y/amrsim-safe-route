@@ -828,3 +828,38 @@ def test_server_entrypoint_main():
         with pytest.raises(SystemExit) as exc:
             runpy.run_path(str(Path(server.__file__)), run_name="__main__")
         assert exc.value.code == 0
+
+
+def test_checkpoint_telemetry_snapshot_matches_tick_clearance(monkeypatch):
+    """Снимок контрольной точки берет hum и obj из своего тика tk, а не из предыдущего цикла."""
+    ticks = [
+        {"t": 0.0, "x": 0.0, "y": 0.0, "v": 0.5, "hum": 9.99, "obj": 8.88},
+        {"t": 20.0, "x": 10.0, "y": 5.0, "v": 0.8, "hum": 2.34, "obj": 1.56},
+        {"t": 40.0, "x": 20.0, "y": 10.0, "v": 0.7, "hum": 3.45, "obj": 2.67},
+        {"t": 60.0, "x": 30.0, "y": 15.0, "v": 0.6, "hum": 4.56, "obj": 3.78},
+        {"t": 80.0, "x": 40.0, "y": 20.0, "v": 0.0, "hum": 5.67, "obj": 4.89},
+    ]
+    monkeypatch.setattr(
+        server,
+        "parse_ticks_log",
+        lambda s: {"raw_ticks": ticks, "ticks": ticks, "totalTicks": len(ticks), "duration": 80.0},
+    )
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda s: {"score": {"episodes": []}, "missions": []},
+    )
+
+    vm = server.build_episodes_view_model("test_checkpoint_clearance")
+    checkpoints = [e for e in vm["episodes"] if e.get("source") == "checkpoint"]
+    assert len(checkpoints) >= 1
+
+    for chk in checkpoints:
+        t_chk = chk["t_start"]
+        matching_tick = next((tk for tk in ticks if abs(tk["t"] - t_chk) < 1e-3), None)
+        assert matching_tick is not None, f"No matching tick found for checkpoint at t={t_chk}"
+        snap = chk["telemetrySnapshot"]
+        assert snap is not None
+        assert snap["hum"] == round(matching_tick["hum"], 2)
+        assert snap["obj"] == round(matching_tick["obj"], 2)
+

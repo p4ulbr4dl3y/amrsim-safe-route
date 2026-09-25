@@ -215,6 +215,50 @@ export const mockEpisodes: EpisodeData[] = [
       status: 'MOVING',
       note: 'vmax_exit'
     }
+  },
+  {
+    id: 'ep-m-start-m1',
+    severity: 'info',
+    type: 'mission_start',
+    category: 'Старт миссии',
+    source: 'mission',
+    t_start: 0.0,
+    t_end: 1.0,
+    x: 20.0,
+    y: 30.0,
+    cost: 0.0,
+    ruleExplanation: 'Старт доставки m1: warehouse $\\rightarrow$ shop_a',
+    telemetrySnapshot: {
+      v: 0.0,
+      cv: 0.0,
+      hum: null,
+      obj: null,
+      pe_error: 0.0,
+      status: 'MOVING',
+      note: 'start_m1'
+    }
+  },
+  {
+    id: 'ep-chk-1',
+    severity: 'info',
+    type: 'checkpoint',
+    category: 'Контрольная точка',
+    source: 'checkpoint',
+    t_start: 100.0,
+    t_end: 101.0,
+    x: 50.0,
+    y: 60.0,
+    cost: 0.0,
+    ruleExplanation: 'Штатная контрольная точка на траектории движения.',
+    telemetrySnapshot: {
+      v: 0.8,
+      cv: 0.8,
+      hum: null,
+      obj: 2.5,
+      pe_error: 0.05,
+      status: 'MOVING',
+      note: 'checkpoint_100'
+    }
   }
 ];
 

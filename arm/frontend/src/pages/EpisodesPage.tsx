@@ -71,6 +71,18 @@ const EPISODE_FORMULAS: Record<string, { formula: string; condition: string }> =
   },
 };
 
+const SOURCE_LABELS: Record<string, { label: string; badgeClass: string }> = {
+  report: { label: 'Отчет', badgeClass: 'bg-red-50 text-red-700 border-red-200' },
+  mission: { label: 'Миссия', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  telemetry: { label: 'Телеметрия', badgeClass: 'bg-blue-50 text-blue-700 border-blue-200' },
+  checkpoint: { label: 'Чекпоинт', badgeClass: 'bg-slate-100 text-slate-700 border-slate-200' },
+};
+
+const getSourceMeta = (source?: string) => {
+  const s = source || 'report';
+  return SOURCE_LABELS[s] || { label: s, badgeClass: 'bg-slate-50 text-slate-600 border-slate-200' };
+};
+
 interface EpisodesPageProps {
   onNavigate: (route: RouteName, params?: Record<string, any>) => void;
   queryParams?: {
@@ -84,6 +96,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [episodesData, setEpisodesData] = useState<EpisodesViewModel | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<EpisodeData | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>(queryParams?.type || 'all');
   const [costFilter, setCostFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -129,16 +142,18 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
   // Экспорт в формате CSV
   const handleExportCSV = () => {
     if (episodesData && episodesData.episodes && episodesData.episodes.length > 0) {
-      const headers = "Episode ID,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation";
+      const headers = "Episode ID,Source,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation";
       const rows = episodesData.episodes.map((ep) => {
         const snap = (ep.telemetrySnapshot || {}) as Record<string, any>;
         const v = typeof snap.v === 'number' ? snap.v.toFixed(2) : '';
         const hum = typeof snap.hum === 'number' ? snap.hum.toFixed(2) : '';
         const obj = typeof snap.obj === 'number' ? snap.obj.toFixed(2) : '';
         const pe = typeof snap.pe_error === 'number' ? snap.pe_error.toFixed(4) : '';
-        const cost = (ep.cost || 0).toFixed(2);
+        const isReport = (ep.source || 'report') === 'report';
+        const cost = isReport ? (ep.cost || 0).toFixed(2) : '';
         const expl = (ep.ruleExplanation || '').replace(/"/g, '""');
-        return `${ep.id},${ep.type},${ep.category},${ep.severity || 'info'},${ep.t_start},${ep.t_end},${ep.x},${ep.y},${v},${hum},${obj},${pe},${cost},"${expl}"`;
+        const src = ep.source || 'report';
+        return `${ep.id},${src},${ep.type},${ep.category},${ep.severity || 'info'},${ep.t_start},${ep.t_end},${ep.x},${ep.y},${v},${hum},${obj},${pe},${cost},"${expl}"`;
       });
       const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent([headers, ...rows].join('\n'));
       const link = document.createElement('a');
@@ -183,14 +198,19 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
 
   // Фильтрация
   const filteredEpisodes = episodes.filter((ep) => {
+    const epSource = ep.source || 'report';
+    if (sourceFilter !== 'all' && epSource !== sourceFilter) return false;
     if (typeFilter !== 'all' && ep.type !== typeFilter) return false;
-    if (costFilter === 'high' && ep.cost > -0.5) return false;
-    if (costFilter === 'low' && ep.cost <= -0.5) return false;
+    if (costFilter === 'high' && (epSource !== 'report' || ep.cost > -0.5)) return false;
+    if (costFilter === 'low' && epSource === 'report' && ep.cost <= -0.5) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
+      const srcMeta = getSourceMeta(ep.source);
       return (
         ep.type.toLowerCase().includes(q) ||
         ep.category.toLowerCase().includes(q) ||
+        epSource.toLowerCase().includes(q) ||
+        srcMeta.label.toLowerCase().includes(q) ||
         ep.x.toString().includes(q) ||
         ep.y.toString().includes(q) ||
         (ep.ruleExplanation && ep.ruleExplanation.toLowerCase().includes(q))
@@ -309,6 +329,25 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
 
       {/* Filters Bar */}
       <div className="bg-white p-3.5 px-5 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4">
+        {/* Source filter */}
+        <div className="flex flex-col gap-1 min-w-[150px]">
+          <span className="text-[11px] text-slate-500 font-medium">Источник</span>
+          <div className="relative">
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-2 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+            >
+              <option value="all">Все источники</option>
+              <option value="report">Отчет</option>
+              <option value="mission">Миссия</option>
+              <option value="telemetry">Телеметрия</option>
+              <option value="checkpoint">Чекпоинт</option>
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+          </div>
+        </div>
+
         {/* Type filter */}
         <div className="flex flex-col gap-1 min-w-[180px]">
           <span className="text-[11px] text-slate-500 font-medium">Тип события</span>
@@ -371,6 +410,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
                 <tr>
                   <th className="py-3 px-4 w-12 text-center">Статус</th>
+                  <th className="py-3 px-4">Источник</th>
                   <th className="py-3 px-4">Тип эпизода</th>
                   <th className="py-3 px-4">Категория</th>
                   <th className="py-3 px-4">Время (с)</th>
@@ -382,7 +422,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
               <tbody className="divide-y divide-slate-100">
                 {filteredEpisodes.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-400">
+                    <td colSpan={8} className="py-8 text-center text-slate-400">
                       В данном сценарии нет зафиксированных инцидентов по заданным фильтрам
                     </td>
                   </tr>
@@ -397,6 +437,9 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                         : ep.severity === 'info'
                         ? 'bg-blue-500'
                         : 'bg-emerald-500';
+                    const epSource = ep.source || 'report';
+                    const srcMeta = getSourceMeta(ep.source);
+                    const isReport = epSource === 'report';
 
                     return (
                       <tr
@@ -409,6 +452,13 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                         <td className="py-3 px-4 text-center">
                           <span className={`w-2.5 h-2.5 rounded-full inline-block ${dotColor}`}></span>
                         </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${srcMeta.badgeClass}`}
+                          >
+                            {srcMeta.label}
+                          </span>
+                        </td>
                         <td className="py-3 px-4 font-mono font-medium text-slate-900">
                           {ep.type}
                         </td>
@@ -420,11 +470,15 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                           ({ep.x.toFixed(1)}, {ep.y.toFixed(1)})
                         </td>
                         <td
-                          className={`py-3 px-4 font-mono text-right font-semibold ${
-                            ep.cost < 0 ? 'text-red-600' : 'text-slate-500'
+                          className={`py-3 px-4 font-mono text-right ${
+                            isReport
+                              ? ep.cost < 0
+                                ? 'font-semibold text-red-600'
+                                : 'font-semibold text-slate-500'
+                              : 'font-normal text-slate-400'
                           }`}
                         >
-                          {ep.cost.toFixed(2)}
+                          {isReport ? ep.cost.toFixed(2) : '—'}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <button
@@ -454,7 +508,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
 
           {selectedEpisode ? (
             <div className="flex flex-col gap-4">
-              {/* Header: Type and Cost */}
+              {/* Header: Type, Source and Cost */}
               <div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -472,13 +526,26 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                     <span className="font-mono font-bold text-sm text-slate-900">
                       {selectedEpisode.type}
                     </span>
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
+                        getSourceMeta(selectedEpisode.source).badgeClass
+                      }`}
+                    >
+                      {getSourceMeta(selectedEpisode.source).label}
+                    </span>
                   </div>
                   <span
                     className={`font-mono font-bold text-sm ${
-                      selectedEpisode.cost < 0 ? 'text-red-600' : 'text-emerald-600'
+                      (selectedEpisode.source || 'report') !== 'report'
+                        ? 'text-slate-400 font-normal'
+                        : selectedEpisode.cost < 0
+                        ? 'text-red-600'
+                        : 'text-emerald-600'
                     }`}
                   >
-                    {selectedEpisode.cost.toFixed(2)} pts
+                    {(selectedEpisode.source || 'report') === 'report'
+                      ? `${selectedEpisode.cost.toFixed(2)} pts`
+                      : '—'}
                   </span>
                 </div>
                 <div className="text-xs text-slate-500 mt-1">{selectedEpisode.category}</div>

@@ -30,6 +30,7 @@ export interface EpisodeData {
   severity: 'warning' | 'info' | 'critical' | 'success';
   type: string;
   category: string;
+  source?: 'report' | 'mission' | 'telemetry' | 'checkpoint' | string;
   t_start: number;
   t_end: number;
   x: number;

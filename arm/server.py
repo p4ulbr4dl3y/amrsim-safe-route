@@ -951,8 +951,8 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "telemetrySnapshot": {
                         "v": round(tk.get("v", 0.0), 2),
                         "cv": round(tk.get("cv", 0.0), 2),
-                        "hum": round(hum, 2) if hum is not None else None,
-                        "obj": round(obj, 2) if obj is not None else None,
+                        "hum": round(tk["hum"], 2) if tk.get("hum") is not None else None,
+                        "obj": round(tk["obj"], 2) if tk.get("obj") is not None else None,
                         "pe_error": tk.get("pe_error", 0.0),
                         "status": tk.get("st", "moving").upper(),
                         "note": tk.get("nt", "waypoint"),

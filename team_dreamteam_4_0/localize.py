@@ -13,6 +13,7 @@ try:
         filter_segs_aabb,
         point_to_segs_displacement,
         raycast,
+        seg_dist,
         wrap_angle,
     )
 except ImportError:
@@ -20,6 +21,7 @@ except ImportError:
         filter_segs_aabb,
         point_to_segs_displacement,
         raycast,
+        seg_dist,
         wrap_angle,
     )
 
@@ -1081,7 +1083,7 @@ class Localizer:
     ) -> bool:
         """Глобально-локальный поиск гипотез по сетке при потере позы.
 
-        Сетка: dx в [-3, 3] шаг 0.5 м, dy в [-3, 3] шаг 0.5 м, dth в [-8°, 8°] шаг 2°.
+        Сетка: dx в [-3, 3] шаг 0.25 м, dy в [-3, 3] шаг 0.25 м, dth в [-8°, 8°] шаг 2°.
         Для оценки используется 60 лучей. Резкая вершина принимается для снятия is_lost.
         """
         if segs is None or len(segs) == 0:
@@ -1103,8 +1105,8 @@ class Localizer:
         eval_r = r_60[mask]
         eval_rel = rel_60[mask]
 
-        dx_grid = np.arange(-3.0, 3.1, 0.5)
-        dy_grid = np.arange(-3.0, 3.1, 0.5)
+        dx_grid = np.arange(-3.0, 3.1, 0.25)
+        dy_grid = np.arange(-3.0, 3.1, 0.25)
         dth_grid = np.radians(np.arange(-8.0, 8.1, 2.0))
 
         candidates = []
@@ -1116,19 +1118,18 @@ class Localizer:
         for dth in dth_grid:
             cand_th = wrap_angle(self.th + dth)
             beam_angles = cand_th + eval_rel
-            cos_b = np.cos(beam_angles)
-            sin_b = np.sin(beam_angles)
+            rx = eval_r * np.cos(beam_angles)
+            ry = eval_r * np.sin(beam_angles)
 
             for dx in dx_grid:
                 cx = self.x + dx
+                pts_x = cx + rx
                 for dy in dy_grid:
                     cy = self.y + dy
+                    pts_y = cy + ry
 
-                    pts_x = cx + eval_r * cos_b
-                    pts_y = cy + eval_r * sin_b
-
-                    disp = point_to_segs_displacement(pts_x, pts_y, local_segs)
-                    inliers = int((disp.dists < 0.25).sum())
+                    dists = seg_dist(pts_x, pts_y, local_segs)
+                    inliers = int((dists < 0.25).sum())
                     candidates.append((inliers, cx, cy, cand_th))
 
         candidates.sort(key=lambda c: -c[0])
