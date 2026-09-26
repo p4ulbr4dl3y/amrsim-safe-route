@@ -74,6 +74,8 @@ def run_scenario(
     ]
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    if report_path.exists():
+        report_path.unlink()
 
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
     if verbose or proc.returncode != 0:
@@ -93,27 +95,37 @@ def run_scenario(
 
 def extract_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
     scenario_name = report.get("scenario", "unknown")
-    missions = report.get("missions", [])
+    missions = report.get("missions") or []
     total_missions = len(missions)
-    delivered_missions = sum(1 for m in missions if m.get("delivered", False))
+    delivered_missions = sum(
+        1 for m in missions if isinstance(m, dict) and m.get("delivered", False)
+    )
     missions_str = f"{delivered_missions}/{total_missions}"
 
     end_reason = report.get("end_reason", "unknown")
-    score_data = report.get("score", {})
-    total_score = float(score_data.get("total", 0.0))
-    raw_sum = float(score_data.get("raw_sum", 0.0))
-    blocks = score_data.get("blocks", {})
+    score_data = report.get("score") or {}
+    total_val = score_data.get("total")
+    total_score = float(total_val) if total_val is not None else 0.0
+    raw_sum_val = score_data.get("raw_sum")
+    raw_sum = float(raw_sum_val) if raw_sum_val is not None else 0.0
+    blocks = score_data.get("blocks") or {}
 
-    deliv_score = float(blocks.get("delivery", 0.0))
-    eff_score = float(blocks.get("efficiency", 0.0))
-    safe_score = float(blocks.get("safety", 0.0))
-    rules_score = float(blocks.get("rules", 0.0))
-    pose_score = float(blocks.get("pose", 0.0))
-    coll_score = float(blocks.get("collisions", 0.0))
+    def _block_val(k: str) -> float:
+        v = blocks.get(k)
+        return float(v) if v is not None else 0.0
 
-    step_time = report.get("step_time_ms", {})
-    step_mean = float(step_time.get("mean", 0.0))
-    step_max = float(step_time.get("max", 0.0))
+    deliv_score = _block_val("delivery")
+    eff_score = _block_val("efficiency")
+    safe_score = _block_val("safety")
+    rules_score = _block_val("rules")
+    pose_score = _block_val("pose")
+    coll_score = _block_val("collisions")
+
+    step_time = report.get("step_time_ms") or {}
+    mean_val = step_time.get("mean")
+    step_mean = float(mean_val) if mean_val is not None else 0.0
+    max_val = step_time.get("max")
+    step_max = float(max_val) if max_val is not None else 0.0
 
     return {
         "scenario": scenario_name,
@@ -149,7 +161,12 @@ def format_table(
         "Coll.",
         "Total",
     ]
-    has_baseline = bool(baseline_summary and "scenarios" in baseline_summary)
+    base_scenarios = (
+        baseline_summary.get("scenarios")
+        if isinstance(baseline_summary, dict)
+        else None
+    )
+    has_baseline = isinstance(base_scenarios, dict)
     if has_baseline:
         headers.append("BaseΔ")
     headers.append("Step (avg/max ms)")
@@ -180,9 +197,9 @@ def format_table(
         ]
         total_score_sum += r["total"]
 
-        if has_baseline:
-            base_scen = baseline_summary["scenarios"].get(scen)
-            if base_scen:
+        if has_baseline and base_scenarios is not None:
+            base_scen = base_scenarios.get(scen)
+            if isinstance(base_scen, dict):
                 base_tot = float(base_scen.get("total", 0.0))
                 delta = r["total"] - base_tot
                 total_delta_sum += delta
@@ -248,18 +265,26 @@ def check_regressions(
     tolerance: float = 0.05,
 ) -> List[str]:
     regressions = []
-    base_scenarios = baseline_summary.get("scenarios", {})
+    base_scenarios = (
+        baseline_summary.get("scenarios")
+        if isinstance(baseline_summary, dict)
+        else None
+    )
+    if not isinstance(base_scenarios, dict):
+        return regressions
 
     for r in results:
         scen = r["scenario"]
         if scen in base_scenarios:
-            base_tot = float(base_scenarios[scen].get("total", 0.0))
-            new_tot = r["total"]
-            diff = new_tot - base_tot
-            if diff < -tolerance:
-                regressions.append(
-                    f"Regression in {scen}: score dropped {diff:.2f} (from {base_tot:.2f} to {new_tot:.2f})"
-                )
+            base_scen = base_scenarios[scen]
+            if isinstance(base_scen, dict):
+                base_tot = float(base_scen.get("total", 0.0))
+                new_tot = r["total"]
+                diff = new_tot - base_tot
+                if diff < -tolerance:
+                    regressions.append(
+                        f"Regression in {scen}: score dropped {diff:.2f} (from {base_tot:.2f} to {new_tot:.2f})"
+                    )
     return regressions
 
 

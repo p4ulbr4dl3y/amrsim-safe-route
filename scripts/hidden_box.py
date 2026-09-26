@@ -34,7 +34,7 @@ if PARTICIPANTS_PATH.is_dir() and str(PARTICIPANTS_PATH) not in sys.path:
 from amrsim.planner import Grid, dock_route, path_length  # noqa: E402
 
 
-def load_base_scenario(path: str = "scenarios/01_clear.json") -> Dict[str, Any]:
+def load_base_scenario(path: str | Path = REPO_ROOT / "scenarios/01_clear.json") -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -248,7 +248,7 @@ def generate_candidates(base_sc: Dict[str, Any], grid: Grid) -> List[Dict[str, A
     sc7["map"]["zones"] = make_base_zones(base_sc) + make_tall_shadow(120.0)
     sc7["missions"] = make_missions_sequence(grid, points, [("shop_b", "charger")])
     sc7["duration_s"] = sum(m["deadline_s"] for m in sc7["missions"]) + 60.0
-    sc7["start"] = {"x": points["shop_b"]["x"], "y": points["shop_b"]["y"], "theta": points["shop_b"]["heading"]}
+    sc7["start"] = {"x": points["shop_b"]["x"], "y": points["shop_b"]["y"], "theta": dock_exit_heading("shop_b")}
     sc7["events"] = [
         {"type": "gnss_outage", "t1": 0.0, "t2": 50.0},
         {"type": "object_dropped", "t": 3.0, "x": 205.0, "y": 96.5, "r": 0.4},
@@ -420,14 +420,20 @@ def evaluate_candidate(
 
     oracle_rep = temp_dir / f"{cand['name']}_oracle.json"
     base_rep = temp_dir / f"{cand['name']}_base.json"
+    if oracle_rep.exists():
+        oracle_rep.unlink()
+    if base_rep.exists():
+        base_rep.unlink()
 
     env = os.environ.copy()
-    amrsim_part_dir = str(Path("amrsim-participants").resolve())
+    amrsim_part_dir = str(PARTICIPANTS_PATH.resolve())
     curr_pythonpath = env.get("PYTHONPATH", "")
     if amrsim_part_dir not in curr_pythonpath:
         env["PYTHONPATH"] = (
             f"{amrsim_part_dir}:{curr_pythonpath}" if curr_pythonpath else amrsim_part_dir
         )
+
+    baseline_ctrl = str(REPO_ROOT / "amrsim-participants/baseline/controller.py")
 
     cmd_oracle = [
         sys.executable,
@@ -436,7 +442,7 @@ def evaluate_candidate(
         "run",
         str(cand_path),
         "--controller",
-        "amrsim-participants/baseline/controller.py",
+        baseline_ctrl,
         "--cheat",
         "--seed",
         str(seed),
@@ -452,7 +458,7 @@ def evaluate_candidate(
         "run",
         str(cand_path),
         "--controller",
-        "amrsim-participants/baseline/controller.py",
+        baseline_ctrl,
         "--seed",
         str(seed),
         "--report",
