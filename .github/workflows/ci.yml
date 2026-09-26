@@ -67,3 +67,37 @@ jobs:
 
       - name: Build Production SPA
         run: npm run build
+
+  docker:
+    name: Docker Build & Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: amrsim-arm:ci
+          load: true
+
+      - name: Verify T3 isolation in Docker
+        run: |
+          docker run --rm amrsim-arm:ci python -m amrsim check team_dreamteam_4_0
+
+      - name: Run Smoke Simulation in Docker
+        run: |
+          docker run --rm amrsim-arm:ci python -m amrsim run scenarios/01_clear.json --controller team_dreamteam_4_0/controller.py --seed 1 --report /app/out/smoke_ci.json
+
+      - name: Verify ARM Server health check
+        run: |
+          docker run -d --name test_arm -p 8000:8000 amrsim-arm:ci
+          sleep 3
+          curl -f http://localhost:8000/api/scenarios || exit 1
+          docker stop test_arm
+

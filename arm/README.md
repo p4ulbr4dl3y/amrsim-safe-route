@@ -15,6 +15,20 @@ python3 arm/server.py --port 8000
 Затем открыть в браузере: `http://localhost:8000`
 
 > **Примечание:** Сервер написан строго на стандартной библиотеке Python (`http.server` + `json`) без сторонних зависимостей и автоматически раздает предсобранный SPA-интерфейс из каталога `arm/frontend/dist`.
+ 
+## Опциональный запуск в Docker
+
+Запуск веб-станции АРМ и симулятора через Docker Compose:
+```bash
+docker compose up --build
+```
+Интерфейс доступен по адресу: `http://localhost:8000`.
+
+Команды симулятора и проверка изоляции Т3 в контейнере:
+```bash
+docker compose run --rm arm python -m amrsim check team_dreamteam_4_0
+docker compose run --rm arm python -m amrsim run scenarios/01_clear.json --controller team_dreamteam_4_0/controller.py --seed 7 --report /app/out/01.json
+```
 
 ## Возможности АРМ (Критерий О3):
 - **Dashboard**: сводная статистика KPI, статус выполнения заданий, целевая функция и анализ штрафов;

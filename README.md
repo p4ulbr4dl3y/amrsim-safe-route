@@ -91,6 +91,23 @@ npm test        # 89 тестов Vitest
 npm run build   # Сборка SPA в arm/frontend/dist
 ```
 
+### Опциональный запуск в Docker
+
+Сборка и запуск контейнера АРМ и симулятора через Docker Compose:
+```bash
+docker compose up --build
+```
+Открыть в браузере: `http://localhost:8000`.
+
+Запуск симулятора или проверки правил изоляции Т3 внутри контейнера:
+```bash
+# Проверка изоляции правил Т3
+docker compose run --rm arm python -m amrsim check team_dreamteam_4_0
+
+# Прогон тестового сценария
+docker compose run --rm arm python -m amrsim run scenarios/01_clear.json --controller team_dreamteam_4_0/controller.py --seed 7 --report /app/out/01.json
+```
+
 ## Состав репозитория
 
 ```

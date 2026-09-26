@@ -84,9 +84,22 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 `sandbox_violations` пустой, `max_hold_dist < 0.2` м (порог plan/05:64). Полная таблица моментов
 с фактическими t, статусами и note - в `own_scenarios/moments.md` и `own_scenarios/moments.json`.
 
+## Матрица подтверждения дополнительных возможностей (Критерий О4 - 10 баллов)
+
+По официальному регламенту хакатона каждый пункт критерия О4 подтвержден сценарием, таймкодом в логе, файлом отчета и местом в кодовой базе:
+
+| Дополнительная возможность О4 | Сценарий проверки | Момент / эпизод в логе | Файл отчета и лога | Реализация в кодовой базе |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Объезд оставленного предмета** | `s1_pallet_2m.json` (seed 7) | $t=111.9$ с, `status=moving`, note `offset dy=-0.4` | `own_scenarios/s1_pallet_2m.json`, лог `logs/s1_pallet_2m.jsonl` | [follower.py](file:///Users/yegor/doc-1790342627/team_dreamteam_4_0/route/follower.py) (метод `_find_lateral_shift`) |
+| **2. Перепланирование маршрута** | `s2_container_block.json` (seed 7) | $t=148.2$ с, `status=moving`, note `replan` | `own_scenarios/s2_container_block.json`, лог `logs/s2_container_block.jsonl` | [astar.py](file:///Users/yegor/doc-1790342627/team_dreamteam_4_0/route/astar.py) (`astar_search` в объезд заблокированного проезда) |
+| **3. Обнаружение расхождения карты** | `s3_wall_removed.json` (seed 7) | $t=9.8$ с, `status=moving`, note `map_missing` | `own_scenarios/s3_wall_removed.json`, лог `logs/s3_wall_removed.jsonl` | [perception.py](file:///Users/yegor/doc-1790342627/team_dreamteam_4_0/perceive/perception.py) (детекция отсутствующих стен и контейнеров) |
+| **4. Запуск прогона из АРМ с показом** | `04_busy_yard` / все сценарии | Вкладка Runner: запуск в реальном времени, стриминг логов в терминал | [RunnerPage.tsx](file:///Users/yegor/doc-1790342627/arm/frontend/src/pages/RunnerPage.tsx) | [server.py](file:///Users/yegor/doc-1790342627/arm/server.py) (`POST /api/run-simulation`) |
+| **5. Экспорт журнала в CSV** | Все сценарии | Вкладка Episodes: кнопка «Экспорт в CSV» со всеми полями инцидентов | Скачиваемый файл `amr_episodes_<id>.csv` | [server.py](file:///Users/yegor/doc-1790342627/arm/server.py) (`GET /api/export-csv`) |
+| **6. Собственные сценарии и автотесты** | 5 сценариев (`s1`..`s5`) + 256 тестов | Сценарии `scenarios/s1`..`s5`; 256 тестов `uv run pytest -v` (100% passed) | `results/own_scenarios/`, `tests/` | `tests/test_route.py`, `test_safety.py`, `test_localize.py`, `test_perceive.py` |
+
 ## Тесты
 
-`tests/` (244 теста, `uv run pytest`): восемь обязательных поведенческих сценариев
+`tests/` (256 тестов, `uv run pytest`): восемь обязательных поведенческих сценариев
 plan/05:108-115 покрыты поимённо, плюс тесты на тиры σ, подтверждение треков, снежные
 фантомы, классы объектов, A*, зоны, тормозной профиль и контракт эпизодов ARM.
 Контроллер тесты не импортирует. Фронтенд АРМ: 89 тестов Vitest и чистый `tsc --noEmit`.
