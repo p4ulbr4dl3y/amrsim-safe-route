@@ -14,6 +14,8 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+from collections import OrderedDict
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -29,9 +31,52 @@ RESULTS_DIR = ROOT_DIR / "results"
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Кэш в оперативной памяти для ускорения запросов
-_TICKS_CACHE: dict[str, dict] = {}
-_REPORT_CACHE: dict[str, dict] = {}
+
+class BoundedCache(OrderedDict):
+    """LRU bounded dictionary cache with thread safety."""
+
+    def __init__(self, maxsize: int = 10, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.maxsize = maxsize
+        self._lock = threading.Lock()
+
+    def __getitem__(self, key):
+        with self._lock:
+            val = super().__getitem__(key)
+            self.move_to_end(key)
+            return val
+
+    def __setitem__(self, key, value):
+        with self._lock:
+            super().__setitem__(key, value)
+            self.move_to_end(key)
+            while len(self) > self.maxsize:
+                self.popitem(last=False)
+
+    def get(self, key, default=None):
+        with self._lock:
+            if super().__contains__(key):
+                self.move_to_end(key)
+                return super().__getitem__(key)
+            return default
+
+    def pop(self, key, *args):
+        with self._lock:
+            return super().pop(key, *args)
+
+    def __contains__(self, key):
+        with self._lock:
+            return super().__contains__(key)
+
+    def clear(self):
+        with self._lock:
+            super().clear()
+
+
+# Кэш в оперативной памяти с ограничением размера (LRU, макс. 10 сценариев)
+_TICKS_CACHE: BoundedCache = BoundedCache(maxsize=10)
+_REPORT_CACHE: BoundedCache = BoundedCache(maxsize=10)
+_SIM_LOCK = threading.Lock()
 
 SCENARIO_META: dict[str, dict[str, str]] = {
     "01_clear": {
@@ -147,10 +192,30 @@ def normalize_scenario_id(scenario_id: str | None) -> str:
     return aliases.get(s, s)
 
 
-def format_time(seconds: float) -> str:
-    m = int(seconds // 60)
-    s = int(seconds % 60)
-    return f"{m:02d}:{s:02d}"
+def _safe_float(val: any, default: float = 0.0) -> float:
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        return default if math.isnan(f) or math.isinf(f) else f
+    except (ValueError, TypeError):
+        return default
+
+
+def format_time(seconds: float | None) -> str:
+    if seconds is None:
+        return "--:--"
+    try:
+        val = float(seconds)
+    except (ValueError, TypeError):
+        return "--:--"
+    if math.isnan(val) or math.isinf(val):
+        return "--:--"
+    sign = "-" if val < 0 else ""
+    sec = abs(val)
+    m = int(sec // 60)
+    s = int(sec % 60)
+    return f"{sign}{m:02d}:{s:02d}"
 
 
 def get_scenario_file(scenario_id: str) -> Path | None:
@@ -314,66 +379,67 @@ def run_simulation(
     seed: int = 7,
     cheat: bool = False,
 ) -> dict:
-    norm_id = normalize_scenario_id(scenario_id)
-    scen_file = get_scenario_file(norm_id)
-    if not scen_file:
-        raise FileNotFoundError(f"Scenario not found: {scenario_id}")
+    with _SIM_LOCK:
+        norm_id = normalize_scenario_id(scenario_id)
+        scen_file = get_scenario_file(norm_id)
+        if not scen_file:
+            raise FileNotFoundError(f"Scenario not found: {scenario_id}")
 
-    report_path = OUT_DIR / f"{norm_id}.json"
-    log_path = OUT_DIR / f"{norm_id}.jsonl"
+        report_path = OUT_DIR / f"{norm_id}.json"
+        log_path = OUT_DIR / f"{norm_id}.jsonl"
 
-    if controller_path.startswith("team/"):
-        controller_path = "team_dreamteam_4_0/" + controller_path[len("team/") :]
-    elif controller_path.startswith("backend/"):
-        controller_path = "team_dreamteam_4_0/" + controller_path[len("backend/") :]
+        if controller_path.startswith("team/"):
+            controller_path = "team_dreamteam_4_0/" + controller_path[len("team/") :]
+        elif controller_path.startswith("backend/"):
+            controller_path = "team_dreamteam_4_0/" + controller_path[len("backend/") :]
 
-    env = os.environ.copy()
-    amrsim_part_dir = str((ROOT_DIR / "amrsim-participants").resolve())
-    curr_pp = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = f"{amrsim_part_dir}{os.pathsep}{curr_pp}" if curr_pp else amrsim_part_dir
+        env = os.environ.copy()
+        amrsim_part_dir = str((ROOT_DIR / "amrsim-participants").resolve())
+        curr_pp = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = f"{amrsim_part_dir}{os.pathsep}{curr_pp}" if curr_pp else amrsim_part_dir
 
-    cmd = [
-        *resolve_python_command(),
-        "-m",
-        "amrsim",
-        "run",
-        str(scen_file),
-        "--controller",
-        str(ROOT_DIR / controller_path),
-        "--seed",
-        str(seed),
-        "--report",
-        str(report_path),
-        "--log",
-        str(log_path),
-    ]
-    if cheat:
-        cmd.append("--cheat")
+        cmd = [
+            *resolve_python_command(),
+            "-m",
+            "amrsim",
+            "run",
+            str(scen_file),
+            "--controller",
+            str(ROOT_DIR / controller_path),
+            "--seed",
+            str(seed),
+            "--report",
+            str(report_path),
+            "--log",
+            str(log_path),
+        ]
+        if cheat:
+            cmd.append("--cheat")
 
-    proc = subprocess.run(cmd, cwd=str(ROOT_DIR), env=env, capture_output=True, text=True)
+        proc = subprocess.run(cmd, cwd=str(ROOT_DIR), env=env, capture_output=True, text=True)
 
-    # Сброс кэша для данного сценария
-    _REPORT_CACHE.pop(norm_id, None)
-    _TICKS_CACHE.pop(norm_id, None)
+        # Сброс кэша для данного сценария
+        _REPORT_CACHE.pop(norm_id, None)
+        _TICKS_CACHE.pop(norm_id, None)
 
-    report_data = None
-    if report_path.exists():
-        try:
-            with open(report_path, "r", encoding="utf-8") as f:
-                report_data = json.load(f)
-                _REPORT_CACHE[norm_id] = report_data
-        except Exception:
-            pass
+        report_data = None
+        if report_path.exists():
+            try:
+                with open(report_path, "r", encoding="utf-8") as f:
+                    report_data = json.load(f)
+                    _REPORT_CACHE[norm_id] = report_data
+            except Exception:
+                pass
 
-    return {
-        "exitCode": proc.returncode,
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
-        "reportPath": str(report_path),
-        "logPath": str(log_path),
-        "report": report_data,
-        "score": report_data.get("score", {}).get("total") if report_data else None,
-    }
+        return {
+            "exitCode": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+            "reportPath": str(report_path),
+            "logPath": str(log_path),
+            "report": report_data,
+            "score": report_data.get("score", {}).get("total") if report_data else None,
+        }
 
 
 def extract_map_data(scen_def: dict | None, header: dict | None) -> dict:
@@ -432,7 +498,12 @@ def parse_ticks_log(scenario_id: str, max_samples: int = 1200) -> dict:
             line = line.strip()
             if not line:
                 continue
-            item = json.loads(line)
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(item, dict):
+                continue
             if item.get("type") == "header":
                 header = item
             elif item.get("type") == "tick":
@@ -493,6 +564,8 @@ def parse_ticks_log(scenario_id: str, max_samples: int = 1200) -> dict:
 
 def compute_step_distribution(n: int, mean_ms: float, max_ms: float) -> list[dict]:
     bins = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22, 25]
+    if n <= 0:
+        return [{"bin": b, "count": 0} for b in bins]
     mu = math.log(max(0.1, mean_ms))
     sigma = 0.6
     weights = []
@@ -526,7 +599,7 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
     map_data = extract_map_data(scen_def, header)
 
     score_data = report.get("score", {}) if report else {}
-    total_score = round(score_data.get("total", 0.0), 2)
+    total_score = round(_safe_float(score_data.get("total")), 2)
     deliveries_count = score_data.get("deliveries", 0)
     deliveries_total = len(report.get("missions", [])) if report and report.get("missions") else 2
 
@@ -535,7 +608,7 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
     warnings_count = len(episodes)
 
     # Расчет средней ошибки локализации по сырым тактам
-    pe_errors = [t.get("pe_error", 0.0) for t in raw_ticks if t.get("pe")]
+    pe_errors = [_safe_float(t.get("pe_error")) for t in raw_ticks if t.get("pe")]
     mean_loc_error = round(sum(pe_errors) / max(1, len(pe_errors)), 2) if pe_errors else 0.15
 
     # История скорости: 40 точек по всей длительности прогона
@@ -545,8 +618,8 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
         step_idx = max(1, len(raw_ticks) // 40)
         for i in range(0, len(raw_ticks), step_idx):
             tk = raw_ticks[i]
-            speed_history.append(round(tk.get("v", 0.0), 2))
-            speed_timestamps.append(format_time(tk.get("t", 0.0)))
+            speed_history.append(round(_safe_float(tk.get("v")), 2))
+            speed_timestamps.append(format_time(_safe_float(tk.get("t"))))
         speed_history = speed_history[:40]
         speed_timestamps = speed_timestamps[:40]
     else:
@@ -557,10 +630,12 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
     recent_events = []
     # Добавление выполненных миссий как успешных событий
     for m in report.get("missions", []) if report else []:
-        t_arr = m.get("t_arrival") if m.get("t_arrival") is not None else m.get("t_end", 0.0)
+        t_arr = _safe_float(
+            m.get("t_arrival") if m.get("t_arrival") is not None else m.get("t_end", 0.0)
+        )
         m_id = m.get("id", "m1")
         dest = m.get("to", "")
-        hold = m.get("max_hold_dist") if m.get("max_hold_dist") is not None else 0.0
+        hold = _safe_float(m.get("max_hold_dist"))
         delivered = m.get("delivered", True)
         recent_events.append(
             {
@@ -577,13 +652,15 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
     # Добавление штрафных эпизодов как предупреждений или информационных сообщений
     for idx, ep in enumerate(episodes):
         ep_type = ep.get("type", "incident")
-        cost = ep.get("cost", 0.0)
-        t_st = ep.get("t_start", 0.0)
+        cost = _safe_float(ep.get("cost"), 0.0)
+        t_st = _safe_float(ep.get("t_start"), 0.0)
+        ep_x = _safe_float(ep.get("x"), 0.0)
+        ep_y = _safe_float(ep.get("y"), 0.0)
         recent_events.append(
             {
                 "id": f"e-ep-{idx}",
                 "title": f"AMR-1 · {CATEGORY_NAMES.get(ep_type, ep_type)} ({ep_type})",
-                "detail": f"t={t_st:.1f}с, штраф {cost:+.2f} pts, x={ep.get('x', 0):.1f}, y={ep.get('y', 0):.1f}",
+                "detail": f"t={t_st:.1f}с, штраф {cost:+.2f} pts, x={ep_x:.1f}, y={ep_y:.1f}",
                 "time": format_time(t_st),
                 "status": "warning" if cost < 0 else "info",
             }
@@ -605,8 +682,8 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
 
     # Метрики производительности контроллера
     step_time = report.get("step_time_ms", {}) if report else {}
-    mean_delay = round(step_time.get("mean", 2.7), 2)
-    max_delay = round(step_time.get("max", 35.0), 1)
+    mean_delay = round(_safe_float(step_time.get("mean"), 2.7), 2)
+    max_delay = round(_safe_float(step_time.get("max"), 35.0), 1)
 
     # Такты предпросмотра и истории для миникарты
     preview_idx = min(200, len(sampled_ticks) - 1) if sampled_ticks else 0
@@ -655,11 +732,10 @@ def build_replay_missions(header: dict | None, raw_ticks: list[dict]) -> list[di
         t_start = 0.0
         for tk in raw_ticks:
             if tk.get("m") == m_id:
-                t_start = float(tk.get("t", 0.0) or 0.0)
+                t_start = _safe_float(tk.get("t"), 0.0)
                 break
 
-        deadline_raw = m.get("deadline_s")
-        deadline_s = float(deadline_raw) if isinstance(deadline_raw, (int, float)) else 0.0
+        deadline_s = _safe_float(m.get("deadline_s"), 0.0)
 
         missions.append(
             {
@@ -695,11 +771,11 @@ def build_replay_view_model(scenario_id: str, seed: int = 7) -> dict:
             "id": f"ep-{idx + 1}",
             "type": ep.get("type", "warning"),
             "category": CATEGORY_NAMES.get(ep.get("type", ""), ep.get("type", "")),
-            "t_start": ep.get("t_start", 0.0),
-            "t_end": ep.get("t_end", 0.0),
-            "x": ep.get("x", 0.0),
-            "y": ep.get("y", 0.0),
-            "cost": ep.get("cost", 0.0),
+            "t_start": _safe_float(ep.get("t_start"), 0.0),
+            "t_end": _safe_float(ep.get("t_end"), 0.0),
+            "x": _safe_float(ep.get("x"), 0.0),
+            "y": _safe_float(ep.get("y"), 0.0),
+            "cost": _safe_float(ep.get("cost"), 0.0),
         }
         for idx, ep in enumerate(episodes_raw)
     ]
@@ -731,13 +807,13 @@ def build_episodes_view_model(scenario_id: str) -> dict:
         if not raw_ticks:
             return None
         closest = raw_ticks[0]
-        min_diff = abs(closest.get("t", 0.0) - t_val)
+        min_diff = abs(_safe_float(closest.get("t"), 0.0) - t_val)
         for tk in raw_ticks:
-            diff = abs(tk.get("t", 0.0) - t_val)
+            diff = abs(_safe_float(tk.get("t"), 0.0) - t_val)
             if diff < min_diff:
                 min_diff = diff
                 closest = tk
-            if tk.get("t", 0.0) > t_val + 1.0:
+            if _safe_float(tk.get("t"), 0.0) > t_val + 1.0:
                 break
         return closest
 
@@ -745,9 +821,9 @@ def build_episodes_view_model(scenario_id: str) -> dict:
     total_cost = 0.0
 
     for idx, ep in enumerate(episodes_raw):
-        t_start = ep.get("t_start", 0.0)
-        t_end = ep.get("t_end", t_start)
-        cost = ep.get("cost", 0.0)
+        t_start = _safe_float(ep.get("t_start"), 0.0)
+        t_end = _safe_float(ep.get("t_end"), t_start)
+        cost = _safe_float(ep.get("cost"), 0.0)
         total_cost += cost
         ep_type = ep.get("type", "warning")
 
@@ -756,12 +832,12 @@ def build_episodes_view_model(scenario_id: str) -> dict:
         telemetry = None
         if tk:
             telemetry = {
-                "v": round(tk.get("v", 0.0), 2),
-                "cv": round(tk.get("cv", 0.0), 2),
-                "hum": round(tk["hum"], 2) if tk.get("hum") is not None else None,
-                "obj": round(tk["obj"], 2) if tk.get("obj") is not None else None,
-                "pe_error": tk.get("pe_error", 0.0),
-                "status": tk.get("st", "moving").upper(),
+                "v": round(_safe_float(tk.get("v"), 0.0), 2),
+                "cv": round(_safe_float(tk.get("cv"), 0.0), 2),
+                "hum": round(_safe_float(tk["hum"]), 2) if tk.get("hum") is not None else None,
+                "obj": round(_safe_float(tk["obj"]), 2) if tk.get("obj") is not None else None,
+                "pe_error": _safe_float(tk.get("pe_error"), 0.0),
+                "status": str(tk.get("st") or "moving").upper(),
                 "note": tk.get("nt", ep_type),
             }
 
@@ -776,8 +852,8 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                 "source": "report",
                 "t_start": t_start,
                 "t_end": t_end,
-                "x": ep.get("x", 0.0),
-                "y": ep.get("y", 0.0),
+                "x": _safe_float(ep.get("x"), 0.0),
+                "y": _safe_float(ep.get("y"), 0.0),
                 "cost": cost,
                 "ruleExplanation": RULE_EXPLANATIONS.get(
                     ep_type, f"Событие безопасности: {ep_type}"
@@ -793,8 +869,10 @@ def build_episodes_view_model(scenario_id: str) -> dict:
             m_id = m.get("id", "m1")
             from_pt = POINT_LABELS.get(m.get("from", ""), m.get("from", ""))
             to_pt = POINT_LABELS.get(m.get("to", ""), m.get("to", ""))
-            t_st = m.get("t_start", 0.0)
-            t_arr = m.get("t_arrival") if m.get("t_arrival") is not None else m.get("t_end", 0.0)
+            t_st = _safe_float(m.get("t_start"), 0.0)
+            t_arr = _safe_float(
+                m.get("t_arrival") if m.get("t_arrival") is not None else m.get("t_end", 0.0)
+            )
             delivered = m.get("delivered", True)
 
             # Отправление
@@ -808,20 +886,20 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "source": "mission",
                     "t_start": round(t_st, 1),
                     "t_end": round(t_st + 1.0, 1),
-                    "x": round(tk_st.get("x", 0.0) if tk_st else 0.0, 2),
-                    "y": round(tk_st.get("y", 0.0) if tk_st else 0.0, 2),
+                    "x": round(_safe_float(tk_st.get("x") if tk_st else 0.0), 2),
+                    "y": round(_safe_float(tk_st.get("y") if tk_st else 0.0), 2),
                     "cost": 0.0,
                     "ruleExplanation": f"Старт доставки {m_id}: {from_pt} $\\rightarrow$ {to_pt}",
                     "telemetrySnapshot": {
-                        "v": round(tk_st.get("v", 0.0), 2) if tk_st else 0.0,
-                        "cv": round(tk_st.get("cv", 0.0), 2) if tk_st else 0.0,
-                        "hum": round(tk_st["hum"], 2)
+                        "v": round(_safe_float(tk_st.get("v") if tk_st else 0.0), 2),
+                        "cv": round(_safe_float(tk_st.get("cv") if tk_st else 0.0), 2),
+                        "hum": round(_safe_float(tk_st["hum"]), 2)
                         if tk_st and tk_st.get("hum") is not None
                         else None,
-                        "obj": round(tk_st["obj"], 2)
+                        "obj": round(_safe_float(tk_st["obj"]), 2)
                         if tk_st and tk_st.get("obj") is not None
                         else None,
-                        "pe_error": tk_st.get("pe_error", 0.0) if tk_st else 0.0,
+                        "pe_error": _safe_float(tk_st.get("pe_error") if tk_st else 0.0),
                         "status": "MOVING",
                         "note": f"start_{m_id}",
                     },
@@ -846,22 +924,22 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "source": "mission",
                     "t_start": round(t_arr, 1),
                     "t_end": round(t_arr + 1.0, 1),
-                    "x": round(tk_arr.get("x", 0.0) if tk_arr else 0.0, 2),
-                    "y": round(tk_arr.get("y", 0.0) if tk_arr else 0.0, 2),
+                    "x": round(_safe_float(tk_arr.get("x") if tk_arr else 0.0), 2),
+                    "y": round(_safe_float(tk_arr.get("y") if tk_arr else 0.0), 2),
                     # Вехи миссий информационные: в amrsim недоставка не дает штрафа,
                     # поэтому отрицательная цена здесь вводила бы в заблуждение
                     "cost": 0.0,
                     "ruleExplanation": f"Доставка {m_id} в {to_pt} завершена ({status_msg}{hold_str})",
                     "telemetrySnapshot": {
-                        "v": round(tk_arr.get("v", 0.0), 2) if tk_arr else 0.0,
-                        "cv": round(tk_arr.get("cv", 0.0), 2) if tk_arr else 0.0,
-                        "hum": round(tk_arr["hum"], 2)
+                        "v": round(_safe_float(tk_arr.get("v") if tk_arr else 0.0), 2),
+                        "cv": round(_safe_float(tk_arr.get("cv") if tk_arr else 0.0), 2),
+                        "hum": round(_safe_float(tk_arr["hum"]), 2)
                         if tk_arr and tk_arr.get("hum") is not None
                         else None,
-                        "obj": round(tk_arr["obj"], 2)
+                        "obj": round(_safe_float(tk_arr["obj"]), 2)
                         if tk_arr and tk_arr.get("obj") is not None
                         else None,
-                        "pe_error": tk_arr.get("pe_error", 0.0) if tk_arr else 0.0,
+                        "pe_error": _safe_float(tk_arr.get("pe_error") if tk_arr else 0.0),
                         "status": "ARRIVED" if delivered else "TIMEOUT",
                         "note": f"delivered_{m_id}" if delivered else f"timeout_{m_id}",
                     },
@@ -875,10 +953,10 @@ def build_episodes_view_model(scenario_id: str) -> dict:
             hum = tk.get("hum")
             obj = tk.get("obj")
             nt = tk.get("nt", "") or ""
-            t_curr = tk.get("t", 0.0)
+            t_curr = _safe_float(tk.get("t"), 0.0)
 
             # Исключение близких по времени дубликатов
-            if any(abs(e["t_start"] - t_curr) < 15.0 for e in episodes):
+            if any(abs(_safe_float(e.get("t_start"), 0.0) - t_curr) < 15.0 for e in episodes):
                 continue
 
             if "stop_person" in nt or (hum is not None and hum < 1.5):
@@ -891,17 +969,17 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                         "source": "telemetry",
                         "t_start": round(t_curr, 1),
                         "t_end": round(t_curr + 1.2, 1),
-                        "x": round(tk.get("x", 0.0), 2),
-                        "y": round(tk.get("y", 0.0), 2),
+                        "x": round(_safe_float(tk.get("x")), 2),
+                        "y": round(_safe_float(tk.get("y")), 2),
                         "cost": 0.0,
                         "ruleExplanation": RULE_EXPLANATIONS.get("stop_person"),
                         "telemetrySnapshot": {
-                            "v": round(tk.get("v", 0.0), 2),
-                            "cv": round(tk.get("cv", 0.0), 2),
-                            "hum": round(hum, 2) if hum is not None else None,
-                            "obj": round(obj, 2) if obj is not None else None,
-                            "pe_error": tk.get("pe_error", 0.0),
-                            "status": tk.get("st", "waiting").upper(),
+                            "v": round(_safe_float(tk.get("v")), 2),
+                            "cv": round(_safe_float(tk.get("cv")), 2),
+                            "hum": round(_safe_float(hum), 2) if hum is not None else None,
+                            "obj": round(_safe_float(obj), 2) if obj is not None else None,
+                            "pe_error": _safe_float(tk.get("pe_error")),
+                            "status": str(tk.get("st") or "waiting").upper(),
                             "note": nt or "stop_person",
                         },
                     }
@@ -917,17 +995,17 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                         "source": "telemetry",
                         "t_start": round(t_curr, 1),
                         "t_end": round(t_curr + 2.0, 1),
-                        "x": round(tk.get("x", 0.0), 2),
-                        "y": round(tk.get("y", 0.0), 2),
+                        "x": round(_safe_float(tk.get("x")), 2),
+                        "y": round(_safe_float(tk.get("y")), 2),
                         "cost": 0.0,
                         "ruleExplanation": RULE_EXPLANATIONS.get("gnss_outage"),
                         "telemetrySnapshot": {
-                            "v": round(tk.get("v", 0.0), 2),
-                            "cv": round(tk.get("cv", 0.0), 2),
-                            "hum": round(hum, 2) if hum is not None else None,
-                            "obj": round(obj, 2) if obj is not None else None,
-                            "pe_error": tk.get("pe_error", 0.0),
-                            "status": tk.get("st", "moving").upper(),
+                            "v": round(_safe_float(tk.get("v")), 2),
+                            "cv": round(_safe_float(tk.get("cv")), 2),
+                            "hum": round(_safe_float(hum), 2) if hum is not None else None,
+                            "obj": round(_safe_float(obj), 2) if obj is not None else None,
+                            "pe_error": _safe_float(tk.get("pe_error")),
+                            "status": str(tk.get("st") or "moving").upper(),
                             "note": nt or "gnss_outage",
                         },
                     }
@@ -943,17 +1021,17 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                         "source": "telemetry",
                         "t_start": round(t_curr, 1),
                         "t_end": round(t_curr + 0.8, 1),
-                        "x": round(tk.get("x", 0.0), 2),
-                        "y": round(tk.get("y", 0.0), 2),
+                        "x": round(_safe_float(tk.get("x")), 2),
+                        "y": round(_safe_float(tk.get("y")), 2),
                         "cost": 0.0,
                         "ruleExplanation": RULE_EXPLANATIONS.get("map_extra"),
                         "telemetrySnapshot": {
-                            "v": round(tk.get("v", 0.0), 2),
-                            "cv": round(tk.get("cv", 0.0), 2),
-                            "hum": round(hum, 2) if hum is not None else None,
-                            "obj": round(obj, 2) if obj is not None else None,
-                            "pe_error": tk.get("pe_error", 0.0),
-                            "status": tk.get("st", "moving").upper(),
+                            "v": round(_safe_float(tk.get("v")), 2),
+                            "cv": round(_safe_float(tk.get("cv")), 2),
+                            "hum": round(_safe_float(hum), 2) if hum is not None else None,
+                            "obj": round(_safe_float(obj), 2) if obj is not None else None,
+                            "pe_error": _safe_float(tk.get("pe_error")),
+                            "status": str(tk.get("st") or "moving").upper(),
                             "note": nt or "map_extra",
                         },
                     }
@@ -969,17 +1047,17 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                         "source": "telemetry",
                         "t_start": round(t_curr, 1),
                         "t_end": round(t_curr + 1.0, 1),
-                        "x": round(tk.get("x", 0.0), 2),
-                        "y": round(tk.get("y", 0.0), 2),
+                        "x": round(_safe_float(tk.get("x")), 2),
+                        "y": round(_safe_float(tk.get("y")), 2),
                         "cost": 0.0,
                         "ruleExplanation": RULE_EXPLANATIONS.get("obstacle_close"),
                         "telemetrySnapshot": {
-                            "v": round(tk.get("v", 0.0), 2),
-                            "cv": round(tk.get("cv", 0.0), 2),
-                            "hum": round(hum, 2) if hum is not None else None,
-                            "obj": round(obj, 2) if obj is not None else None,
-                            "pe_error": tk.get("pe_error", 0.0),
-                            "status": tk.get("st", "moving").upper(),
+                            "v": round(_safe_float(tk.get("v")), 2),
+                            "cv": round(_safe_float(tk.get("cv")), 2),
+                            "hum": round(_safe_float(hum), 2) if hum is not None else None,
+                            "obj": round(_safe_float(obj), 2) if obj is not None else None,
+                            "pe_error": _safe_float(tk.get("pe_error")),
+                            "status": str(tk.get("st") or "moving").upper(),
                             "note": nt or "obstacle_close",
                         },
                     }
@@ -994,8 +1072,8 @@ def build_episodes_view_model(scenario_id: str) -> dict:
         step_pts = max(1, len(raw_ticks) // 4)
         for i in range(step_pts, len(raw_ticks) - 1, step_pts):
             tk = raw_ticks[i]
-            t_curr = tk.get("t", 0.0)
-            if any(abs(e["t_start"] - t_curr) < 15.0 for e in episodes):
+            t_curr = _safe_float(tk.get("t"), 0.0)
+            if any(abs(_safe_float(e.get("t_start"), 0.0) - t_curr) < 15.0 for e in episodes):
                 continue
             episodes.append(
                 {
@@ -1006,17 +1084,17 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "source": "checkpoint",
                     "t_start": round(t_curr, 1),
                     "t_end": round(t_curr + 1.0, 1),
-                    "x": round(tk.get("x", 0.0), 2),
-                    "y": round(tk.get("y", 0.0), 2),
+                    "x": round(_safe_float(tk.get("x")), 2),
+                    "y": round(_safe_float(tk.get("y")), 2),
                     "cost": 0.0,
                     "ruleExplanation": RULE_EXPLANATIONS.get("checkpoint"),
                     "telemetrySnapshot": {
-                        "v": round(tk.get("v", 0.0), 2),
-                        "cv": round(tk.get("cv", 0.0), 2),
-                        "hum": round(tk["hum"], 2) if tk.get("hum") is not None else None,
-                        "obj": round(tk["obj"], 2) if tk.get("obj") is not None else None,
-                        "pe_error": tk.get("pe_error", 0.0),
-                        "status": tk.get("st", "moving").upper(),
+                        "v": round(_safe_float(tk.get("v")), 2),
+                        "cv": round(_safe_float(tk.get("cv")), 2),
+                        "hum": round(_safe_float(tk["hum"]), 2) if tk.get("hum") is not None else None,
+                        "obj": round(_safe_float(tk["obj"]), 2) if tk.get("obj") is not None else None,
+                        "pe_error": _safe_float(tk.get("pe_error")),
+                        "status": str(tk.get("st") or "moving").upper(),
                         "note": tk.get("nt", "waypoint"),
                     },
                 }
@@ -1052,7 +1130,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
         )
 
     # Хронологическая сортировка всех эпизодов
-    episodes.sort(key=lambda e: e.get("t_start", 0.0))
+    episodes.sort(key=lambda e: _safe_float(e.get("t_start"), 0.0))
 
     fatal_count = 1 if score.get("fatal") else 0
     # Журнал штрафов формируется только по эпизодам отчета:
@@ -1091,11 +1169,11 @@ def build_missions_view_model(scenario_id: str) -> dict:
         m_id = m.get("id", "m")
         from_pt = m.get("from", "warehouse")
         to_pt = m.get("to", "shop_a")
-        t_start = m.get("t_start", 0.0)
-        t_end = m.get("t_end", 0.0)
+        t_start = _safe_float(m.get("t_start"), 0.0)
+        t_end = _safe_float(m.get("t_end"), 0.0)
         t_arr_raw = m.get("t_arrival")
-        t_arrival = t_arr_raw if t_arr_raw is not None else t_end
-        deadline = m.get("deadline_s", 200.0)
+        t_arrival = _safe_float(t_arr_raw if t_arr_raw is not None else t_end)
+        deadline = _safe_float(m.get("deadline_s"), 200.0)
         delivered = m.get("delivered", True)
         if delivered:
             completed += 1
@@ -1103,7 +1181,7 @@ def build_missions_view_model(scenario_id: str) -> dict:
         actual_time = round(t_arrival - t_start, 1)
         safety_margin = round(deadline - actual_time, 1)
         hold_dist_raw = m.get("max_hold_dist")
-        max_hold_dist = round(hold_dist_raw, 4) if hold_dist_raw is not None else 0.0
+        max_hold_dist = round(_safe_float(hold_dist_raw), 4) if hold_dist_raw is not None else 0.0
 
         missions.append(
             {
@@ -1122,7 +1200,7 @@ def build_missions_view_model(scenario_id: str) -> dict:
                 "tol": 0.20,
                 "deadline_s": deadline,
                 "safety_margin_s": safety_margin,
-                "reference_length_m": round(m.get("reference_length_m", 174.0), 3),
+                "reference_length_m": round(_safe_float(m.get("reference_length_m"), 174.0), 3),
                 "actual_time_s": actual_time,
             }
         )
@@ -1132,10 +1210,10 @@ def build_missions_view_model(scenario_id: str) -> dict:
         "summary": {
             "completed": completed,
             "total": len(missions),
-            "deliveryScore": round(score_blocks.get("delivery", 40.0), 2),
-            "maxDeliveryScore": round(score_max.get("delivery", 40.0), 2),
-            "efficiencyScore": round(score_blocks.get("efficiency", 14.0), 2),
-            "maxEfficiencyScore": round(score_max.get("efficiency", 15.0), 2),
+            "deliveryScore": round(_safe_float(score_blocks.get("delivery"), 40.0), 2),
+            "maxDeliveryScore": round(_safe_float(score_max.get("delivery"), 40.0), 2),
+            "efficiencyScore": round(_safe_float(score_blocks.get("efficiency"), 14.0), 2),
+            "maxEfficiencyScore": round(_safe_float(score_max.get("efficiency"), 15.0), 2),
         },
         "missions": missions,
     }
@@ -1163,8 +1241,8 @@ def build_analytics_view_model(scenario_id: str) -> dict:
     radar_max = []
 
     for key, display_name in block_names.items():
-        achieved = blocks_raw.get(key, 0.0)
-        max_val = max_raw.get(key, 20.0)
+        achieved = _safe_float(blocks_raw.get(key), 0.0)
+        max_val = _safe_float(max_raw.get(key), 20.0)
         if key == "collisions":
             # Столкновения: 0 - идеальный результат
             percentage = 100.0 if achieved >= 0 else max(0.0, 100.0 + achieved * 10)
@@ -1186,9 +1264,9 @@ def build_analytics_view_model(scenario_id: str) -> dict:
         radar_max.append(1.0)
 
     step_time = report.get("step_time_ms", {}) if report else {}
-    n_steps = step_time.get("n", 3000)
-    mean_ms = step_time.get("mean", 2.7)
-    max_ms = step_time.get("max", 35.0)
+    n_steps = int(_safe_float(step_time.get("n"), 3000))
+    mean_ms = _safe_float(step_time.get("mean"), 2.7)
+    max_ms = _safe_float(step_time.get("max"), 35.0)
 
     step_distribution = compute_step_distribution(n_steps, mean_ms, max_ms)
 
@@ -1207,7 +1285,7 @@ def build_analytics_view_model(scenario_id: str) -> dict:
     return {
         "scenario": norm_id,
         "seed": report.get("seed", 7) if report else 7,
-        "totalScore": round(score.get("total", 0.0), 2),
+        "totalScore": round(_safe_float(score.get("total"), 0.0), 2),
         "counted": report.get("counted", True) if report else True,
         "blocks": blocks,
         "radar": {
@@ -1329,9 +1407,13 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
         # 3. SDUI: модель представления плеера
         # ----------------------------------------------------------------------
         if path == "/api/ui/replay":
-            sc_id = params.get("scenario", ["04_busy_yard"])[0]
-            seed = int(params.get("seed", [7])[0])
             try:
+                sc_id = params.get("scenario", ["04_busy_yard"])[0]
+                seed_raw = params.get("seed", [7])[0]
+                try:
+                    seed = int(seed_raw)
+                except (ValueError, TypeError):
+                    seed = 7
                 vm = build_replay_view_model(sc_id, seed)
                 return self.send_json(vm)
             except Exception as e:
@@ -1382,60 +1464,72 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/ticks":
             sc_id = params.get("scenario", ["04_busy_yard"])[0]
-            res = parse_ticks_log(sc_id)
-            return self.send_json(res)
+            try:
+                res = parse_ticks_log(sc_id)
+                return self.send_json(res)
+            except FileNotFoundError:
+                return self.send_json({"error": "Ticks log not found"}, status=404)
+            except Exception as e:
+                return self.send_json({"error": str(e)}, status=500)
 
         # ----------------------------------------------------------------------
         # 8. API: экспорт в CSV
         # ----------------------------------------------------------------------
         if path == "/api/export/csv":
-            raw_id = params.get("scenario", ["04_busy_yard"])[0]
-            sc_id = normalize_scenario_id(raw_id)
-            ep_vm = build_episodes_view_model(sc_id)
-            episodes = ep_vm.get("episodes", [])
+            try:
+                raw_id = params.get("scenario", ["04_busy_yard"])[0]
+                sc_id = normalize_scenario_id(raw_id)
+                ep_vm = build_episodes_view_model(sc_id)
+                episodes = ep_vm.get("episodes", [])
 
-            lines = [
-                "Episode ID,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation"
-            ]
-            for ep in episodes:
-                tk_snap = ep.get("telemetrySnapshot") or {}
-                v_val = (
-                    f"{tk_snap.get('v', ''):.2f}"
-                    if isinstance(tk_snap.get("v"), (int, float))
-                    else ""
-                )
-                hum_val = (
-                    f"{tk_snap.get('hum', ''):.2f}"
-                    if isinstance(tk_snap.get("hum"), (int, float))
-                    else ""
-                )
-                obj_val = (
-                    f"{tk_snap.get('obj', ''):.2f}"
-                    if isinstance(tk_snap.get("obj"), (int, float))
-                    else ""
-                )
-                pe_val = (
-                    f"{tk_snap.get('pe_error', ''):.4f}"
-                    if isinstance(tk_snap.get("pe_error"), (int, float))
-                    else ""
-                )
-                cost_val = f"{ep.get('cost', 0.0):.2f}"
-                expl = str(ep.get("ruleExplanation", "")).replace('"', '""')
+                lines = [
+                    "Episode ID,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation"
+                ]
+                for ep in episodes:
+                    tk_snap = ep.get("telemetrySnapshot") or {}
+                    v_raw = tk_snap.get("v")
+                    v_val = (
+                        f"{float(v_raw):.2f}"
+                        if v_raw is not None and isinstance(v_raw, (int, float))
+                        else ""
+                    )
+                    hum_raw = tk_snap.get("hum")
+                    hum_val = (
+                        f"{float(hum_raw):.2f}"
+                        if hum_raw is not None and isinstance(hum_raw, (int, float))
+                        else ""
+                    )
+                    obj_raw = tk_snap.get("obj")
+                    obj_val = (
+                        f"{float(obj_raw):.2f}"
+                        if obj_raw is not None and isinstance(obj_raw, (int, float))
+                        else ""
+                    )
+                    pe_raw = tk_snap.get("pe_error")
+                    pe_val = (
+                        f"{float(pe_raw):.4f}"
+                        if pe_raw is not None and isinstance(pe_raw, (int, float))
+                        else ""
+                    )
+                    cost_val = f"{_safe_float(ep.get('cost'), 0.0):.2f}"
+                    expl = str(ep.get("ruleExplanation", "")).replace('"', '""')
 
-                lines.append(
-                    f"{ep.get('id')},{ep.get('type')},{ep.get('category')},{ep.get('severity', 'info')},"
-                    f"{ep.get('t_start')},{ep.get('t_end')},{ep.get('x')},{ep.get('y')},"
-                    f'{v_val},{hum_val},{obj_val},{pe_val},{cost_val},"{expl}"'
-                )
+                    lines.append(
+                        f"{ep.get('id')},{ep.get('type')},{ep.get('category')},{ep.get('severity', 'info')},"
+                        f"{ep.get('t_start')},{ep.get('t_end')},{ep.get('x')},{ep.get('y')},"
+                        f'{v_val},{hum_val},{obj_val},{pe_val},{cost_val},"{expl}"'
+                    )
 
-            csv_text = ("\ufeff" + "\n".join(lines)).encode("utf-8")
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/csv; charset=utf-8")
-            self.send_header("Content-Disposition", f'attachment; filename="episodes_{sc_id}.csv"')
-            self.send_header("Content-Length", str(len(csv_text)))
-            self.end_headers()
-            self.wfile.write(csv_text)
-            return
+                csv_text = ("\ufeff" + "\n".join(lines)).encode("utf-8")
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="episodes_{sc_id}.csv"')
+                self.send_header("Content-Length", str(len(csv_text)))
+                self.end_headers()
+                self.wfile.write(csv_text)
+                return
+            except Exception as e:
+                return self.send_json({"error": str(e)}, status=500)
 
         # ----------------------------------------------------------------------
         # 9. Статические файлы фронтенда
@@ -1470,20 +1564,50 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length) if length > 0 else b"{}"
             try:
-                payload = json.loads(body.decode("utf-8"))
+                payload = json.loads(body.decode("utf-8")) if body else {}
             except Exception:
                 payload = {}
 
-            scenario = payload.get("scenario", "04_busy_yard")
-            controller = payload.get("controller", "backend/controller.py")
-            if controller == "team/controller.py" or controller.startswith("team/"):
-                controller = (
-                    "backend/" + controller[len("team/") :]
-                    if controller.startswith("team/")
-                    else "backend/controller.py"
-                )
-            seed = int(payload.get("seed", 7))
-            cheat = bool(payload.get("cheatPose", False))
+            try:
+                if not isinstance(payload, dict):
+                    return self.send_json(
+                        {"error": "Bad Request: payload must be a JSON object"}, status=400
+                    )
+
+                scenario = payload.get("scenario", "04_busy_yard")
+                if not isinstance(scenario, str) or not scenario.strip():
+                    return self.send_json(
+                        {"error": "Bad Request: scenario must be a non-empty string"}, status=400
+                    )
+
+                controller = payload.get("controller", "backend/controller.py")
+                if not isinstance(controller, str) or not (
+                    controller.startswith("team/")
+                    or controller.startswith("backend/")
+                    or controller.startswith("team_dreamteam_4_0/")
+                ):
+                    return self.send_json(
+                        {"error": "Bad Request: invalid controller path"}, status=400
+                    )
+
+                if controller == "team/controller.py" or controller.startswith("team/"):
+                    controller = (
+                        "backend/" + controller[len("team/") :]
+                        if controller.startswith("team/")
+                        else "backend/controller.py"
+                    )
+
+                raw_seed = payload.get("seed", 7)
+                try:
+                    seed = int(raw_seed)
+                except (ValueError, TypeError):
+                    return self.send_json(
+                        {"error": "Bad Request: seed must be an integer"}, status=400
+                    )
+
+                cheat = bool(payload.get("cheatPose", False))
+            except Exception as e:
+                return self.send_json({"error": f"Bad Request: {e}"}, status=400)
 
             try:
                 res = run_simulation(

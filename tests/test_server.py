@@ -949,3 +949,261 @@ def test_checkpoint_telemetry_snapshot_matches_tick_clearance(monkeypatch):
         assert snap["hum"] == round(matching_tick["hum"], 2)
         assert snap["obj"] == round(matching_tick["obj"], 2)
 
+
+# ==============================================================================
+# Tests for Defect Fixes (1 through 8)
+# ==============================================================================
+
+
+def test_api_run_malformed_payload_non_dict(http_server):
+    url = f"{http_server}/api/run"
+    req = Request(url, data=b"[1, 2, 3]", headers={"Content-Type": "application/json"})
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "error" in err_body
+    assert "Bad Request" in err_body["error"]
+
+
+def test_api_run_malformed_payload_invalid_seed(http_server):
+    url = f"{http_server}/api/run"
+    payload = json.dumps({"scenario": "01_clear", "seed": "not-an-integer"}).encode("utf-8")
+    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "seed must be an integer" in err_body["error"]
+
+
+def test_api_run_malformed_payload_invalid_controller(http_server):
+    url = f"{http_server}/api/run"
+    payload = json.dumps({"scenario": "01_clear", "controller": "unauthorized/path.py"}).encode(
+        "utf-8"
+    )
+    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "invalid controller path" in err_body["error"]
+
+
+def test_api_run_malformed_payload_invalid_scenario(http_server):
+    url = f"{http_server}/api/run"
+    payload = json.dumps({"scenario": ""}).encode("utf-8")
+    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "scenario must be a non-empty string" in err_body["error"]
+
+
+def test_api_ui_replay_invalid_seed_query_param(http_server):
+    url = f"{http_server}/api/ui/replay?scenario=01_clear&seed=invalid_seed_val"
+    with urlopen(url) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["seed"] == 7
+
+
+def test_api_ui_replay_error_handling(http_server, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "build_replay_view_model",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Replay crash")),
+    )
+    url = f"{http_server}/api/ui/replay?scenario=01_clear"
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(url)
+    assert exc_info.value.code == 500
+
+
+def test_parse_ticks_log_corrupt_lines(tmp_path, monkeypatch):
+    log_file = tmp_path / "corrupt_scenario.jsonl"
+    with open(log_file, "w", encoding="utf-8") as f:
+        f.write('{"type": "header", "map": {}}\n')
+        f.write("corrupted json not a valid line\n")
+        f.write("{broken json}\n")
+        f.write('{"type": "tick", "t": 1.0, "x": 0.0, "y": 0.0}\n')
+        f.write("\n")
+        f.write('{"type": "tick", "t": 2.0, "x": 1.0, "y": 0.0}\n')
+
+    monkeypatch.setattr(server, "get_scenario_log_path", lambda s: log_file)
+    monkeypatch.setattr(server, "_TICKS_CACHE", server.BoundedCache(maxsize=10))
+
+    ticks_data = server.parse_ticks_log("corrupt_scenario")
+    assert ticks_data["header"] is not None
+    assert ticks_data["totalTicks"] == 2
+    assert len(ticks_data["raw_ticks"]) == 2
+
+
+def test_api_ticks_error_handling(http_server, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "parse_ticks_log",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Ticks error")),
+    )
+    url = f"{http_server}/api/ticks?scenario=01_clear"
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(url)
+    assert exc_info.value.code == 500
+
+
+def test_format_time_edge_cases():
+    from server import format_time
+
+    assert format_time(0.0) == "00:00"
+    assert format_time(65.0) == "01:05"
+    assert format_time(-65.0) == "-01:05"
+    assert format_time(-5.0) == "-00:05"
+    assert format_time(-0.0) == "00:00"
+    assert format_time(None) == "--:--"
+    assert format_time(float("nan")) == "--:--"
+    assert format_time(float("inf")) == "--:--"
+    assert format_time("invalid") == "--:--"
+
+
+def test_compute_step_distribution_zero_or_negative():
+    from server import compute_step_distribution
+
+    dist_zero = compute_step_distribution(0, 2.5, 30.0)
+    assert len(dist_zero) == 18
+    assert all(b["count"] == 0 for b in dist_zero)
+    assert sum(b["count"] for b in dist_zero) == 0
+
+    dist_neg = compute_step_distribution(-5, 2.5, 30.0)
+    assert all(b["count"] == 0 for b in dist_neg)
+    assert sum(b["count"] for b in dist_neg) == 0
+
+
+def test_run_simulation_concurrency_mutex(monkeypatch):
+    import time
+    from unittest.mock import MagicMock
+
+    active_runs = []
+    max_active = 0
+    lock = threading.Lock()
+
+    def mock_subp_run(*args, **kwargs):
+        nonlocal max_active
+        with lock:
+            active_runs.append(1)
+            current_active = len(active_runs)
+            if current_active > max_active:
+                max_active = current_active
+        time.sleep(0.05)
+        with lock:
+            active_runs.pop()
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(server.subprocess, "run", mock_subp_run)
+
+    threads = []
+    for _ in range(4):
+        t = threading.Thread(target=server.run_simulation, args=("01_clear",))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    # With _SIM_LOCK, concurrent runs are serialized, so max_active is 1
+    assert max_active == 1
+
+
+def test_view_models_null_fields_tolerance(monkeypatch):
+    mock_ticks = [
+        {"t": None, "v": None, "x": None, "y": None, "pe": [1.0, 2.0], "pe_error": None},
+        {"t": 1.0, "v": 1.2, "x": 0.5, "y": 0.5, "pe": None},
+    ]
+    mock_episodes = [
+        {"id": "ep1", "t_start": None, "t_end": None, "cost": None, "x": None, "y": None},
+    ]
+    mock_missions = [
+        {
+            "id": "m1",
+            "t_start": None,
+            "t_arrival": None,
+            "max_hold_dist": None,
+            "reference_length_m": None,
+        }
+    ]
+
+    monkeypatch.setattr(
+        server,
+        "parse_ticks_log",
+        lambda s: {"raw_ticks": mock_ticks, "ticks": mock_ticks, "header": None},
+    )
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda s: {
+            "score": {
+                "total": None,
+                "episodes": mock_episodes,
+                "blocks": {"delivery": None},
+                "max": {"delivery": None},
+            },
+            "missions": mock_missions,
+            "step_time_ms": {"n": None, "mean": None, "max": None},
+        },
+    )
+
+    dash_vm = server.build_dashboard_view_model("01_clear")
+    assert dash_vm["totalScore"] == 0.0
+
+    rep_vm = server.build_replay_view_model("01_clear")
+    assert rep_vm["episodes"][0]["cost"] == 0.0
+
+    ep_vm = server.build_episodes_view_model("01_clear")
+    assert ep_vm["summary"]["totalCost"] == 0.0
+
+    miss_vm = server.build_missions_view_model("01_clear")
+    assert miss_vm["summary"]["deliveryScore"] == 40.0
+
+    an_vm = server.build_analytics_view_model("01_clear")
+    assert an_vm["totalScore"] == 0.0
+
+
+def test_api_export_csv_error_handling(http_server, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "build_episodes_view_model",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("CSV generation error")),
+    )
+    url = f"{http_server}/api/export/csv?scenario=01_clear"
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(url)
+    assert exc_info.value.code == 500
+    err = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "CSV generation error" in err["error"]
+
+
+def test_bounded_cache_eviction_and_lru():
+    cache = server.BoundedCache(maxsize=3)
+    cache["a"] = 1
+    cache["b"] = 2
+    cache["c"] = 3
+    assert len(cache) == 3
+    assert list(cache.keys()) == ["a", "b", "c"]
+
+    # Access 'a' to make it most recently used
+    _ = cache["a"]
+    assert list(cache.keys()) == ["b", "c", "a"]
+
+    # Insert 4th item, 'b' (oldest) should be evicted
+    cache["d"] = 4
+    assert len(cache) == 3
+    assert "b" not in cache
+    assert list(cache.keys()) == ["c", "a", "d"]
+
+    # get() also updates LRU
+    assert cache.get("c") == 3
+    assert list(cache.keys()) == ["a", "d", "c"]
+    cache["e"] = 5
+    assert "a" not in cache
+    assert len(cache) == 3
+
