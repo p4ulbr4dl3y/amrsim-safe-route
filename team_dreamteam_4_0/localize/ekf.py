@@ -91,17 +91,19 @@ class EKFFilter:
 
         cur_bias = heading_bias
         cur_init = bias_initialized
-        if not cur_init:
+        if not cur_init and not math.isnan(imu_heading):
             cur_bias = wrap_angle(imu_heading - th)
             cur_init = True
 
         expected_th = wrap_angle(th + imu_yaw_rate * dt)
-        measured_th = wrap_angle(imu_heading - cur_bias)
-
-        if abs(wrap_angle(measured_th - expected_th)) > 0.05:
+        if math.isnan(imu_heading):
             new_th = expected_th
         else:
-            new_th = measured_th
+            measured_th = wrap_angle(imu_heading - cur_bias)
+            if abs(wrap_angle(measured_th - expected_th)) > 0.05:
+                new_th = expected_th
+            else:
+                new_th = measured_th
 
         new_unconfirmed = unconfirmed_dist + step_dist
         scale_err = 0.01 if scale_locked else 0.04
@@ -174,6 +176,17 @@ class EKFFilter:
         weights: np.ndarray,
     ) -> Tuple[float, float, float, bool]:
         """Обновить дисперсии по нормалям и касательным наблюдаемых стен."""
+        if (
+            normals is None
+            or len(normals) == 0
+            or normals.size == 0
+            or weights is None
+            or len(weights) == 0
+            or weights.size == 0
+            or float(np.sum(weights)) <= 1e-9
+        ):
+            return var_along, var_cross, var_th, False
+
         n_x = float(np.average(normals[:, 0], weights=weights))
         n_y = float(np.average(normals[:, 1], weights=weights))
         norm_mag = math.hypot(n_x, n_y)

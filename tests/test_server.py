@@ -557,19 +557,24 @@ def test_extract_map_data_variations():
     empty_map = extract_map_data(None, None)
     assert empty_map["bounds"] == [0, 0, 250, 200]
     assert empty_map["points"] == {}
+    assert empty_map["referencePaths"] == []
 
-    # Header with map
+    # Header with map and missions
     header = {
         "map": {
             "bounds": [0, 0, 100, 100],
             "points": {"ptA": {"x": 10.0, "y": 20.0}},
             "buildings": [],
             "zones": [],
-        }
+        },
+        "missions": [
+            {"id": "m1", "reference_path": [[10.0, 20.0], [30.0, 40.0]]}
+        ],
     }
     header_map = extract_map_data(None, header)
     assert header_map["bounds"] == [0, 0, 100, 100]
     assert "ptA" in header_map["points"]
+    assert header_map["referencePaths"] == [[[10.0, 20.0], [30.0, 40.0]]]
 
 
 def test_parse_ticks_log_edge_cases(tmp_path, monkeypatch):
@@ -948,4 +953,639 @@ def test_checkpoint_telemetry_snapshot_matches_tick_clearance(monkeypatch):
         assert snap is not None
         assert snap["hum"] == round(matching_tick["hum"], 2)
         assert snap["obj"] == round(matching_tick["obj"], 2)
+
+
+# ==============================================================================
+# Tests for Defect Fixes (1 through 8)
+# ==============================================================================
+
+
+def test_api_run_malformed_payload_non_dict(http_server):
+    url = f"{http_server}/api/run"
+    req = Request(url, data=b"[1, 2, 3]", headers={"Content-Type": "application/json"})
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "error" in err_body
+    assert "Bad Request" in err_body["error"]
+
+
+def test_api_run_malformed_payload_invalid_seed(http_server):
+    url = f"{http_server}/api/run"
+    payload = json.dumps({"scenario": "01_clear", "seed": "not-an-integer"}).encode("utf-8")
+    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "seed must be an integer" in err_body["error"]
+
+
+def test_api_run_malformed_payload_invalid_controller(http_server):
+    url = f"{http_server}/api/run"
+    payload = json.dumps({"scenario": "01_clear", "controller": "unauthorized/path.py"}).encode(
+        "utf-8"
+    )
+    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "invalid controller path" in err_body["error"]
+
+
+def test_api_run_malformed_payload_invalid_scenario(http_server):
+    url = f"{http_server}/api/run"
+    payload = json.dumps({"scenario": ""}).encode("utf-8")
+    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "scenario must be a non-empty string" in err_body["error"]
+
+
+def test_api_ui_replay_invalid_seed_query_param(http_server):
+    url = f"{http_server}/api/ui/replay?scenario=01_clear&seed=invalid_seed_val"
+    with urlopen(url) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["seed"] == 7
+
+
+def test_api_ui_replay_error_handling(http_server, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "build_replay_view_model",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Replay crash")),
+    )
+    url = f"{http_server}/api/ui/replay?scenario=01_clear"
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(url)
+    assert exc_info.value.code == 500
+
+
+def test_parse_ticks_log_corrupt_lines(tmp_path, monkeypatch):
+    log_file = tmp_path / "corrupt_scenario.jsonl"
+    with open(log_file, "w", encoding="utf-8") as f:
+        f.write('{"type": "header", "map": {}}\n')
+        f.write("corrupted json not a valid line\n")
+        f.write("{broken json}\n")
+        f.write('{"type": "tick", "t": 1.0, "x": 0.0, "y": 0.0}\n')
+        f.write("\n")
+        f.write('{"type": "tick", "t": 2.0, "x": 1.0, "y": 0.0}\n')
+
+    monkeypatch.setattr(server, "get_scenario_log_path", lambda s: log_file)
+    monkeypatch.setattr(server, "_TICKS_CACHE", server.BoundedCache(maxsize=10))
+
+    ticks_data = server.parse_ticks_log("corrupt_scenario")
+    assert ticks_data["header"] is not None
+    assert ticks_data["totalTicks"] == 2
+    assert len(ticks_data["raw_ticks"]) == 2
+
+
+def test_api_ticks_error_handling(http_server, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "parse_ticks_log",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Ticks error")),
+    )
+    url = f"{http_server}/api/ticks?scenario=01_clear"
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(url)
+    assert exc_info.value.code == 500
+
+
+def test_format_time_edge_cases():
+    from server import format_time
+
+    assert format_time(0.0) == "00:00"
+    assert format_time(65.0) == "01:05"
+    assert format_time(-65.0) == "-01:05"
+    assert format_time(-5.0) == "-00:05"
+    assert format_time(-0.0) == "00:00"
+    assert format_time(None) == "--:--"
+    assert format_time(float("nan")) == "--:--"
+    assert format_time(float("inf")) == "--:--"
+    assert format_time("invalid") == "--:--"
+
+
+def test_compute_step_distribution_zero_or_negative():
+    from server import compute_step_distribution
+
+    dist_zero = compute_step_distribution(0, 2.5, 30.0)
+    assert len(dist_zero) == 18
+    assert all(b["count"] == 0 for b in dist_zero)
+    assert sum(b["count"] for b in dist_zero) == 0
+
+    dist_neg = compute_step_distribution(-5, 2.5, 30.0)
+    assert all(b["count"] == 0 for b in dist_neg)
+    assert sum(b["count"] for b in dist_neg) == 0
+
+
+def test_run_simulation_concurrency_mutex(monkeypatch):
+    import time
+    from unittest.mock import MagicMock
+
+    active_runs = []
+    max_active = 0
+    lock = threading.Lock()
+
+    def mock_subp_run(*args, **kwargs):
+        nonlocal max_active
+        with lock:
+            active_runs.append(1)
+            current_active = len(active_runs)
+            if current_active > max_active:
+                max_active = current_active
+        time.sleep(0.05)
+        with lock:
+            active_runs.pop()
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(server.subprocess, "run", mock_subp_run)
+
+    threads = []
+    for _ in range(4):
+        t = threading.Thread(target=server.run_simulation, args=("01_clear",))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    # With _SIM_LOCK, concurrent runs are serialized, so max_active is 1
+    assert max_active == 1
+
+
+def test_view_models_null_fields_tolerance(monkeypatch):
+    mock_ticks = [
+        {"t": None, "v": None, "x": None, "y": None, "pe": [1.0, 2.0], "pe_error": None},
+        {"t": 1.0, "v": 1.2, "x": 0.5, "y": 0.5, "pe": None},
+    ]
+    mock_episodes = [
+        {"id": "ep1", "t_start": None, "t_end": None, "cost": None, "x": None, "y": None},
+    ]
+    mock_missions = [
+        {
+            "id": "m1",
+            "t_start": None,
+            "t_arrival": None,
+            "max_hold_dist": None,
+            "reference_length_m": None,
+        }
+    ]
+
+    monkeypatch.setattr(
+        server,
+        "parse_ticks_log",
+        lambda s: {"raw_ticks": mock_ticks, "ticks": mock_ticks, "header": None},
+    )
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda s: {
+            "score": {
+                "total": None,
+                "episodes": mock_episodes,
+                "blocks": {"delivery": None},
+                "max": {"delivery": None},
+            },
+            "missions": mock_missions,
+            "step_time_ms": {"n": None, "mean": None, "max": None},
+        },
+    )
+
+    dash_vm = server.build_dashboard_view_model("01_clear")
+    assert dash_vm["totalScore"] == 0.0
+
+    rep_vm = server.build_replay_view_model("01_clear")
+    assert rep_vm["episodes"][0]["cost"] == 0.0
+
+    ep_vm = server.build_episodes_view_model("01_clear")
+    assert ep_vm["summary"]["totalCost"] == 0.0
+
+    miss_vm = server.build_missions_view_model("01_clear")
+    assert miss_vm["summary"]["deliveryScore"] == 40.0
+
+    an_vm = server.build_analytics_view_model("01_clear")
+    assert an_vm["totalScore"] == 0.0
+
+
+def test_api_export_csv_error_handling(http_server, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "build_episodes_view_model",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("CSV generation error")),
+    )
+    url = f"{http_server}/api/export/csv?scenario=01_clear"
+    with pytest.raises(HTTPError) as exc_info:
+        urlopen(url)
+    assert exc_info.value.code == 500
+    err = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "CSV generation error" in err["error"]
+
+
+def test_bounded_cache_eviction_and_lru():
+    cache = server.BoundedCache(maxsize=3)
+    cache["a"] = 1
+    cache["b"] = 2
+    cache["c"] = 3
+    assert len(cache) == 3
+    assert list(cache.keys()) == ["a", "b", "c"]
+
+    # Access 'a' to make it most recently used
+    _ = cache["a"]
+    assert list(cache.keys()) == ["b", "c", "a"]
+
+    # Insert 4th item, 'b' (oldest) should be evicted
+    cache["d"] = 4
+    assert len(cache) == 3
+    assert "b" not in cache
+    assert list(cache.keys()) == ["c", "a", "d"]
+
+    # get() also updates LRU
+    assert cache.get("c") == 3
+    assert list(cache.keys()) == ["a", "d", "c"]
+    cache["e"] = 5
+    assert "a" not in cache
+    assert len(cache) == 3
+
+
+def test_get_scenario_file_none():
+    res = get_scenario_file(None)
+    assert res is not None
+    assert res.exists()
+    assert res.name == "04_busy_yard.json"
+
+
+def test_extract_map_data_null_points():
+    # Null map object
+    d1 = server.extract_map_data({"map": None}, None)
+    assert d1["points"] == {}
+
+    # Null points dictionary
+    d2 = server.extract_map_data({"map": {"points": None}}, None)
+    assert d2["points"] == {}
+
+    # Null point within points dictionary
+    d3 = server.extract_map_data(
+        {"map": {"points": {"p1": None, "p2": {"x": None, "y": None}}}}, None
+    )
+    assert "p1" in d3["points"]
+    assert d3["points"]["p1"]["x"] == 0.0
+    assert d3["points"]["p1"]["y"] == 0.0
+    assert d3["points"]["p2"]["x"] == 0.0
+    assert d3["points"]["p2"]["y"] == 0.0
+
+
+def test_view_models_with_null_report_collections(monkeypatch):
+    """View models handle report with null episodes, null missions, null blocks without crash."""
+    mock_report = {
+        "scenario": "01_clear",
+        "missions": None,
+        "score": {
+            "total": None,
+            "deliveries": None,
+            "episodes": None,
+            "blocks": None,
+            "max": None,
+        },
+    }
+    monkeypatch.setattr(server, "get_scenario_report", lambda *args, **kwargs: mock_report)
+
+    dash_vm = server.build_dashboard_view_model("01_clear")
+    assert dash_vm["deliveriesTotal"] == 2
+    assert dash_vm["safetyWarnings"] == 0
+
+    rep_vm = server.build_replay_view_model("01_clear")
+    assert rep_vm["episodes"] == []
+
+    ep_vm = server.build_episodes_view_model("01_clear")
+    assert isinstance(ep_vm["episodes"], list)
+
+    miss_vm = server.build_missions_view_model("01_clear")
+    assert miss_vm["missions"] == []
+    assert miss_vm["summary"]["total"] == 0
+
+
+def test_build_dashboard_view_model_non_string_or_null_mission_id(monkeypatch):
+    """build_dashboard_view_model handles null or non-string (int, bool) mission ID."""
+    mock_report = {
+        "scenario": "01_clear",
+        "missions": [
+            {"id": None, "to": "shop_a", "delivered": True, "t_arrival": 10.0},
+            {"id": 42, "to": "warehouse", "delivered": False, "t_end": 20.0},
+            {"id": "", "to": "shop_b", "delivered": True, "t_arrival": 30.0},
+        ],
+        "score": {"total": 50, "episodes": []},
+    }
+    monkeypatch.setattr(server, "get_scenario_report", lambda *args, **kwargs: mock_report)
+
+    dash_vm = server.build_dashboard_view_model("01_clear")
+    assert len(dash_vm["recentEvents"]) >= 3
+    event_ids = [e["id"] for e in dash_vm["recentEvents"]]
+    assert "e-m-m1" in event_ids
+    assert "e-m-42" in event_ids
+
+
+def test_parse_ticks_log_null_coordinates(tmp_path, monkeypatch):
+    """parse_ticks_log handles null coordinates and telemetry gracefully."""
+    log_file = tmp_path / "null_coords.jsonl"
+    lines = [
+        json.dumps({"type": "header", "scenario": "null_coords", "missions": []}),
+        json.dumps({
+            "type": "tick",
+            "t": 1.0,
+            "x": None,
+            "y": None,
+            "th": None,
+            "pe": [None, None],
+            "obj": None,
+            "hum": None,
+            "v": None,
+        }),
+        json.dumps({
+            "type": "tick",
+            "t": 2.0,
+            "x": 1.0,
+            "y": 2.0,
+            "th": 0.5,
+            "pe": None,
+            "obj": 0.5,
+            "hum": 2.0,
+            "v": 0.2,
+        }),
+    ]
+    log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(server, "get_scenario_log_path", lambda *args: log_file)
+    server._TICKS_CACHE.clear()
+
+    res = server.parse_ticks_log("null_coords")
+    assert res["totalTicks"] == 2
+    ticks = res["ticks"]
+    assert len(ticks) >= 1
+    t0 = res["raw_ticks"][0]
+    assert t0["pe_error"] == 0.0
+    assert "lidarRays" in ticks[0]
+
+
+def test_build_analytics_view_model_null_score_and_blocks(monkeypatch):
+    """build_analytics_view_model handles null score and null blocks/max safely."""
+    # Test with {"score": {"blocks": None, "max": None}}
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {"score": {"blocks": None, "max": None}},
+    )
+    vm = build_analytics_view_model("01_clear")
+    assert vm["totalScore"] == 0.0
+    assert len(vm["blocks"]) == 6
+    for b in vm["blocks"]:
+        assert b["achieved"] == 0.0
+
+    # Test with {"score": None}
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {"score": None},
+    )
+    vm_none = build_analytics_view_model("01_clear")
+    assert vm_none["totalScore"] == 0.0
+    assert len(vm_none["blocks"]) == 6
+    for b in vm_none["blocks"]:
+        assert b["achieved"] == 0.0
+
+
+def test_view_models_null_step_time_ms(monkeypatch):
+    """build_dashboard_view_model and build_analytics_view_model handle null step_time_ms."""
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {"step_time_ms": None, "score": {"total": 85.0}},
+    )
+    dash_vm = build_dashboard_view_model("01_clear")
+    assert dash_vm["controllerState"]["meanDelayMs"] == 2.7
+    assert dash_vm["controllerState"]["maxDelayMs"] == 35.0
+
+    analytics_vm = build_analytics_view_model("01_clear")
+    assert analytics_vm["computeBudget"]["mean_step_ms"] == 2.7
+    assert analytics_vm["computeBudget"]["max_step_ms"] == 35.0
+
+
+def test_api_scenarios_null_score(http_server, monkeypatch):
+    """/api/scenarios endpoint handles scenario reports where score is None."""
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda sc_id: {"score": None},
+    )
+    url = f"{http_server}/api/scenarios"
+    with urlopen(url) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert len(data) >= 1
+        for sc in data:
+            assert sc["hasReport"] is True
+            assert sc["score"] is None
+
+
+def test_build_missions_view_model_unrun_or_none_report(monkeypatch):
+    """build_missions_view_model handles unrun scenario and None report safely."""
+    # 1. Nonexistent/unrun scenario directly without monkeypatch
+    vm = build_missions_view_model("nonexistent_or_unrun")
+    assert vm["scenario"] == "nonexistent_or_unrun"
+    assert vm["missions"] == []
+    assert vm["summary"]["completed"] == 0
+    assert vm["summary"]["total"] == 0
+    assert vm["summary"]["deliveryScore"] == 40.0
+    assert vm["summary"]["maxDeliveryScore"] == 40.0
+    assert vm["summary"]["efficiencyScore"] == 14.0
+    assert vm["summary"]["maxEfficiencyScore"] == 15.0
+
+    # 2. Monkeypatch get_scenario_report to return None
+    monkeypatch.setattr(server, "get_scenario_report", lambda *args: None)
+    vm_none = build_missions_view_model("01_clear")
+    assert vm_none["scenario"] == "01_clear"
+    assert vm_none["missions"] == []
+    assert vm_none["summary"]["completed"] == 0
+    assert vm_none["summary"]["total"] == 0
+
+    # 3. Monkeypatch get_scenario_report with None score and None missions
+    monkeypatch.setattr(server, "get_scenario_report", lambda *args: {"score": None, "missions": None})
+    vm_empty = build_missions_view_model("01_clear")
+    assert vm_empty["missions"] == []
+    assert vm_empty["summary"]["completed"] == 0
+
+
+def test_build_dashboard_view_model_null_items_in_lists(monkeypatch):
+    """build_dashboard_view_model handles null/non-dict items in missions and episodes."""
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {
+            "missions": [None, {"id": "m1", "to": "shop_a", "delivered": True, "t_arrival": 50.0}],
+            "score": {
+                "total": 85.0,
+                "deliveries": 1,
+                "episodes": [None, {"type": "collision", "cost": -30.0, "t_start": 10.0}],
+            },
+        },
+    )
+    dash_vm = build_dashboard_view_model("01_clear")
+    assert "recentEvents" in dash_vm
+    event_ids = [e["id"] for e in dash_vm["recentEvents"]]
+    assert "e-m-m1" in event_ids
+    assert "e-ep-1" in event_ids
+
+    # Completely null items list test
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {
+            "missions": [None],
+            "score": {"total": 50.0, "episodes": [None]},
+        },
+    )
+    dash_vm_all_null = build_dashboard_view_model("01_clear")
+    assert "recentEvents" in dash_vm_all_null
+    # Only the default system startup event is present, no mission or episode events
+    non_sys_events = [e for e in dash_vm_all_null["recentEvents"] if e["id"] != "e-sys-start"]
+    assert len(non_sys_events) == 0
+
+
+def test_get_scenario_report_non_dict_json(tmp_path, monkeypatch):
+    """get_scenario_report strictly returns None if the report JSON is non-dict (e.g. list, string)."""
+    server._REPORT_CACHE.clear()
+    monkeypatch.setattr(server, "_REPORT_CACHE", server.BoundedCache(maxsize=10))
+
+    # Test 1: JSON array [1, 2, 3]
+    list_json_path = tmp_path / "list_report.json"
+    list_json_path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+
+    monkeypatch.setattr(
+        server,
+        "OUT_DIR",
+        tmp_path,
+    )
+    # Target "list_report"
+    assert get_scenario_report("list_report") is None
+
+    # Test 2: JSON string "error"
+    str_json_path = tmp_path / "str_report.json"
+    str_json_path.write_text(json.dumps("error"), encoding="utf-8")
+    assert get_scenario_report("str_report") is None
+
+    # Test 3: JSON number 123
+    num_json_path = tmp_path / "num_report.json"
+    num_json_path.write_text(json.dumps(123), encoding="utf-8")
+    assert get_scenario_report("num_report") is None
+
+
+def test_build_replay_missions_null_or_non_dict_items():
+    """build_replay_missions ignores non-dict items in header missions and raw_ticks without failing."""
+    header = {
+        "missions": [
+            None,
+            "not-a-dict",
+            123,
+            {"id": "m1", "from": "warehouse", "to": "shop_a", "deadline_s": 50.0},
+            {"id": "m2", "from": "shop_a", "to": "shop_b", "deadline_s": 60.0},
+        ]
+    }
+    raw_ticks = [
+        None,
+        "invalid_tick",
+        42,
+        {"t": 1.5, "m": "m1"},
+        {"t": 3.0, "m": "m2"},
+    ]
+
+    missions = server.build_replay_missions(header, raw_ticks)
+    assert len(missions) == 2
+    assert missions[0]["id"] == "m1"
+    assert missions[0]["t_start"] == 1.5
+    assert missions[0]["deadline_s"] == 50.0
+    assert missions[1]["id"] == "m2"
+    assert missions[1]["t_start"] == 3.0
+    assert missions[1]["deadline_s"] == 60.0
+
+
+def test_view_models_non_dict_score_and_blocks(monkeypatch):
+    """View models handle reports where score, score.blocks, or score.max are non-dict types."""
+    # 1. score is string
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {"score": "not_a_dict", "missions": []},
+    )
+    dash_vm = build_dashboard_view_model("01_clear")
+    assert dash_vm["totalScore"] == 0.0
+
+    missions_vm = build_missions_view_model("01_clear")
+    assert missions_vm["summary"]["deliveryScore"] == 40.0
+    assert missions_vm["summary"]["maxDeliveryScore"] == 40.0
+
+    analytics_vm = build_analytics_view_model("01_clear")
+    assert analytics_vm["totalScore"] == 0.0
+    for block in analytics_vm["blocks"]:
+        assert block["achieved"] == 0.0
+
+    episodes_vm = build_episodes_view_model("01_clear")
+    assert episodes_vm["summary"]["fatalCount"] == 0
+
+    replay_vm = build_replay_view_model("01_clear")
+    assert isinstance(replay_vm["episodes"], list)
+
+    # 2. score is int, blocks is string, max is list
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {
+            "score": {
+                "total": 75.0,
+                "blocks": "invalid_blocks",
+                "max": [1, 2, 3],
+            },
+            "missions": [],
+        },
+    )
+    dash_vm2 = build_dashboard_view_model("01_clear")
+    assert dash_vm2["totalScore"] == 75.0
+
+    missions_vm2 = build_missions_view_model("01_clear")
+    assert missions_vm2["summary"]["deliveryScore"] == 40.0
+    assert missions_vm2["summary"]["maxDeliveryScore"] == 40.0
+
+    analytics_vm2 = build_analytics_view_model("01_clear")
+    assert analytics_vm2["totalScore"] == 75.0
+    for block in analytics_vm2["blocks"]:
+        assert block["achieved"] == 0.0
+
+
+def test_api_scenarios_non_dict_report(http_server, monkeypatch):
+    """/api/scenarios endpoint safely handles non-dict reports and non-dict score values."""
+    # Report itself is non-dict
+    monkeypatch.setattr(server, "get_scenario_report", lambda sc_id: "error_not_dict")
+    url = f"{http_server}/api/scenarios"
+    with urlopen(url) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        for sc in data:
+            assert sc["hasReport"] is False
+            assert sc["score"] is None
+
+    # Report has non-dict score (e.g. string or number)
+    monkeypatch.setattr(server, "get_scenario_report", lambda sc_id: {"score": "perfect"})
+    with urlopen(url) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        for sc in data:
+            assert sc["hasReport"] is True
+            assert sc["score"] is None
+
+
+
 

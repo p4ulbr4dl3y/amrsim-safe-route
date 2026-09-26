@@ -217,10 +217,11 @@ def associate_and_update_tracks(
 
             dx = c_ox - tr.ox
             dy = c_oy - tr.oy
-            inst_vx = dx / dt
-            inst_vy = dy / dt
-            tr.vx_odom = 0.6 * tr.vx_odom + 0.4 * inst_vx
-            tr.vy_odom = 0.6 * tr.vy_odom + 0.4 * inst_vy
+            if dt > 1e-6:
+                inst_vx = dx / dt
+                inst_vy = dy / dt
+                tr.vx_odom = 0.6 * tr.vx_odom + 0.4 * inst_vx
+                tr.vy_odom = 0.6 * tr.vy_odom + 0.4 * inst_vy
 
             tr.ox = c_ox
             tr.oy = c_oy

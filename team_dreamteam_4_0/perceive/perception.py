@@ -123,7 +123,9 @@ class Perception:
         self.tracks = prune_tracks(self.tracks)
 
         # 9. Проверка расхождений карты
-        self._check_map_discrepancies(r, exp, x, y, th, map_segs, scan_inliers)
+        self._check_map_discrepancies(
+            r, exp, x, y, th, map_segs, scan_inliers, rel_angles=rel_angles
+        )
 
         return self.active_tracks
 
@@ -136,6 +138,7 @@ class Perception:
         th: float,
         map_segs: np.ndarray,
         scan_inliers: int,
+        rel_angles: Optional[np.ndarray] = None,
     ) -> None:
         """Обнаружить снесенные стены карты (map_missing) или подтвержденные лишние конструкции (map_extra)."""
         has_wall = any(tr.is_wall for tr in self.tracks)
@@ -150,6 +153,7 @@ class Perception:
             removed_segment_ids=self.removed_segment_ids,
             missing_wall_votes=self._missing_wall_votes,
             has_wall_tracks=has_wall,
+            rel_angles=rel_angles,
         )
 
         if detected_note is not None:

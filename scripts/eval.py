@@ -15,11 +15,13 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 DEFAULT_SCENARIOS = [
-    "amrsim-participants/scenarios/01_clear.json",
-    "amrsim-participants/scenarios/02_gnss_shadow.json",
-    "amrsim-participants/scenarios/03_fog_snow.json",
-    "amrsim-participants/scenarios/04_busy_yard.json",
+    str(REPO_ROOT / "amrsim-participants/scenarios/01_clear.json"),
+    str(REPO_ROOT / "amrsim-participants/scenarios/02_gnss_shadow.json"),
+    str(REPO_ROOT / "amrsim-participants/scenarios/03_fog_snow.json"),
+    str(REPO_ROOT / "amrsim-participants/scenarios/04_busy_yard.json"),
 ]
 
 
@@ -27,16 +29,18 @@ def resolve_scenario_path(scenario: str) -> Path:
     p = Path(scenario)
     if p.exists():
         return p
+    if (REPO_ROOT / scenario).exists():
+        return REPO_ROOT / scenario
     # Try under amrsim-participants/scenarios/
-    candidate = Path("amrsim-participants/scenarios") / scenario
+    candidate = REPO_ROOT / "amrsim-participants/scenarios" / scenario
     if candidate.exists():
         return candidate
     if not scenario.endswith(".json"):
-        candidate_json = Path("amrsim-participants/scenarios") / f"{scenario}.json"
+        candidate_json = REPO_ROOT / "amrsim-participants/scenarios" / f"{scenario}.json"
         if candidate_json.exists():
             return candidate_json
     # Fallback to exact match by prefix
-    scenarios_dir = Path("amrsim-participants/scenarios")
+    scenarios_dir = REPO_ROOT / "amrsim-participants/scenarios"
     if scenarios_dir.exists():
         for f in scenarios_dir.glob("*.json"):
             if f.stem == scenario or f.stem.startswith(f"{scenario}_"):
@@ -52,7 +56,7 @@ def run_scenario(
     verbose: bool = False,
 ) -> Dict[str, Any]:
     env = os.environ.copy()
-    amrsim_part_dir = str(Path("amrsim-participants").resolve())
+    amrsim_part_dir = str((REPO_ROOT / "amrsim-participants").resolve())
     curr_pythonpath = env.get("PYTHONPATH", "")
     if amrsim_part_dir not in curr_pythonpath:
         env["PYTHONPATH"] = (
@@ -74,6 +78,8 @@ def run_scenario(
     ]
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    if report_path.exists():
+        report_path.unlink()
 
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
     if verbose or proc.returncode != 0:
@@ -93,27 +99,37 @@ def run_scenario(
 
 def extract_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
     scenario_name = report.get("scenario", "unknown")
-    missions = report.get("missions", [])
+    missions = report.get("missions") or []
     total_missions = len(missions)
-    delivered_missions = sum(1 for m in missions if m.get("delivered", False))
+    delivered_missions = sum(
+        1 for m in missions if isinstance(m, dict) and m.get("delivered", False)
+    )
     missions_str = f"{delivered_missions}/{total_missions}"
 
     end_reason = report.get("end_reason", "unknown")
-    score_data = report.get("score", {})
-    total_score = float(score_data.get("total", 0.0))
-    raw_sum = float(score_data.get("raw_sum", 0.0))
-    blocks = score_data.get("blocks", {})
+    score_data = report.get("score") or {}
+    total_val = score_data.get("total")
+    total_score = float(total_val) if total_val is not None else 0.0
+    raw_sum_val = score_data.get("raw_sum")
+    raw_sum = float(raw_sum_val) if raw_sum_val is not None else 0.0
+    blocks = score_data.get("blocks") or {}
 
-    deliv_score = float(blocks.get("delivery", 0.0))
-    eff_score = float(blocks.get("efficiency", 0.0))
-    safe_score = float(blocks.get("safety", 0.0))
-    rules_score = float(blocks.get("rules", 0.0))
-    pose_score = float(blocks.get("pose", 0.0))
-    coll_score = float(blocks.get("collisions", 0.0))
+    def _block_val(k: str) -> float:
+        v = blocks.get(k)
+        return float(v) if v is not None else 0.0
 
-    step_time = report.get("step_time_ms", {})
-    step_mean = float(step_time.get("mean", 0.0))
-    step_max = float(step_time.get("max", 0.0))
+    deliv_score = _block_val("delivery")
+    eff_score = _block_val("efficiency")
+    safe_score = _block_val("safety")
+    rules_score = _block_val("rules")
+    pose_score = _block_val("pose")
+    coll_score = _block_val("collisions")
+
+    step_time = report.get("step_time_ms") or {}
+    mean_val = step_time.get("mean")
+    step_mean = float(mean_val) if mean_val is not None else 0.0
+    max_val = step_time.get("max")
+    step_max = float(max_val) if max_val is not None else 0.0
 
     return {
         "scenario": scenario_name,
@@ -149,13 +165,19 @@ def format_table(
         "Coll.",
         "Total",
     ]
-    if baseline_summary:
+    base_scenarios = (
+        baseline_summary.get("scenarios")
+        if isinstance(baseline_summary, dict)
+        else None
+    )
+    has_baseline = isinstance(base_scenarios, dict)
+    if has_baseline:
         headers.append("BaseΔ")
     headers.append("Step (avg/max ms)")
 
     table_data = []
     total_score_sum = 0.0
-    base_score_sum = 0.0
+    total_delta_sum = 0.0
     has_baseline_comparison = False
 
     for r in rows:
@@ -179,12 +201,12 @@ def format_table(
         ]
         total_score_sum += r["total"]
 
-        if baseline_summary and "scenarios" in baseline_summary:
-            base_scen = baseline_summary["scenarios"].get(scen)
-            if base_scen:
-                base_tot = float(base_scen.get("total", 0.0))
-                base_score_sum += base_tot
+        if has_baseline and base_scenarios is not None:
+            base_scen = base_scenarios.get(scen)
+            if isinstance(base_scen, dict):
+                base_tot = float(base_scen.get("total") if base_scen.get("total") is not None else 0.0)
                 delta = r["total"] - base_tot
+                total_delta_sum += delta
                 delta_str = f"{delta:+.2f}" if abs(delta) >= 0.01 else " 0.00"
                 row.append(delta_str)
                 has_baseline_comparison = True
@@ -206,20 +228,26 @@ def format_table(
         "-",
         f"{total_score_sum:.2f}",
     ]
-    if baseline_summary:
+    if has_baseline:
         if has_baseline_comparison:
-            tot_delta = total_score_sum - base_score_sum
-            summary_row.append(f"{tot_delta:+.2f}")
+            summary_row.append(f"{total_delta_sum:+.2f}")
         else:
             summary_row.append("-")
     summary_row.append("-")
 
     # Column widths
     all_rows = [headers] + table_data + [summary_row]
-    col_widths = [max(len(str(item)) for item in col) for col in zip(*all_rows)]
+    max_cols = max((len(r) for r in all_rows), default=0)
+    col_widths = [
+        max(len(str(r[i])) for r in all_rows if i < len(r))
+        for i in range(max_cols)
+    ]
 
     def make_line(items: List[str]) -> str:
-        return " | ".join(f"{str(it):<{col_widths[i]}}" for i, it in enumerate(items))
+        return " | ".join(
+            f"{str(it):<{col_widths[i] if i < len(col_widths) else 0}}"
+            for i, it in enumerate(items)
+        )
 
     sep = "-+-".join("-" * w for w in col_widths)
 
@@ -241,18 +269,26 @@ def check_regressions(
     tolerance: float = 0.05,
 ) -> List[str]:
     regressions = []
-    base_scenarios = baseline_summary.get("scenarios", {})
+    base_scenarios = (
+        baseline_summary.get("scenarios")
+        if isinstance(baseline_summary, dict)
+        else None
+    )
+    if not isinstance(base_scenarios, dict):
+        return regressions
 
     for r in results:
         scen = r["scenario"]
         if scen in base_scenarios:
-            base_tot = float(base_scenarios[scen].get("total", 0.0))
-            new_tot = r["total"]
-            diff = new_tot - base_tot
-            if diff < -tolerance:
-                regressions.append(
-                    f"Regression in {scen}: score dropped {diff:.2f} (from {base_tot:.2f} to {new_tot:.2f})"
-                )
+            base_scen = base_scenarios[scen]
+            if isinstance(base_scen, dict):
+                base_tot = float(base_scen.get("total") if base_scen.get("total") is not None else 0.0)
+                new_tot = r["total"]
+                diff = new_tot - base_tot
+                if diff < -tolerance:
+                    regressions.append(
+                        f"Regression in {scen}: score dropped {diff:.2f} (from {base_tot:.2f} to {new_tot:.2f})"
+                    )
     return regressions
 
 
@@ -260,7 +296,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Оценка контроллера AMR")
     parser.add_argument(
         "--controller",
-        default="amrsim-participants/baseline/controller.py",
+        default=str(REPO_ROOT / "amrsim-participants/baseline/controller.py"),
         help="Путь к скрипту или каталогу контроллера",
     )
     parser.add_argument(

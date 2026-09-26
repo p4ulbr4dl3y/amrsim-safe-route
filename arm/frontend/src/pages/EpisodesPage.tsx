@@ -139,31 +139,8 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     };
   }, [scenario]);
 
-  // Экспорт в формате CSV
+  // Экспорт в формате CSV через Server-Driven эндпоинт
   const handleExportCSV = () => {
-    if (episodesData && episodesData.episodes && episodesData.episodes.length > 0) {
-      const headers = "Episode ID,Source,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation";
-      const rows = episodesData.episodes.map((ep) => {
-        const snap = (ep.telemetrySnapshot || {}) as Record<string, any>;
-        const v = typeof snap.v === 'number' ? snap.v.toFixed(2) : '';
-        const hum = typeof snap.hum === 'number' ? snap.hum.toFixed(2) : '';
-        const obj = typeof snap.obj === 'number' ? snap.obj.toFixed(2) : '';
-        const pe = typeof snap.pe_error === 'number' ? snap.pe_error.toFixed(4) : '';
-        const isReport = (ep.source || 'report') === 'report';
-        const cost = isReport ? (ep.cost || 0).toFixed(2) : '';
-        const expl = (ep.ruleExplanation || '').replace(/"/g, '""');
-        const src = ep.source || 'report';
-        return `${ep.id},${src},${ep.type},${ep.category},${ep.severity || 'info'},${ep.t_start},${ep.t_end},${ep.x},${ep.y},${v},${hum},${obj},${pe},${cost},"${expl}"`;
-      });
-      const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent([headers, ...rows].join('\n'));
-      const link = document.createElement('a');
-      link.setAttribute('href', csvContent);
-      link.setAttribute('download', `amrsim_episodes_${scenario}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      return;
-    }
     const url = apiClient.getExportCsvUrl(scenario);
     const link = document.createElement('a');
     link.href = url;

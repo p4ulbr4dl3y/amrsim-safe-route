@@ -103,6 +103,7 @@ export interface MapData {
   gates?: any[];
   crossing?: any[];
   points: Record<string, { x: number; y: number; heading: number; tol: number; label: string }>;
+  referencePaths?: [number, number][][];
 }
 
 export interface ScenarioItem {

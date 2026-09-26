@@ -30,11 +30,15 @@ def is_drivable(
 
     if y is None:
         pts = np.atleast_2d(np.asarray(x, dtype=float))
+        if pts.shape == (1, 0) or len(pts) == 0 or pts.shape[1] == 0:
+            return np.zeros(0, dtype=bool)
         is_single = np.ndim(x) == 1
     else:
         is_single = np.ndim(x) == 0 and np.ndim(y) == 0
         px = np.atleast_1d(np.asarray(x, dtype=float))
         py = np.atleast_1d(np.asarray(y, dtype=float))
+        if len(px) == 0 or len(py) == 0:
+            return np.zeros(0, dtype=bool)
         pts = np.column_stack([px, py])
 
     def _check(p: np.ndarray) -> np.ndarray:
@@ -62,6 +66,8 @@ def is_drivable(
         for dx, dy in offsets:
             valid &= _check(pts + np.array([dx, dy]))
 
+    if len(valid) == 0:
+        return np.zeros(0, dtype=bool)
     return bool(valid[0]) if is_single else valid
 
 
@@ -72,8 +78,12 @@ def build_static_free_grid(
     grid_margin: float = 0.2,
 ) -> Tuple[np.ndarray, float, float, float, float, int, int]:
     """Построить статическую двумерную сетку свободных ячеек с учетом запаса margin."""
-    if drivable_polys:
-        all_pts = np.vstack(drivable_polys)
+    valid_drivable = [
+        arr for p in (drivable_polys or [])
+        if (arr := np.asarray(p, dtype=float)).ndim == 2 and arr.shape[0] > 0 and arr.shape[1] == 2
+    ]
+    if valid_drivable:
+        all_pts = np.vstack(valid_drivable)
         x_min = float(all_pts[:, 0].min()) - 3.0
         y_min = float(all_pts[:, 1].min()) - 3.0
         x_max = float(all_pts[:, 0].max()) + 3.0
@@ -90,11 +100,16 @@ def build_static_free_grid(
     pts = np.column_stack([gx.ravel(), gy.ravel()])
 
     in_d = np.zeros(len(pts), dtype=bool)
-    for poly in drivable_polys:
+    for poly in valid_drivable:
         in_d |= inside_polygon(pts, poly)
 
+    valid_forbidden = [
+        arr for p in (forbidden_polys or [])
+        if (arr := np.asarray(p, dtype=float)).ndim == 2 and arr.shape[0] > 0 and arr.shape[1] == 2
+    ]
+
     in_f = np.zeros(len(pts), dtype=bool)
-    for poly in forbidden_polys:
+    for poly in valid_forbidden:
         in_f |= inside_polygon(pts, poly)
 
     free_mask = in_d & (~in_f)
@@ -105,8 +120,8 @@ def build_static_free_grid(
             ok = np.asarray(
                 is_drivable(
                     pts[cand],
-                    drivable_polys=drivable_polys,
-                    forbidden_polys=forbidden_polys,
+                    drivable_polys=valid_drivable,
+                    forbidden_polys=valid_forbidden,
                     margin=grid_margin,
                 ),
                 dtype=bool,

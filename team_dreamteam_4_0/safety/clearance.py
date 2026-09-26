@@ -118,7 +118,14 @@ def calculate_clearance(
     """
     if pts is None or len(pts) == 0:
         return math.inf
-    d_min = float(np.hypot(pts[:, 0], pts[:, 1]).min())
+    pts = np.asarray(pts)
+    if pts.ndim != 2 or pts.shape[1] < 2:
+        return math.inf
+    valid_mask = np.isfinite(pts[:, 0]) & np.isfinite(pts[:, 1])
+    if not np.any(valid_mask):
+        return math.inf
+    valid_pts = pts[valid_mask]
+    d_min = float(np.hypot(valid_pts[:, 0], valid_pts[:, 1]).min())
     if is_pedestrian:
         return d_min - R_PLATFORM - R_PEDESTRIAN
     return d_min - R_PLATFORM
@@ -148,6 +155,14 @@ def predict_ttc_clearance(
     pts = track.pts
     if pts is None or len(pts) == 0:
         return math.inf, horizon_s
+    pts = np.asarray(pts)
+    if pts.ndim != 2 or pts.shape[1] < 2:
+        return math.inf, horizon_s
+
+    valid_mask = np.isfinite(pts[:, 0]) & np.isfinite(pts[:, 1])
+    if not np.any(valid_mask):
+        return math.inf, horizon_s
+    pts = pts[valid_mask]
 
     # Скорость трека в базисе робота
     cos_oth = math.cos(oth)
@@ -163,7 +178,14 @@ def predict_ttc_clearance(
     min_clearance = math.inf
     min_t = horizon_s
 
-    radius_sub = R_PLATFORM
+    is_ped = bool(
+        getattr(track, "is_pedestrian", False)
+        or getattr(track, "is_unknown", False)
+        or getattr(track, "dyn", None) is True
+        or getattr(track, "label", None) in ("pedestrian", "unknown")
+        or getattr(track, "class_label", None) in ("pedestrian", "unknown")
+    )
+    radius_sub = (R_PLATFORM + R_PEDESTRIAN) if is_ped else R_PLATFORM
 
     for t in t_steps:
         pred_x = pts[:, 0] + v_rel_x * t

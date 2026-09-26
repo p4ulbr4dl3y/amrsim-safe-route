@@ -444,3 +444,216 @@ def test_eval_script_execution():
         with pytest.raises(SystemExit) as exc:
             runpy.run_path(str(Path(amr_eval.__file__)), run_name="__main__")
         assert exc.value.code == 0
+
+
+def test_format_table_baseline_without_scenarios():
+    rows = [
+        {
+            "scenario": "scen_a",
+            "missions": "1/1",
+            "delivery": 40.0,
+            "efficiency": 20.0,
+            "safety": 15.0,
+            "rules": 10.0,
+            "pose": 5.0,
+            "collisions": 5.0,
+            "total": 95.0,
+            "step_mean_ms": 1.0,
+            "step_max_ms": 2.0,
+            "counted": True,
+            "fatal": False,
+        }
+    ]
+    # baseline_summary present but without "scenarios" key
+    tbl_empty = format_table(rows, baseline_summary={})
+    assert "BaseΔ" not in tbl_empty
+    assert "95.00" in tbl_empty
+
+    tbl_no_scen = format_table(rows, baseline_summary={"version": 1})
+    assert "BaseΔ" not in tbl_no_scen
+    assert "95.00" in tbl_no_scen
+
+
+def test_format_table_delta_missing_scenarios_arithmetic():
+    rows = [
+        {
+            "scenario": "scen_in_base",
+            "missions": "1/1",
+            "delivery": 40.0,
+            "efficiency": 20.0,
+            "safety": 15.0,
+            "rules": 10.0,
+            "pose": 5.0,
+            "collisions": 5.0,
+            "total": 90.0,
+            "step_mean_ms": 1.0,
+            "step_max_ms": 2.0,
+            "counted": True,
+            "fatal": False,
+        },
+        {
+            "scenario": "scen_not_in_base",
+            "missions": "1/1",
+            "delivery": 40.0,
+            "efficiency": 10.0,
+            "safety": 15.0,
+            "rules": 10.0,
+            "pose": 5.0,
+            "collisions": 0.0,
+            "total": 80.0,
+            "step_mean_ms": 1.0,
+            "step_max_ms": 2.0,
+            "counted": True,
+            "fatal": False,
+        },
+    ]
+    baseline = {
+        "scenarios": {
+            "scen_in_base": {"total": 85.0},
+        }
+    }
+    tbl = format_table(rows, baseline_summary=baseline)
+    lines = tbl.strip().split("\n")
+    summary_line = lines[-1]
+    # Total score should be 170.00
+    assert "170.00" in summary_line
+    # Delta should be +5.00 (from scen_in_base), NOT +85.00 (170 - 85)
+    assert "+5.00" in summary_line
+    assert "+85.00" not in summary_line
+
+
+def test_extract_metrics_step_time_none_or_missing():
+    # Report from simulation that aborted early or init failed (step_time mean/max are None)
+    report_none_steps = {
+        "scenario": "init_failure",
+        "step_time_ms": {
+            "n": 0,
+            "mean": None,
+            "max": None,
+        },
+        "score": {
+            "total": None,
+            "raw_sum": None,
+            "blocks": {
+                "delivery": None,
+                "efficiency": None,
+                "safety": None,
+                "rules": None,
+                "pose": None,
+                "collisions": None,
+            },
+        },
+    }
+    metrics = extract_metrics(report_none_steps)
+    assert metrics["step_mean_ms"] == 0.0
+    assert metrics["step_max_ms"] == 0.0
+    assert metrics["total"] == 0.0
+    assert metrics["raw_sum"] == 0.0
+    assert metrics["delivery"] == 0.0
+
+    # Report where step_time_ms and score are None or missing
+    report_empty = {"step_time_ms": None, "score": None, "missions": None}
+    metrics_empty = extract_metrics(report_empty)
+    assert metrics_empty["step_mean_ms"] == 0.0
+    assert metrics_empty["step_max_ms"] == 0.0
+    assert metrics_empty["total"] == 0.0
+    assert metrics_empty["missions"] == "0/0"
+
+
+def test_run_scenario_unlinks_stale_report(tmp_path, monkeypatch):
+    report_file = tmp_path / "rep_stale.json"
+    scenario_path = tmp_path / "scen.json"
+    controller_path = tmp_path / "ctrl.py"
+
+    scenario_path.write_text("{}", encoding="utf-8")
+    controller_path.write_text("{}", encoding="utf-8")
+    # Pre-existing stale report from a previous run
+    report_file.write_text(json.dumps({"scenario": "stale_data"}), encoding="utf-8")
+    assert report_file.exists()
+
+    def mock_run_failure(cmd, env, capture_output, text):
+        # Simulation crashes without writing report_file
+        proc = MagicMock()
+        proc.returncode = 1
+        proc.stdout = ""
+        proc.stderr = "Fatal crash"
+        return proc
+
+    monkeypatch.setattr(amr_eval.subprocess, "run", mock_run_failure)
+
+    # run_scenario must unlink stale report and raise RuntimeError instead of reading stale report
+    with pytest.raises(RuntimeError, match="amrsim failed to generate report"):
+        run_scenario(
+            scenario_path=scenario_path,
+            controller_path=controller_path,
+            seed=7,
+            report_path=report_file,
+        )
+
+    assert not report_file.exists()
+
+
+def test_format_table_and_check_regressions_null_baseline_scenarios():
+    rows = [
+        {
+            "scenario": "scen_a",
+            "missions": "1/1",
+            "delivery": 40.0,
+            "efficiency": 20.0,
+            "safety": 15.0,
+            "rules": 10.0,
+            "pose": 5.0,
+            "collisions": 5.0,
+            "total": 95.0,
+            "step_mean_ms": 1.0,
+            "step_max_ms": 2.0,
+            "counted": True,
+            "fatal": False,
+        }
+    ]
+
+    # baseline_summary has "scenarios": None
+    tbl_null = format_table(rows, baseline_summary={"scenarios": None})
+    assert "BaseΔ" not in tbl_null
+    assert "95.00" in tbl_null
+
+    # check_regressions with "scenarios": None and None baseline_summary
+    assert check_regressions(rows, {"scenarios": None}) == []
+    assert check_regressions(rows, None) == []  # type: ignore
+    assert check_regressions(rows, {"scenarios": {"scen_a": None}}) == []
+
+
+def test_format_table_and_check_regressions_null_total():
+    rows = [
+        {
+            "scenario": "scen_a",
+            "missions": "1/1",
+            "delivery": 40.0,
+            "efficiency": 20.0,
+            "safety": 15.0,
+            "rules": 10.0,
+            "pose": 5.0,
+            "collisions": 5.0,
+            "total": 95.0,
+            "step_mean_ms": 1.0,
+            "step_max_ms": 2.0,
+            "counted": True,
+            "fatal": False,
+        }
+    ]
+    # base_scen has "total": None
+    baseline_summary = {"scenarios": {"scen_a": {"total": None}}}
+    tbl = format_table(rows, baseline_summary=baseline_summary)
+    assert "+95.00" in tbl
+    regs = check_regressions(rows, baseline_summary)
+    assert regs == []
+
+
+def test_resolve_scenario_path_anchored():
+    from scripts.eval import REPO_ROOT, resolve_scenario_path
+    p = resolve_scenario_path("01_clear")
+    assert p.exists()
+    assert p == REPO_ROOT / "amrsim-participants/scenarios/01_clear.json"
+
+
+

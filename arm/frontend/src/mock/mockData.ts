@@ -1,9 +1,15 @@
 import mapDataJson from './mapData.json';
-import ticksDataJson from './ticksData.json';
 import { EpisodeData, MissionData, ReportData, TickData } from '../types';
 
 export const mockMapData = mapDataJson;
-export const mockTicks: TickData[] = ticksDataJson as TickData[];
+
+let cachedTicks: TickData[] | null = null;
+export async function getMockTicks(): Promise<TickData[]> {
+  if (cachedTicks) return cachedTicks;
+  const mod = await import('./ticksData.json');
+  cachedTicks = (mod.default || mod) as TickData[];
+  return cachedTicks;
+}
 
 export const mockEpisodes: EpisodeData[] = [
   {

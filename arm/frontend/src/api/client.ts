@@ -11,7 +11,7 @@ import {
 } from '../types';
 import {
   mockDashboardData,
-  mockTicks,
+  getMockTicks,
   mockMapData,
   mockEpisodes,
   mockMissions,
@@ -128,7 +128,8 @@ const fallbackData = {
     ];
   },
 
-  getDashboard(scenarioId: string): DashboardViewModel {
+  async getDashboard(scenarioId: string): Promise<DashboardViewModel> {
+    const mockTicks = await getMockTicks();
     return {
       scenario: scenarioId,
       totalScore: mockDashboardData.totalScore,
@@ -157,7 +158,8 @@ const fallbackData = {
     };
   },
 
-  getReplay(scenarioId: string, seed = 7): ReplayViewModel {
+  async getReplay(scenarioId: string, seed = 7): Promise<ReplayViewModel> {
+    const mockTicks = await getMockTicks();
     return {
       scenario: scenarioId,
       seed,
@@ -253,7 +255,7 @@ export const apiClient = {
       return await res.json();
     } catch (err) {
       console.warn(`[API] Failed to fetch dashboard for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getDashboard(scenarioId);
+      return await fallbackData.getDashboard(scenarioId);
     }
   },
 
@@ -267,7 +269,7 @@ export const apiClient = {
       return await res.json();
     } catch (err) {
       console.warn(`[API] Failed to fetch replay for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getReplay(scenarioId, seed);
+      return await fallbackData.getReplay(scenarioId, seed);
     }
   },
 

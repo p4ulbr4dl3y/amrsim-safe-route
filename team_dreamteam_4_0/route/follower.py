@@ -319,10 +319,11 @@ class RouteFollower:
         self.time_left = None
         self.final_approach = False
 
-        from_xy = self.get_point_xy(mission.get("from"), fallback=ref_path[0])
+        fallback_pt = ref_path[0] if len(ref_path) > 0 else None
+        from_xy = self.get_point_xy(mission.get("from"), fallback=fallback_pt)
         dist_to_from = math.hypot(pose[0] - from_xy[0], pose[1] - from_xy[1])
 
-        if dist_to_from > 1.5:
+        if len(ref_path) > 0 and dist_to_from > 1.5:
             init_leg = self.plan_path((pose[0], pose[1]), from_xy)
             if init_leg is not None and len(init_leg) > 0:
                 init_arr = np.asarray(init_leg, dtype=float)
@@ -509,6 +510,15 @@ class RouteFollower:
     ) -> Dict[str, Any]:
         """Вычислить команду навигации для текущего такта симуляции."""
         x, y, th = pose
+        if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(th)):
+            return {
+                "v": 0.0,
+                "w": 0.0,
+                "status": "waiting",
+                "note": "non_finite_pose",
+                "arrived": False,
+                "hold_count": 0,
+            }
 
         if mission is not None:
             self.update_mission(mission, pose)
@@ -531,10 +541,34 @@ class RouteFollower:
             self.hold_count += 1
             w_align = 0.0
             if mission is not None and "goal" in mission:
-                goal_th = float(mission["goal"][2])
-                dth = wrap_angle(goal_th - th)
-                if abs(dth) > 0.05:
-                    w_align = float(np.clip(1.5 * dth, -0.5, 0.5))
+                goal_raw = mission["goal"]
+                goal_th = None
+                if isinstance(goal_raw, dict):
+                    if "heading" in goal_raw:
+                        goal_th = goal_raw["heading"]
+                    elif "th" in goal_raw:
+                        goal_th = goal_raw["th"]
+                    elif "yaw" in goal_raw:
+                        goal_th = goal_raw["yaw"]
+                elif isinstance(goal_raw, (list, tuple, np.ndarray)):
+                    if len(goal_raw) >= 3:
+                        goal_th = goal_raw[2]
+                elif isinstance(goal_raw, str) and goal_raw in self.points:
+                    pt_val = self.points[goal_raw]
+                    if isinstance(pt_val, dict):
+                        goal_th = pt_val.get("heading", pt_val.get("th", pt_val.get("yaw")))
+                    elif isinstance(pt_val, (list, tuple, np.ndarray)) and len(pt_val) >= 3:
+                        goal_th = pt_val[2]
+
+                if goal_th is not None:
+                    try:
+                        goal_th_val = float(goal_th)
+                        if math.isfinite(goal_th_val):
+                            dth = wrap_angle(goal_th_val - th)
+                            if abs(dth) > 0.05:
+                                w_align = float(np.clip(1.5 * dth, -0.5, 0.5))
+                    except (ValueError, TypeError):
+                        pass
 
             return {
                 "v": 0.0,

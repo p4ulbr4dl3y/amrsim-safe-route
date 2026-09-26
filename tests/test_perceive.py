@@ -10,6 +10,7 @@ from team_dreamteam_4_0.perceive import (
     PEDESTRIAN_CONTOUR_MAX_M,
     Perception,
     Track,
+    check_map_discrepancies,
     fit_cluster_geometry,
     is_wall_cluster,
     is_wall_continuation,
@@ -971,6 +972,41 @@ class TestPerceiveCoverage(unittest.TestCase):
         r_actual = np.array([18.0])
         perc._check_map_discrepancies(r_actual, exp_r, 0.0, 0.0, 0.0, segs, 50)
 
+    def test_map_discrepancies_rel_angles(self):
+        """Map discrepancy detector correctly uses rel_angles array instead of index assumption."""
+        segs = np.array([[5.0, -5.0, 5.0, 5.0]])
+        # 10 beams all pointing along angle 0 (straight ahead)
+        rel_angles = np.zeros(10)
+        exp_ranges = np.full(10, 5.0)
+        ranges = np.full(10, 7.0)  # overshoot by 2.0 m (> 1.2 m)
+
+        removed = set()
+        missing_votes = {0: 19}  # one vote away from threshold (20)
+
+        # 1. Direct function call with rel_angles
+        note = check_map_discrepancies(
+            ranges=ranges,
+            exp_ranges=exp_ranges,
+            x=0.0,
+            y=0.0,
+            th=0.0,
+            map_segs=segs,
+            scan_inliers=50,
+            removed_segment_ids=removed,
+            missing_wall_votes=missing_votes,
+            has_wall_tracks=False,
+            rel_angles=rel_angles,
+        )
+        self.assertEqual(note, "map_missing")
+        self.assertIn(0, removed)
+
+        # 2. Perception._check_map_discrepancies signature backward-compatibility
+        perc = Perception(dt=0.1)
+        # Calling without rel_angles (default None)
+        perc._check_map_discrepancies(ranges, exp_ranges, 0.0, 0.0, 0.0, segs, 50)
+        # Calling with rel_angles
+        perc._check_map_discrepancies(ranges, exp_ranges, 0.0, 0.0, 0.0, segs, 50, rel_angles=rel_angles)
+
     def test_import_fallback(self):
         import sys
 
@@ -1113,6 +1149,40 @@ class TestPerceiveCoverage(unittest.TestCase):
         extras = perc.get_extra_obstacles()
         self.assertGreaterEqual(len(extras), 1)
         self.assertAlmostEqual(extras[0][0], 3.0, delta=0.5)
+
+    def test_tracking_zero_dt_guard(self):
+        from team_dreamteam_4_0.perceive.tracking import Track, associate_and_update_tracks
+
+        tracks = [Track(track_id=1, ox=1.0, oy=1.0)]
+        tracks[0].vx_odom = 0.5
+        tracks[0].vy_odom = 0.2
+
+        clusters = [
+            {
+                "ox": 1.1,
+                "oy": 1.0,
+                "pts": np.array([[1.1, 1.0]]),
+                "length": 0.5,
+                "thickness": 0.2,
+                "is_wall": False,
+                "is_wall_piece": False,
+            }
+        ]
+
+        # Call with dt = 0.0 and dt = 1e-7 - should not raise ZeroDivisionError
+        updated_tracks, next_id, used = associate_and_update_tracks(
+            tracks, clusters, next_track_id=2, dt=0.0, is_fog=False
+        )
+        self.assertEqual(len(updated_tracks), 1)
+        self.assertAlmostEqual(updated_tracks[0].vx_odom, 0.5)
+        self.assertAlmostEqual(updated_tracks[0].vy_odom, 0.2)
+
+        updated_tracks2, _, _ = associate_and_update_tracks(
+            tracks, clusters, next_track_id=2, dt=1e-7, is_fog=False
+        )
+        self.assertEqual(len(updated_tracks2), 1)
+        self.assertAlmostEqual(updated_tracks2[0].vx_odom, 0.5)
+        self.assertAlmostEqual(updated_tracks2[0].vy_odom, 0.2)
 
 
 if __name__ == "__main__":

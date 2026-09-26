@@ -461,6 +461,44 @@ class TestControllerUnits(unittest.TestCase):
         self.assertTrue(ctrl.arrived)
         self.assertEqual(res2["status"], "arrived")
 
+    def test_visited_from_dict_and_omitted(self):
+        """Coordinate dict or omitted/None 'from' key sets visited_from = True and enables arrival."""
+        # 1. Mission with coordinate dict matching start pose
+        ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+        mission_dict = dict(SYNTH_MISSION)
+        mission_dict["from"] = {"x": START[0], "y": START[1]}
+        obs = make_obs(ctrl)
+        obs["mission"] = mission_dict
+        ctrl.step(obs)
+        self.assertTrue(ctrl.visited_from)
+
+        # 2. Mission with coordinate dict far away
+        ctrl2 = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+        mission_far = dict(SYNTH_MISSION)
+        mission_far["from"] = {"x": 80.0, "y": 80.0}
+        obs2 = make_obs(ctrl2)
+        obs2["mission"] = mission_far
+        ctrl2.step(obs2)
+        self.assertFalse(ctrl2.visited_from)
+
+        # 3. Mission with 'from' set to None
+        ctrl3 = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+        mission_none = dict(SYNTH_MISSION)
+        mission_none["from"] = None
+        obs3 = make_obs(ctrl3)
+        obs3["mission"] = mission_none
+        ctrl3.step(obs3)
+        self.assertTrue(ctrl3.visited_from)
+
+        # 4. Mission with 'from' key completely omitted
+        ctrl4 = Controller(SYNTH_MAP, SYNTH_CONFIG, list(START))
+        mission_omitted = dict(SYNTH_MISSION)
+        mission_omitted.pop("from", None)
+        obs4 = make_obs(ctrl4)
+        obs4["mission"] = mission_omitted
+        ctrl4.step(obs4)
+        self.assertTrue(ctrl4.visited_from)
+
 
 if __name__ == "__main__":
     unittest.main()
