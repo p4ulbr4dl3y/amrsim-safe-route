@@ -7,12 +7,12 @@
 `v`, `w`, `status`, `pose_est`, `note` по схеме amr-1.0.
 
 Контроллер собран из модулей строго на стандартной библиотеке и numpy:
-`localize.py` (скан-матч стен, ГНСС-гейт, калибровка масштаба, dock-snap),
-`perceive.py` (кластеры и треки препятствий в чистой одометрии),
-`route.py` (pure pursuit, боковой сдвиг, локальный A*, зоны скорости),
-`safety.py` (зазоры, коридор, estop, статусы), `geom.py` (геометрия),
-`controller.py` (сборка и порядок вызовов). Описание подхода и обоснование решений —
-в [`APPROACH.md`](APPROACH.md) и [`team_dreamteam_4_0/APPROACH.md`](team_dreamteam_4_0/APPROACH.md).
+`localize/` (скан-матч LM, ГНСС-гейт, калибровка масштаба, CSM lost recovery, dock-snap),
+`perceive/` (кластеры, IMM-трекинг, map_missing и map_extra),
+`route/` (pure pursuit, Stanley, квинтовые сплайны, кривизно-оптимальный профиль, A*),
+`safety/` (Control Barrier Functions Нагумо, зазоры, коридор, estop, статусы), `geom.py` (геометрия),
+`controller.py` (сборка и порядок вызовов). Описание подхода, анализ альтернатив и обоснование решений -
+в [`APPROACH.md`](APPROACH.md) и [`results/ALTERNATIVES.md`](results/ALTERNATIVES.md).
 
 ## Требования
 
@@ -69,10 +69,10 @@ PYTHONPATH=amrsim-participants python -m amrsim batch \
 
 ```bash
 uv run ruff check       # Быстрый линтинг Python
-uv run pytest -v        # 242 автоматических теста (алгоритмы, сервер, оценка)
+uv run pytest -v        # 256 автоматических тестов (алгоритмы, сервер, оценка)
 ```
 
-## АРМ Оператора (Критерий О3 — 15 баллов)
+## АРМ Оператора (Критерий О3 - 15 баллов)
 
 Веб-станция оператора с Server-Driven UI, 2D Canvas картой и Replay Studio.
 
@@ -95,13 +95,13 @@ npm run build   # Сборка SPA в arm/frontend/dist
 
 ```
 team_dreamteam_4_0/    # Модули алгоритма контроллера (критерии Т1, Т2, Т4, Т5)
-  controller.py        # Точка входа: порядок predict → scan-match → GNSS → perception → route → safety
-  geom.py              # Геометрия: отрезки, raycast, AABB, полигоны
-  localize.py          # Локализация: фильтр, скан-матч, ГНСС, масштаб, dock-snap, lost
-  perceive.py          # Восприятие: кластеры, треки, классы, map_missing/map_extra
-  route.py             # Маршрут: pure pursuit, сдвиг, A*, зоны скорости
-  safety.py            # Безопасность: зазоры, коридор, estop, статусы и note
-  APPROACH.md          # 25 строк о локализации, маршруте, безопасности и ограничениях
+  controller.py        # Точка входа: порядок predict -> scan-match -> GNSS -> perception -> route -> safety
+  geom.py              # Геометрия: отрезки, raycast, AABB, нормализация углов
+  localize/            # Локализация: LM скан-матч, ГНСС, калибровка, 2-уровневый CSM lost recovery
+  perceive/            # Восприятие: кластеризация, IMM-трекинг, map_missing и map_extra
+  route/               # Маршрут: pure pursuit, Stanley, квинтовые сплайны, профилирование кривизны, A*
+  safety/              # Безопасность: Control Barrier Functions (CBF), зазоры, коридор, estop
+  APPROACH.md          # 20 строк о локализации, маршруте, безопасности и ограничениях (Т3)
   requirements.txt     # Одна строка: numpy
   scenarios/           # Свои проверки О4 (s1..s5)
 arm/                   # Рабочее место оператора (критерий О3)
@@ -110,8 +110,9 @@ arm/                   # Рабочее место оператора (крит�
   README.md            # Инструкция запуска АРМ
   frontend/            # React + Vite + Tailwind + Canvas 2D + KaTeX
 scenarios/             # Открытые (01..04) и кастомные сценарии (s1..s5, критерий О4)
-tests/                 # 242 модульных теста: алгоритмы, сервер, метрики (критерий Т5)
+tests/                 # 256 модульных тестов: алгоритмы, сервер, метрики (критерий Т5)
 results/               # Отчёты score: seed_packet (4x7), свои сценарии и логи, моменты (О2, О4)
+  ALTERNATIVES.md      # Инженерное обоснование подхода, анализ альтернатив и компромиссов (О1)
 APPROACH.md            # Корневой файл обоснования подхода (критерии Т3, О1)
 presentation.pdf       # Презентация к защите до 12 слайдов (критерий О5)
 .github/workflows/ci.yml # Автоматический CI (тесты, линтеры, сборка, симуляция)
