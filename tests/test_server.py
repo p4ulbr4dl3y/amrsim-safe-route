@@ -1327,3 +1327,64 @@ def test_parse_ticks_log_null_coordinates(tmp_path, monkeypatch):
     assert "lidarRays" in ticks[0]
 
 
+def test_build_analytics_view_model_null_score_and_blocks(monkeypatch):
+    """build_analytics_view_model handles null score and null blocks/max safely."""
+    # Test with {"score": {"blocks": None, "max": None}}
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {"score": {"blocks": None, "max": None}},
+    )
+    vm = build_analytics_view_model("01_clear")
+    assert vm["totalScore"] == 0.0
+    assert len(vm["blocks"]) == 6
+    for b in vm["blocks"]:
+        assert b["achieved"] == 0.0
+
+    # Test with {"score": None}
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {"score": None},
+    )
+    vm_none = build_analytics_view_model("01_clear")
+    assert vm_none["totalScore"] == 0.0
+    assert len(vm_none["blocks"]) == 6
+    for b in vm_none["blocks"]:
+        assert b["achieved"] == 0.0
+
+
+def test_view_models_null_step_time_ms(monkeypatch):
+    """build_dashboard_view_model and build_analytics_view_model handle null step_time_ms."""
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {"step_time_ms": None, "score": {"total": 85.0}},
+    )
+    dash_vm = build_dashboard_view_model("01_clear")
+    assert dash_vm["controllerState"]["meanDelayMs"] == 2.7
+    assert dash_vm["controllerState"]["maxDelayMs"] == 35.0
+
+    analytics_vm = build_analytics_view_model("01_clear")
+    assert analytics_vm["computeBudget"]["mean_step_ms"] == 2.7
+    assert analytics_vm["computeBudget"]["max_step_ms"] == 35.0
+
+
+def test_api_scenarios_null_score(http_server, monkeypatch):
+    """/api/scenarios endpoint handles scenario reports where score is None."""
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda sc_id: {"score": None},
+    )
+    url = f"{http_server}/api/scenarios"
+    with urlopen(url) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert len(data) >= 1
+        for sc in data:
+            assert sc["hasReport"] is True
+            assert sc["score"] is None
+
+
+

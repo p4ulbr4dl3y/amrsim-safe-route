@@ -453,7 +453,7 @@ def run_simulation(
             "reportPath": str(report_path),
             "logPath": str(log_path),
             "report": report_data,
-            "score": report_data.get("score", {}).get("total") if report_data else None,
+            "score": (report_data.get("score") or {}).get("total") if report_data else None,
         }
 
 
@@ -712,7 +712,7 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
     recent_events.reverse()
 
     # Метрики производительности контроллера
-    step_time = report.get("step_time_ms", {}) if report else {}
+    step_time = (report.get("step_time_ms") or {}) if report else {}
     mean_delay = round(_safe_float(step_time.get("mean"), 2.7), 2)
     max_delay = round(_safe_float(step_time.get("max"), 35.0), 1)
 
@@ -1256,9 +1256,9 @@ def build_missions_view_model(scenario_id: str) -> dict:
 def build_analytics_view_model(scenario_id: str) -> dict:
     norm_id = normalize_scenario_id(scenario_id)
     report = get_scenario_report(norm_id)
-    score = report.get("score", {}) if report else {}
-    blocks_raw = score.get("blocks", {})
-    max_raw = score.get("max", {})
+    score_data = (report.get("score") or {}) if report else {}
+    blocks_raw = score_data.get("blocks") or {}
+    max_raw = score_data.get("max") or {}
 
     block_names = {
         "delivery": "Доставка груза",
@@ -1297,7 +1297,7 @@ def build_analytics_view_model(scenario_id: str) -> dict:
         radar_values.append(percentage / 100.0)
         radar_max.append(1.0)
 
-    step_time = report.get("step_time_ms", {}) if report else {}
+    step_time = (report.get("step_time_ms") or {}) if report else {}
     n_steps = int(_safe_float(step_time.get("n"), 3000))
     mean_ms = _safe_float(step_time.get("mean"), 2.7)
     max_ms = _safe_float(step_time.get("max"), 35.0)
@@ -1319,7 +1319,7 @@ def build_analytics_view_model(scenario_id: str) -> dict:
     return {
         "scenario": norm_id,
         "seed": report.get("seed", 7) if report else 7,
-        "totalScore": round(_safe_float(score.get("total"), 0.0), 2),
+        "totalScore": round(_safe_float(score_data.get("total"), 0.0), 2),
         "counted": report.get("counted", True) if report else True,
         "blocks": blocks,
         "radar": {
@@ -1398,7 +1398,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                                 "type": "standard",
                                 "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
                                 "hasReport": rep is not None,
-                                "score": rep.get("score", {}).get("total") if rep else None,
+                                "score": (rep.get("score") or {}).get("total") if rep else None,
                             }
                         )
 
@@ -1420,7 +1420,7 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                                 "type": "custom",
                                 "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
                                 "hasReport": rep is not None,
-                                "score": rep.get("score", {}).get("total") if rep else None,
+                                "score": (rep.get("score") or {}).get("total") if rep else None,
                             }
                         )
 
