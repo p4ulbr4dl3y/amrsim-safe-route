@@ -898,15 +898,54 @@ class TestLocalizeCoverage(unittest.TestCase):
         loc.gnss_rejections = [(2.0, 0.0) for _ in range(65)]
         loc.scan_inliers = 70
         # Call update_gnss with rejected innovation (dist = 2.0 > 1.5)
+        old_x, old_y = loc.x, loc.y
         res_rec = loc.update_gnss(gnss_x=12.0, gnss_y=10.0, gnss_valid=True, gnss_hdop=1.0)
         self.assertTrue(res_rec)
         self.assertEqual(len(loc.gnss_rejections), 0)
+        # Плавная фильтрация с k <= 0.15 без скачка на полные 2 м
+        step = math.hypot(loc.x - old_x, loc.y - old_y)
+        self.assertAlmostEqual(step, 0.15 * 2.0, delta=1e-4)
+        self.assertLess(step, 0.35)
 
         # 4. Pop rejections when > 80 (lines 993-994)
         loc.gnss_rejections = [(10.0, 10.0) for _ in range(85)]
         loc.scan_inliers = 10
         loc.update_gnss(gnss_x=20.0, gnss_y=20.0, gnss_valid=True, gnss_hdop=1.0)
         self.assertLessEqual(len(loc.gnss_rejections), 86)
+
+    def test_persistent_gnss_disagreement_does_not_jump_to_receiver(self):
+        """60 устойчивых невязок по 2 м не переносят позу скачком в координаты приемника целиком (Т4)."""
+        from team_dreamteam_4_0.localize.gnss import GNSSFilter
+
+        flt = GNSSFilter()
+        x, y = 50.0, 50.0
+        var_along, var_cross = 0.25, 0.25
+        gnss_x, gnss_y = 52.0, 50.0  # смещение 2.0 м вдоль x
+
+        # Подаем 60 отсчетов с невязкой 2.0 м
+        for i in range(60):
+            accepted, new_x, new_y, var_along, var_cross, _ = flt.update(
+                x=x,
+                y=y,
+                var_along=var_along,
+                var_cross=var_cross,
+                gnss_x=gnss_x,
+                gnss_y=gnss_y,
+                gnss_valid=True,
+                gnss_hdop=1.0,
+                in_shadow=False,
+                scan_inliers=70,
+                fog_active=False,
+            )
+            if accepted:
+                # Шаг коррекции за такт строго ограничен k <= 0.15
+                step = math.hypot(new_x - x, new_y - y)
+                self.assertLessEqual(step, 0.15 * 2.0 + 1e-6)
+                self.assertLess(step, 0.5)
+                # Поза не перенеслась целиком в координаты приемника
+                self.assertLess(abs(new_x - x), 0.35)
+                self.assertGreater(abs(gnss_x - new_x), 1.0)
+                x, y = new_x, new_y
 
     def test_detect_fog_and_scan_unavailable_edges(self):
         loc = Localizer((0.0, 0.0, 0.0))

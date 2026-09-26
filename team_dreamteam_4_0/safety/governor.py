@@ -428,19 +428,16 @@ class SafetyGovernor:
             if not notes:
                 notes["dock"] = "dock"
 
-        is_slowed = v_safe <= 0.35 and v_safe > 0.0
         is_stopped_flag = (stop_reason is not None) or (v_safe == 0.0 and w_safe == 0.0)
 
-        # Критерий Т4: определение статуса с жесткой привязкой к фактической одометрии
+        # Определение статуса с жесткой привязкой к фактической одометрии
         status = determine_status(
             v_odom=v_odom,
             w_odom=w_odom,
             is_arrived=is_arrived,
             is_lost=is_lost,
             is_stopped=is_stopped_flag,
-            is_slowed=is_slowed,
             is_estop=is_estop,
-            allow_slowed=False,
         )
 
         return v_safe, w_safe, status, self._compose_note(notes)

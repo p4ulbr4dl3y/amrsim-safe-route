@@ -242,9 +242,13 @@ class TestSafety(unittest.TestCase):
         st_arrived = determine_status(v_odom=0.0, is_arrived=True)
         self.assertEqual(st_arrived, "arrived")
 
-        # 4. Optional allow_slowed mode
-        st_slowed = determine_status(v_odom=0.2, is_slowed=True, allow_slowed=True)
-        self.assertEqual(st_slowed, "slowed")
+        # 4. Lost while stationary -> 'lost'
+        st_lost = determine_status(v_odom=0.0, is_lost=True)
+        self.assertEqual(st_lost, "lost")
+
+        # 5. Estop triggered -> 'estop'
+        st_estop = determine_status(v_odom=0.0, is_estop=True)
+        self.assertEqual(st_estop, "estop")
 
     def test_rotation_w_permitted_beside_pedestrian(self):
         # Pedestrian at side: x=0, y=2.0 (outside front corridor)
@@ -905,9 +909,25 @@ class TestSafety(unittest.TestCase):
 
 
 class TestSafetyEdgeCases(unittest.TestCase):
-    def test_determine_status_slowed_stationary(self):
-        # Line 170: v_odom < 0.05, is_slowed=True, allow_slowed=True
-        self.assertEqual(determine_status(v_odom=0.0, is_slowed=True, allow_slowed=True), "slowed")
+    def test_determine_status_only_five_contract_statuses(self):
+        """Проверить, что determine_status возвращает строго 5 контрактных статусов amr-1.0."""
+        valid_statuses = {"moving", "waiting", "arrived", "lost", "estop"}
+        # Проверяем все комбинации флагов и скоростей
+        for v in (-0.5, 0.0, 0.04, 0.05, 0.3):
+            for w in (-0.2, 0.0, 0.09, 0.10, 0.5):
+                for arrived in (False, True):
+                    for lost in (False, True):
+                        for stopped in (False, True):
+                            for estop in (False, True):
+                                st = determine_status(
+                                    v_odom=v,
+                                    w_odom=w,
+                                    is_arrived=arrived,
+                                    is_lost=lost,
+                                    is_stopped=stopped,
+                                    is_estop=estop,
+                                )
+                                self.assertIn(st, valid_statuses)
 
     def test_empty_pts_clearance_and_ttc(self):
         # Lines 73 & 103
