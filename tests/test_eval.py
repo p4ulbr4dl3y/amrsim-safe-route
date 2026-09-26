@@ -623,3 +623,37 @@ def test_format_table_and_check_regressions_null_baseline_scenarios():
     assert check_regressions(rows, {"scenarios": {"scen_a": None}}) == []
 
 
+def test_format_table_and_check_regressions_null_total():
+    rows = [
+        {
+            "scenario": "scen_a",
+            "missions": "1/1",
+            "delivery": 40.0,
+            "efficiency": 20.0,
+            "safety": 15.0,
+            "rules": 10.0,
+            "pose": 5.0,
+            "collisions": 5.0,
+            "total": 95.0,
+            "step_mean_ms": 1.0,
+            "step_max_ms": 2.0,
+            "counted": True,
+            "fatal": False,
+        }
+    ]
+    # base_scen has "total": None
+    baseline_summary = {"scenarios": {"scen_a": {"total": None}}}
+    tbl = format_table(rows, baseline_summary=baseline_summary)
+    assert "+95.00" in tbl
+    regs = check_regressions(rows, baseline_summary)
+    assert regs == []
+
+
+def test_resolve_scenario_path_anchored():
+    from scripts.eval import resolve_scenario_path, REPO_ROOT
+    p = resolve_scenario_path("01_clear")
+    assert p.exists()
+    assert p == REPO_ROOT / "amrsim-participants/scenarios/01_clear.json"
+
+
+

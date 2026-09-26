@@ -44,3 +44,31 @@ def test_candidate_7_start_heading():
     # Points shop_b heading in 01_clear.json is 0.0 (facing wall), sc7 start must not be 0.0
     assert sc7["start"]["theta"] != 0.0
 
+
+def test_evaluate_candidate_null_score(tmp_path, monkeypatch):
+    """Проверка, что evaluate_candidate не падает при score: None или total: None."""
+    import json
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import hidden_box
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    cand = {"name": "test_cand", "missions": [{"from": "a", "to": "b"}]}
+
+    # Mock subprocess.run to write report files with null score
+    def mock_run(cmd, **kwargs):
+        with open(out_dir / "test_cand_oracle.json", "w") as f:
+            json.dump({"score": None}, f)
+        with open(out_dir / "test_cand_base.json", "w") as f:
+            json.dump({"score": {"total": None, "deliveries": None}}, f)
+        import subprocess
+        return subprocess.CompletedProcess(cmd, returncode=0)
+
+    monkeypatch.setattr(hidden_box.subprocess, "run", mock_run)
+
+    admitted, meta, _ = hidden_box.evaluate_candidate(cand, temp_dir=out_dir)
+    assert admitted is False
+    assert meta["oracle_total"] == 0.0
+    assert meta["baseline_total"] == 0.0
+
+

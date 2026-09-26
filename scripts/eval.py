@@ -15,11 +15,13 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 DEFAULT_SCENARIOS = [
-    "amrsim-participants/scenarios/01_clear.json",
-    "amrsim-participants/scenarios/02_gnss_shadow.json",
-    "amrsim-participants/scenarios/03_fog_snow.json",
-    "amrsim-participants/scenarios/04_busy_yard.json",
+    str(REPO_ROOT / "amrsim-participants/scenarios/01_clear.json"),
+    str(REPO_ROOT / "amrsim-participants/scenarios/02_gnss_shadow.json"),
+    str(REPO_ROOT / "amrsim-participants/scenarios/03_fog_snow.json"),
+    str(REPO_ROOT / "amrsim-participants/scenarios/04_busy_yard.json"),
 ]
 
 
@@ -27,16 +29,18 @@ def resolve_scenario_path(scenario: str) -> Path:
     p = Path(scenario)
     if p.exists():
         return p
+    if (REPO_ROOT / scenario).exists():
+        return REPO_ROOT / scenario
     # Try under amrsim-participants/scenarios/
-    candidate = Path("amrsim-participants/scenarios") / scenario
+    candidate = REPO_ROOT / "amrsim-participants/scenarios" / scenario
     if candidate.exists():
         return candidate
     if not scenario.endswith(".json"):
-        candidate_json = Path("amrsim-participants/scenarios") / f"{scenario}.json"
+        candidate_json = REPO_ROOT / "amrsim-participants/scenarios" / f"{scenario}.json"
         if candidate_json.exists():
             return candidate_json
     # Fallback to exact match by prefix
-    scenarios_dir = Path("amrsim-participants/scenarios")
+    scenarios_dir = REPO_ROOT / "amrsim-participants/scenarios"
     if scenarios_dir.exists():
         for f in scenarios_dir.glob("*.json"):
             if f.stem == scenario or f.stem.startswith(f"{scenario}_"):
@@ -52,7 +56,7 @@ def run_scenario(
     verbose: bool = False,
 ) -> Dict[str, Any]:
     env = os.environ.copy()
-    amrsim_part_dir = str(Path("amrsim-participants").resolve())
+    amrsim_part_dir = str((REPO_ROOT / "amrsim-participants").resolve())
     curr_pythonpath = env.get("PYTHONPATH", "")
     if amrsim_part_dir not in curr_pythonpath:
         env["PYTHONPATH"] = (
@@ -200,7 +204,7 @@ def format_table(
         if has_baseline and base_scenarios is not None:
             base_scen = base_scenarios.get(scen)
             if isinstance(base_scen, dict):
-                base_tot = float(base_scen.get("total", 0.0))
+                base_tot = float(base_scen.get("total") if base_scen.get("total") is not None else 0.0)
                 delta = r["total"] - base_tot
                 total_delta_sum += delta
                 delta_str = f"{delta:+.2f}" if abs(delta) >= 0.01 else " 0.00"
@@ -278,7 +282,7 @@ def check_regressions(
         if scen in base_scenarios:
             base_scen = base_scenarios[scen]
             if isinstance(base_scen, dict):
-                base_tot = float(base_scen.get("total", 0.0))
+                base_tot = float(base_scen.get("total") if base_scen.get("total") is not None else 0.0)
                 new_tot = r["total"]
                 diff = new_tot - base_tot
                 if diff < -tolerance:
@@ -292,7 +296,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Оценка контроллера AMR")
     parser.add_argument(
         "--controller",
-        default="amrsim-participants/baseline/controller.py",
+        default=str(REPO_ROOT / "amrsim-participants/baseline/controller.py"),
         help="Путь к скрипту или каталогу контроллера",
     )
     parser.add_argument(

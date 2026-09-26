@@ -474,10 +474,13 @@ def evaluate_candidate(
     with open(base_rep, "r", encoding="utf-8") as f:
         b_data = json.load(f)
 
-    o_total = o_data.get("score", {}).get("total", 0.0)
-    o_deliv = o_data.get("score", {}).get("deliveries", 0)
-    b_total = b_data.get("score", {}).get("total", 0.0)
-    b_deliv = b_data.get("score", {}).get("deliveries", 0)
+    o_score = o_data.get("score") if isinstance(o_data.get("score"), dict) else {}
+    b_score = b_data.get("score") if isinstance(b_data.get("score"), dict) else {}
+
+    o_total = float(o_score.get("total") if o_score.get("total") is not None else 0.0)
+    o_deliv = int(o_score.get("deliveries") if o_score.get("deliveries") is not None else 0)
+    b_total = float(b_score.get("total") if b_score.get("total") is not None else 0.0)
+    b_deliv = int(b_score.get("deliveries") if b_score.get("deliveries") is not None else 0)
     n_missions = len(cand.get("missions", []))
 
     # Фильтр допуска:
