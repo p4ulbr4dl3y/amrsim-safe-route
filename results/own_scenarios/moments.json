@@ -144,14 +144,23 @@
           "status": "moving",
           "note": "fog_clear zone v=0.95",
           "v": 0.95
-        },
+        }
+      ]
+    },
+    {
+      "scenario": "04_busy_yard",
+      "seed": 7,
+      "total": 98.87,
+      "report": "results/table_runs/reports/team_dreamteam_4_0__04_busy_yard__s7.json",
+      "log": "results/table_runs/logs/team_dreamteam_4_0__04_busy_yard__s7.jsonl",
+      "moments": [
         {
           "key": "stop_person",
           "found": true,
-          "t": 86.6,
-          "status": "moving",
-          "note": "stop_person d=0.8 fog_clear zone v=0.95",
-          "v": 0.9
+          "t": 263.5,
+          "status": "waiting",
+          "note": "stop_person d=0.7 map_extra zone v=0.95",
+          "v": 0.0
         }
       ]
     }

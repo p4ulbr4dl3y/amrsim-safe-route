@@ -194,7 +194,7 @@ def test_pitch_matches_logged_moments_and_drops_old_claims():
     for key in (
         ("s4_shadow_start_charger", 7, "arrival_charger"),
         ("s5_fog_inattentive", 7, "fog_clear"),
-        ("s5_fog_inattentive", 7, "stop_person"),
+        ("04_busy_yard", 7, "stop_person"),
         ("s4b_shadow_lane_lost", 1, "lane_lost_status"),
         ("s3_wall_removed", 7, "map_missing"),
         ("s1_pallet_2m", 7, "offset"),
@@ -202,8 +202,12 @@ def test_pitch_matches_logged_moments_and_drops_old_claims():
     ):
         moment = by_key[key]
         assert ("%.1f" % float(moment["t"])) in pitch
-    person = by_key[("s5_fog_inattentive", 7, "stop_person")]
-    assert ("%.2f" % float(person["v"])).rstrip("0").rstrip(".") in pitch
+    person = by_key[("04_busy_yard", 7, "stop_person")]
+    assert ("t=%.1f" % float(person["t"])) in pitch
+    assert "04_busy_yard" in pitch
+    assert person["status"] in pitch
+    assert person["note"] in pitch
+    assert "hum=0.311" in pitch
     lost = lost_run(
         _ticks("results/own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl")
     )
@@ -230,4 +234,48 @@ def test_s4b_lost_sequence_and_recovery():
     for tick in ticks:
         if tick.get("st") == "lost":
             assert float(tick.get("v", 0.0)) == 0.0
+
+
+def test_readme_claims_no_batch_teams_and_no_99_7():
+    """README не содержит несуществующий вызов batch teams и не заявляет 99.7 по 03."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "batch teams" not in readme
+    assert "99.7" not in readme
+
+
+def test_alternatives_does_not_attribute_stanley_cbf_to_controller():
+    """ALTERNATIVES.md не приписывает Стэнли и CBF боевому пакету controller."""
+    alternatives = (ROOT / "results" / "ALTERNATIVES.md").read_text(encoding="utf-8")
+    assert "team_dreamteam_4_0/route/follower.py" not in alternatives
+    assert "team_dreamteam_4_0/safety/clearance.py" not in alternatives
+    assert "team_dreamteam_4_0/route/spline.py" not in alternatives
+    assert "tests/test_route.py" in alternatives
+    assert "tests/test_safety.py" in alternatives
+    assert "compute_stanley_cmd" in alternatives
+    assert "cbf_velocity_limit" in alternatives
+
+
+def test_pedestrian_demo_claim_tick_hum_and_zero_v():
+    """Утверждение демо о пешеходе проверяет такт с hum < 1.0 и v == 0."""
+    moments = json.loads(
+        (ROOT / "results" / "own_scenarios" / "moments.json").read_text(encoding="utf-8")
+    )
+    yard_moment = None
+    log_path = None
+    for section in moments["scenarios"]:
+        if section["scenario"] == "04_busy_yard" and section["seed"] == 7:
+            for m in section["moments"]:
+                if m["key"] == "stop_person":
+                    yard_moment = m
+                    log_path = ROOT / section["log"]
+                    break
+    assert yard_moment is not None
+    assert log_path is not None
+    ticks = _ticks(str(log_path.relative_to(ROOT)))
+    tick = nearest_tick(ticks, yard_moment["t"])
+    assert float(tick.get("v", 1.0)) == 0.0
+    assert float(tick.get("hum", 99.0)) < 1.0
+    assert tick.get("st") == "waiting"
+    assert "stop_person" in (tick.get("nt") or "")
+
 

@@ -366,8 +366,8 @@ def build_context():
         "s4_shadow_start_charger", 7, "arrival_charger", "dock"
     )
     s5_fog, _, _ = checked_moment("s5_fog_inattentive", 7, "fog_clear", "fog_clear")
-    s5_person, _, s5_section = checked_moment(
-        "s5_fog_inattentive", 7, "stop_person", "stop_person"
+    yard_person, _, yard_section = checked_moment(
+        "04_busy_yard", 7, "stop_person", "stop_person"
     )
     s3_wall, _, _ = checked_moment("s3_wall_removed", 7, "map_missing", "map_missing")
     s1_offset, _, s1_section = checked_moment("s1_pallet_2m", 7, "offset", "offset")
@@ -386,7 +386,8 @@ def build_context():
     if lost["resume_t"] is None:
         raise SystemExit("После lost скорость так и не стала положительной")
 
-    person_distance = parse_distance(s5_person["note"])
+    person_distance = parse_distance(yard_person["note"])
+    yard_report = read_json(ROOT / yard_section["report"])
     s5_report = own[("s5_fog_inattentive", 7)]
     if not efficiency_is_only_gap(s5_report["score"]["blocks"], s5_report["score"]["max"]):
         raise SystemExit("s5 потерял не только эффективность, слайд 7 так говорить нельзя")
@@ -426,10 +427,11 @@ def build_context():
         "own_n": len(spoken_reports),
         "s4_arrival": s4_arrival,
         "s5_fog": s5_fog,
-        "s5_person": s5_person,
-        "s5_distance": person_distance,
         "s5_total": float(s5_report["score"]["total"]),
-        "s5_log": s5_section["log"],
+        "yard_person": yard_person,
+        "yard_distance": person_distance,
+        "yard_total": float(yard_report["score"]["total"]),
+        "yard_log": yard_section["log"],
         "s3_wall": s3_wall,
         "s3_total": float(own[("s3_wall_removed", 7)]["score"]["total"]),
         "s4_total": float(own[("s4_shadow_start_charger", 7)]["score"]["total"]),
@@ -602,7 +604,7 @@ def slide_4(c, ctx):
             "10⁴" if facts["steps"] == "10^4" else facts["steps"],
             facts["limit_min"],
         ),
-        "CBF, Стэнли и сплайн в коде есть. step() их не вызывает.",
+        "CBF, Стэнли и сплайн - эталоны в tests/. В step() их нет.",
     ]
     begin_slide(c, 4)
     title = say(ctx, "Частицы, сырой ГНСС и MPC не взяли.")
@@ -636,7 +638,7 @@ def slide_5(c, ctx):
 def slide_6(c, ctx):
     """Четыре метки демо. Экран после этого слайда - АРМ."""
     lost = ctx["lost"]
-    person = ctx["s5_person"]
+    person = ctx["yard_person"]
     cards = [
         (
             "Тень и док",
@@ -645,14 +647,14 @@ def slide_6(c, ctx):
             % (ctx["s4_arrival"]["status"], format_score(ctx["s4_total"])),
         ),
         (
-            "Туман и человек",
-            "t=%.1f и t=%.1f" % (float(ctx["s5_fog"]["t"]), float(person["t"])),
-            "d=%s, v=%s, статус %s, %s"
+            "Пешеход во дворе",
+            "t=%.1f" % float(person["t"]),
+            "04_busy_yard, d=%s, v=%s, %s, %s"
             % (
-                ("%.2f" % ctx["s5_distance"]).rstrip("0").rstrip("."),
-                ("%.2f" % float(person["v"])).rstrip("0").rstrip("."),
+                format_score(ctx["yard_distance"]),
+                format_score(person["v"]),
                 person["status"],
-                format_score(ctx["s5_total"]),
+                format_score(ctx["yard_total"]),
             ),
         ),
         (
