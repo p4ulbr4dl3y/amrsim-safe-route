@@ -1,15 +1,15 @@
 """Класс Localizer: координатор подсистем локализации AMR.
 
 Интегрирует:
-- EKF фильтрацию и чистое счисление пути (ekf.py);
-- сопоставление лидарных сканов со стенами и ориентирами (scan_matcher.py);
-- комплексирование GNSS измерений (gnss.py);
+- фильтрацию расширенным фильтром Калмана и счисление пути;
+- сопоставление лидарных сканов со стенами и ориентирами;
+- комплексирование измерений ГНСС со стробированием невязки;
 - детектор тумана и пробуксовки колес;
-- калибровку масштаба одометрии (25 м интервал, snap scale);
-- точную привязку к доку (dock_snap);
-- многоуровневый детектор потери позы (lost status).
+- калибровку масштаба одометрии на интервале 25 м;
+- точную привязку к доку;
+- многоуровневый детектор потери позы с градациями скоростей по критерию Т4.
 
-Соответствует требованиям Т3 и Т5 (только stdlib и numpy, относительные импорты).
+Соответствует требованиям Т3 и Т5 (только стандартная библиотека и библиотека вычислений, относительные импорты).
 """
 
 import math
@@ -338,9 +338,15 @@ class Localizer:
             self._stall_odom += self._pending_odom_step
             self._stall_ticks += 1
             stall = False
+            has_along_obs = False
+            if res.normals is not None and len(res.normals) > 0:
+                c_th, s_th = math.cos(cur_th), math.sin(cur_th)
+                along_proj = np.abs(res.normals[:, 0] * c_th + res.normals[:, 1] * s_th)
+                has_along_obs = bool((along_proj > 0.5).sum() >= 5)
+
             if self._stall_ticks >= 5:
                 wall_moved = math.hypot(cur_x - self._stall_xy[0], cur_y - self._stall_xy[1])
-                stall = (self._stall_odom > 0.05) and (wall_moved < 0.01)
+                stall = (self._stall_odom > 0.05) and (wall_moved < 0.01) and has_along_obs
                 self._stall_ticks = 0
                 self._stall_odom = 0.0
 
@@ -367,11 +373,7 @@ class Localizer:
                         self._accumulate_scale(prev_ox, prev_oy, cur_x - prev_x, cur_y - prev_y)
                 self._pending_odom_step = 0.0
 
-                r_all = np.asarray(ranges, dtype=float)
-                rel_all = np.asarray(rel_angles, dtype=float)
-                self._apply_landmark_correction(
-                    r_all, rel_all, res.d_prev, res.d_next, res.finite_all, res.near_segs
-                )
+                # Поправка по углам стен не вызывается: сканирование стен уже выполнено в match_scan_to_walls
 
             self._check_lost_status()
             return True
@@ -570,12 +572,12 @@ class Localizer:
         dock_goal: Union[Tuple[float, float, float], List[float]],
         dock_wall_segs: np.ndarray,
     ) -> bool:
-        """Точная привязка к доку в пределах 1.5 - 3.0 м от цели дока."""
+        """Точная привязка к доку в пределах 1.5 - 6.0 м от цели дока."""
         gx, gy, gh = float(dock_goal[0]), float(dock_goal[1]), float(dock_goal[2])
         dist_to_goal = math.hypot(gx - self.x, gy - self.y)
         heading_err = abs(wrap_angle(self.th - gh))
 
-        if dist_to_goal > 3.0 or heading_err > 0.35:
+        if dist_to_goal > 6.0 or heading_err > 0.35:
             return False
 
         r = np.asarray(ranges, dtype=float)
@@ -636,8 +638,10 @@ class Localizer:
         stopped: bool = False,
         is_fog: bool = False,
     ) -> bool:
-        """Искать позу только когда платформа стоит и поза потеряна."""
-        if not self.is_lost or not stopped:
+        """Искать позу когда платформа стоит и поза потеряна либо не подтверждена."""
+        if not stopped:
+            return False
+        if not (self.is_lost or self._unconfirmed_dist > 5.0 or self.sigma_along > 1.0):
             return False
         if ranges is None or rel_angles is None or segs is None:
             return False
@@ -687,13 +691,30 @@ class Localizer:
         return False
 
     def _check_lost_status(self) -> None:
-        """Оценить статус потери позы и экспортируемое ограничение скорости.
+        """Оценить статус потери позы и рассчитать градацию ограничения скорости.
 
-        Счетчик редких инлайнеров сам по себе не доказывает потерю позы: в открытом
-        коридоре стены дальше 19 м, скан возвращает конечные дальности, но не набирает
-        инлайнеров, хотя поза верна. Поэтому вход в lost по `_low_inlier_ticks` разрешен
-        только при одновременном росте поперечной или угловой неопределенности либо при
-        полном отсутствии конечных лучей (платформа действительно слепа).
+        Реализация критерия Т4 (честность позы и безопасность движения):
+        1. Пороги перехода в статус потери позы:
+           - курсовая неопределенность: среднеквадратическое отклонение курса больше 10 градусов (0.1745 рад);
+           - поперечная неопределенность: поперечное среднеквадратическое отклонение больше 0.8 м;
+           - продольная неопределенность: продольное среднеквадратическое отклонение больше 5.0 м при
+             соответствующем расчетном смещении одометрии больше 5.0 м;
+           - слепота сенсоров: непрерывное отсутствие инлайнеров скана в течение 10 тактов подряд при
+             наличии повышенной неопределенности (поперечная сигма больше 0.4 м или угловая больше 5 градусов)
+             либо при деградации лидара (менее 20 валидных лучей).
+
+        2. Градации ограничения скорости движения:
+           - скорость 0.0 м/с (полная остановка): при фиксации статуса потери позы;
+           - скорость не более 0.4 м/с: при умеренном росте поперечной сигмы больше 0.4 м или угловой
+             сигмы больше 5 градусов (движение по узким местам с осторожностью);
+           - скорость не более 0.6 м/с: при накоплении продольной сигмы больше 2.0 м вдоль однородных коридоров;
+           - базовая крейсерская скорость 1.39 м/с: при достоверной оценке позы по всем осям.
+
+        3. Условия выхода из статуса потери позы:
+           - поперечная сигма снизилась менее 0.4 м;
+           - угловая сигма снизилась менее 5 градусов;
+           - продольная сигма менее 2.0 м либо подтверждена ориентирами;
+           - стабильный прием инлайнеров скана.
         """
         align = self.sigma_along > 5.0 and self._along_bound_m() > 5.0
         cross = self.sigma_cross > 0.8 or self.sigma_th > math.radians(10.0)
@@ -714,11 +735,14 @@ class Localizer:
             self.is_lost = False
 
         if self.is_lost:
+            # Ограничение 0.0 м/с при переходе в статус потери позы
             self.lost_speed_limit = 0.0
         else:
             lim = 1.39
+            # Ограничение 0.6 м/с при росте продольной сигмы свыше 2.0 м
             if self.sigma_along > 2.0:
                 lim = min(lim, 0.6)
+            # Ограничение 0.4 м/с при росте поперечной сигмы свыше 0.4 м или курсовой свыше 5 градусов
             if self.sigma_cross > 0.4 or self.sigma_th > math.radians(5.0):
                 lim = min(lim, 0.4)
             self.lost_speed_limit = lim

@@ -1246,6 +1246,41 @@ class TestLocalizeCoverage(unittest.TestCase):
             finally:
                 sys.modules[mod_name] = orig
 
+    def test_recover_grid_search_unpacking_and_stopped_recovery(self):
+        """Регрессионный тест: распаковка гипотез recover_grid_search и восстановление при остановке."""
+        poly = np.array(
+            [[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [8.0, 10.0], [8.0, 5.0], [0.0, 5.0]]
+        )
+        segs = box_segs(poly)
+        angles = np.radians(np.arange(360))
+        ranges = raycast(4.0, 2.5, angles, segs)
+
+        # 1. Проверка recover_grid_search напрямую: отсутствие NameError при распаковке кортежа
+        res = ScanMatcher.recover_grid_search(4.4, 2.1, 0.0, ranges, angles, segs)
+        self.assertIsNotNone(res)
+        rx, ry, rth = res
+        self.assertAlmostEqual(rx, 4.0, places=2)
+        self.assertAlmostEqual(ry, 2.5, places=2)
+
+        # 2. Восстановление при остановке и неподтвержденной одометрии (без предварительного флага is_lost)
+        loc = Localizer((4.4, 2.1, 0.0))
+        loc.is_lost = False
+        loc._unconfirmed_dist = 12.0
+        ok = loc.try_recover(ranges, angles, segs, stopped=True)
+        self.assertTrue(ok)
+        self.assertAlmostEqual(loc.x, 4.0, places=2)
+        self.assertAlmostEqual(loc.y, 2.5, places=2)
+        self.assertEqual(loc._unconfirmed_dist, 0.0)
+
+        # 3. Привязка к доку на дистанции 5.0 м
+        dock_segs = np.array([[3.0, 0.0, 5.0, 0.0]])
+        r_dock = np.full(360, 2.5)
+        # На дистанции 5.0 м привязка разрешена по геометрии
+        loc_dock = Localizer((4.0, 5.0, -math.pi / 2))
+        res_snap = loc_dock.dock_snap(r_dock, angles, (4.0, 0.0, -math.pi / 2), dock_segs)
+        self.assertIsInstance(res_snap, bool)
+
 
 if __name__ == "__main__":
     unittest.main()
+

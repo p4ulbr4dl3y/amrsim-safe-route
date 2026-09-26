@@ -180,7 +180,16 @@ class Controller:
         # try_recover() выполняется только при полной остановке платформы, поэтому флаг
         # stopped передается явно. Не более одной попытки в секунду.
         v_odom = dx_odom / self.dt
-        if self.localizer.is_lost:
+        w_odom = dth_odom / self.dt
+        is_stopped = abs(v_odom) < 0.04 and abs(w_odom) < 0.04
+        need_recover = self.localizer.is_lost or (
+            is_stopped
+            and (
+                self.localizer.sigma_along > 1.0
+                or getattr(self.localizer, "_unconfirmed_dist", 0.0) > 5.0
+            )
+        )
+        if need_recover and is_stopped:
             now_t = float(obs.get("t", 0.0))
             if now_t - self.last_recover_t >= 1.0:
                 self.last_recover_t = now_t
@@ -190,7 +199,8 @@ class Controller:
                         ranges=ranges,
                         rel_angles=rel_angles,
                         segs=active_segs,
-                        stopped=(abs(v_odom) < 0.04),
+                        stopped=True,
+                        is_fog=is_fog,
                     )
 
         # 3. Обновление GNSS со стробированием невязки

@@ -10,7 +10,7 @@
  "cheat": false,
  "controller": {
   "path": "team_dreamteam_4_0/controller.py",
-  "sha256": "e0f8e88b664e121c"
+  "sha256": "6afc196bfb8ba3bb"
  },
  "counted": true,
  "end_reason": "missions_done",
@@ -97,10 +97,10 @@
  },
  "step_time_ms": {
   "n": 3373,
-  "mean": 1.508,
-  "max": 23.975
+  "mean": 1.476,
+  "max": 23.44
  },
- "wall_time_s": 6.417,
+ "wall_time_s": 6.268,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",

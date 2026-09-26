@@ -22,6 +22,12 @@ DEFAULT_SCENARIOS = [
     str(REPO_ROOT / "amrsim-participants/scenarios/02_gnss_shadow.json"),
     str(REPO_ROOT / "amrsim-participants/scenarios/03_fog_snow.json"),
     str(REPO_ROOT / "amrsim-participants/scenarios/04_busy_yard.json"),
+    str(REPO_ROOT / "scenarios/s1_pallet_2m.json"),
+    str(REPO_ROOT / "scenarios/s2_container_block.json"),
+    str(REPO_ROOT / "scenarios/s3_wall_removed.json"),
+    str(REPO_ROOT / "scenarios/s4_shadow_start_charger.json"),
+    str(REPO_ROOT / "scenarios/s4b_shadow_lane_lost.json"),
+    str(REPO_ROOT / "scenarios/s5_fog_inattentive.json"),
 ]
 
 
@@ -31,20 +37,16 @@ def resolve_scenario_path(scenario: str) -> Path:
         return p
     if (REPO_ROOT / scenario).exists():
         return REPO_ROOT / scenario
-    # Try under amrsim-participants/scenarios/
-    candidate = REPO_ROOT / "amrsim-participants/scenarios" / scenario
-    if candidate.exists():
-        return candidate
-    if not scenario.endswith(".json"):
-        candidate_json = REPO_ROOT / "amrsim-participants/scenarios" / f"{scenario}.json"
-        if candidate_json.exists():
-            return candidate_json
-    # Fallback to exact match by prefix
-    scenarios_dir = REPO_ROOT / "amrsim-participants/scenarios"
-    if scenarios_dir.exists():
-        for f in scenarios_dir.glob("*.json"):
-            if f.stem == scenario or f.stem.startswith(f"{scenario}_"):
-                return f
+    for base in [REPO_ROOT / "amrsim-participants/scenarios", REPO_ROOT / "scenarios"]:
+        cand = base / scenario
+        if cand.exists():
+            return cand
+        if not scenario.endswith(".json") and (base / f"{scenario}.json").exists():
+            return base / f"{scenario}.json"
+        if base.exists():
+            for f in base.glob("*.json"):
+                if f.stem == scenario or f.stem.startswith(f"{scenario}_"):
+                    return f
     return p
 
 
@@ -296,7 +298,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Оценка контроллера AMR")
     parser.add_argument(
         "--controller",
-        default=str(REPO_ROOT / "amrsim-participants/baseline/controller.py"),
+        default=str(
+            REPO_ROOT / "team_dreamteam_4_0/controller.py"
+            if (REPO_ROOT / "team_dreamteam_4_0/controller.py").exists()
+            else REPO_ROOT / "amrsim-participants/baseline/controller.py"
+        ),
         help="Путь к скрипту или каталогу контроллера",
     )
     parser.add_argument(

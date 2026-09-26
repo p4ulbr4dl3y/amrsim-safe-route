@@ -3,10 +3,11 @@
 Строго соответствует требованиям изоляции и навигации (только math, typing и numpy).
 """
 
-from .astar import _PriorityQueue, astar_search, replan_astar
+from .astar import _PriorityQueue, astar_search, grid_astar_path, replan_astar
 from .follower import (
     Planner,
     RouteFollower,
+    _plan_lateral_shift,
     apply_lateral_offset,
     check_obstacles_in_tube,
 )
@@ -51,6 +52,7 @@ __all__ = [
     "is_line_free",
     "lateral_clearance",
     "astar_search",
+    "grid_astar_path",
     "replan_astar",
     "get_path_progress",
     "check_speed_zones",
@@ -61,6 +63,7 @@ __all__ = [
     "compute_cross_track_error",
     "check_obstacles_in_tube",
     "apply_lateral_offset",
+    "_plan_lateral_shift",
     "QuinticSpline1D",
     "smooth_yaw_rate_quintic",
 ]
