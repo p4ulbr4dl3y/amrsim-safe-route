@@ -460,6 +460,67 @@ def test_run_simulation_missing_scen():
         run_simulation("non_existent_scen_xyz")
 
 
+def test_resolve_python_command_prefers_uv(monkeypatch):
+    monkeypatch.setattr(server.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+    cmd = server.resolve_python_command()
+    assert cmd == ["/usr/bin/uv", "run", "--project", str(server.ROOT_DIR), "python"]
+
+
+def test_resolve_python_command_falls_back_to_supported_interpreter(monkeypatch):
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(
+        server.shutil,
+        "which",
+        lambda name: "/usr/bin/python3.13" if name == "python3.13" else None,
+    )
+
+    def fake_run(cmd, **kwargs):
+        return MagicMock(returncode=0 if cmd[0].endswith("python3.13") else 1)
+
+    monkeypatch.setattr(server.subprocess, "run", fake_run)
+    monkeypatch.setattr(server.sys, "executable", "/usr/bin/python3.9")
+
+    assert server.resolve_python_command() == ["/usr/bin/python3.13"]
+
+
+def test_resolve_python_command_raises_when_no_supported_interpreter(monkeypatch):
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(server.shutil, "which", lambda name: None)
+    monkeypatch.setattr(server.subprocess, "run", lambda *args, **kwargs: MagicMock(returncode=1))
+    monkeypatch.setattr(server.sys, "executable", "/usr/bin/python3.9")
+
+    with pytest.raises(RuntimeError, match="3.10"):
+        server.resolve_python_command()
+
+
+def test_resolve_python_command_probe_requires_numpy(monkeypatch):
+    """Проба отсеивает >= 3.10 без numpy: иначе amrsim падает ModuleNotFoundError."""
+    from unittest.mock import MagicMock
+
+    seen: list[list[str]] = []
+
+    monkeypatch.setattr(
+        server.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in ("python3.13", "python3.12") else None,
+    )
+    monkeypatch.setattr(server.sys, "executable", "/usr/bin/python3.13")
+
+    def fake_run(cmd, **kwargs):
+        seen.append(cmd)
+        # только 3.13 годен (3.12 числится без numpy)
+        return MagicMock(returncode=0 if cmd[0].endswith("python3.13") else 1)
+
+    monkeypatch.setattr(server.subprocess, "run", fake_run)
+    cmd = server.resolve_python_command()
+
+    assert cmd == ["/usr/bin/python3.13"]
+    assert all("-c" in probe for probe in seen)
+    assert all("numpy" in probe[probe.index("-c") + 1] for probe in seen)
+
+
 def test_run_simulation_mocked(tmp_path, monkeypatch):
     from unittest.mock import MagicMock
 

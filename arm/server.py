@@ -11,6 +11,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 from http import HTTPStatus
@@ -259,6 +260,54 @@ def load_scenario_json(scenario_id: str) -> dict | None:
     return None
 
 
+def resolve_python_command() -> list[str]:
+    """Команда запуска интерпретатора Python >= 3.10 для симулятора amrsim.
+
+    Системный ``python3`` может быть младше 3.10 (например, 3.9 в macOS), из-за
+    чего запуск задания из вкладки Runner падал с ``exitCode 2`` и сообщением
+    ``amrsim requires Python 3.10 or newer``. Предпочитаем интерпретатор
+    проектного окружения ``uv`` (``uv run --project <корень>``), которое
+    собирается из ``pyproject.toml`` с ``requires-python = ">=3.10"`` и
+    зависимостью ``numpy``. Если ``uv`` нет, ищем системный интерпретатор >= 3.10
+    с установленным ``numpy``; иначе поднимаем понятную ошибку.
+    """
+    uv = shutil.which("uv")
+    if uv:
+        return [uv, "run", "--project", str(ROOT_DIR), "python"]
+
+    probe_code = (
+        "import sys, importlib.util\n"
+        "raise SystemExit(0 if sys.version_info >= (3, 10) "
+        "and importlib.util.find_spec('numpy') else 1)\n"
+    )
+
+    candidates: list[str] = [sys.executable]
+    for name in ("python3.13", "python3.12", "python3.11", "python3.10", "python3"):
+        exe = shutil.which(name)
+        if exe and exe not in candidates:
+            candidates.append(exe)
+
+    for exe in candidates:
+        try:
+            probe = subprocess.run(
+                [exe, "-c", probe_code],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except Exception:
+            continue
+        if probe.returncode == 0:
+            return [exe]
+
+    raise RuntimeError(
+        "Не найден интерпретатор Python >= 3.10 с numpy для запуска amrsim. "
+        "Установите uv (https://docs.astral.sh/uv/), он поднимет окружение из "
+        "pyproject.toml, либо поставьте Python 3.10+ и `pip install numpy`, затем "
+        "повторите запуск."
+    )
+
+
 def run_simulation(
     scenario_id: str,
     controller_path: str = "team_dreamteam_4_0/controller.py",
@@ -284,7 +333,7 @@ def run_simulation(
     env["PYTHONPATH"] = f"{amrsim_part_dir}{os.pathsep}{curr_pp}" if curr_pp else amrsim_part_dir
 
     cmd = [
-        sys.executable,
+        *resolve_python_command(),
         "-m",
         "amrsim",
         "run",

@@ -22,6 +22,7 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 | `own_scenarios/s4b_shadow_lane_lost_seed1.json` | контрольный прогон s4b на seed 1: потеря ориентации и восстановление |
 | `own_scenarios/logs/*.jsonl` | покадровые логи своих сценариев (seed 7) и s4b seed 1 |
 | `own_scenarios/moments.json`, `own_scenarios/moments.md` | моменты для критериев О2 и О4: сценарий, seed, t, статус, note, файл лога |
+| `arm/arm_run_01_clear_seed7_*.json`/`*.jsonl`/`*.csv`/`*.txt` | подтверждение О4 через АРМ: прогон из `POST /api/run` и CSV из `GET /api/export/csv` (сценарий `01_clear`, seed 7) |
 | `oracle_<сценарий>.json` | потолок: baseline с истиной (`--cheat`), seed 7 |
 | `results/ALTERNATIVES.md` | инженерное обоснование подхода, анализ альтернатив и компромиссов (критерий О1) |
 | `baseline_*.json` | исходные числа baseline из постановки (не перезаписывались) |
@@ -93,13 +94,13 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 | **1. Объезд оставленного предмета** | `s1_pallet_2m.json` (seed 7) | $t=111.9$ с, `status=moving`, note `offset dy=-0.4` | `own_scenarios/s1_pallet_2m.json`, лог `logs/s1_pallet_2m.jsonl` | [follower.py](file:///Users/yegor/doc-1790342627/team_dreamteam_4_0/route/follower.py) (метод `_find_lateral_shift`) |
 | **2. Перепланирование маршрута** | `s2_container_block.json` (seed 7) | $t=148.2$ с, `status=moving`, note `replan` | `own_scenarios/s2_container_block.json`, лог `logs/s2_container_block.jsonl` | [astar.py](file:///Users/yegor/doc-1790342627/team_dreamteam_4_0/route/astar.py) (`astar_search` в объезд заблокированного проезда) |
 | **3. Обнаружение расхождения карты** | `s3_wall_removed.json` (seed 7) | $t=9.8$ с, `status=moving`, note `map_missing` | `own_scenarios/s3_wall_removed.json`, лог `logs/s3_wall_removed.jsonl` | [perception.py](file:///Users/yegor/doc-1790342627/team_dreamteam_4_0/perceive/perception.py) (детекция отсутствующих стен и контейнеров) |
-| **4. Запуск прогона из АРМ с показом** | `04_busy_yard` / все сценарии | Вкладка Runner: запуск в реальном времени, стриминг логов в терминал | [RunnerPage.tsx](file:///Users/yegor/doc-1790342627/arm/frontend/src/pages/RunnerPage.tsx) | [server.py](file:///Users/yegor/doc-1790342627/arm/server.py) (`POST /api/run-simulation`) |
-| **5. Экспорт журнала в CSV** | Все сценарии | Вкладка Episodes: кнопка «Экспорт в CSV» со всеми полями инцидентов | Скачиваемый файл `amr_episodes_<id>.csv` | [server.py](file:///Users/yegor/doc-1790342627/arm/server.py) (`GET /api/export-csv`) |
-| **6. Собственные сценарии и автотесты** | 5 сценариев (`s1`..`s5`) + 256 тестов | Сценарии `scenarios/s1`..`s5`; 256 тестов `uv run pytest -v` (100% passed) | `results/own_scenarios/`, `tests/` | `tests/test_route.py`, `test_safety.py`, `test_localize.py`, `test_perceive.py` |
+| **4. Запуск прогона из АРМ с показом** | `01_clear.json` (seed 7) | Вкладка Runner: `POST /api/run`, стриминг логов в терминал, `exitCode 0`, score 100.00 | `results/arm/arm_run_01_clear_seed7_report.json`, лог `arm_run_01_clear_seed7_ticks.jsonl`, ответ `arm_run_01_clear_seed7_api_response.json` | [RunnerPage.tsx](file:///Users/yegor/doc-1790342627/arm/frontend/src/pages/RunnerPage.tsx), [server.py](file:///Users/yegor/doc-1790342627/arm/server.py) (`POST /api/run`) |
+| **5. Экспорт журнала в CSV** | `01_clear.json` (seed 7) | Вкладка Episodes: `GET /api/export/csv`, все поля инцидентов | `results/arm/arm_export_episodes_01_clear_seed7.csv` (4 эпизода) | [server.py](file:///Users/yegor/doc-1790342627/arm/server.py) (`GET /api/export/csv`) |
+| **6. Собственные сценарии и автотесты** | 5 сценариев (`s1`..`s5`) + 260 тестов | Сценарии `scenarios/s1`..`s5`; 260 тестов `uv run pytest -v` (100% passed) | `results/own_scenarios/`, `tests/` | `tests/test_route.py`, `test_safety.py`, `test_localize.py`, `test_perceive.py` |
 
 ## Тесты
 
-`tests/` (256 тестов, `uv run pytest`): восемь обязательных поведенческих сценариев
+`tests/` (260 тестов, `uv run pytest`): восемь обязательных поведенческих сценариев
 plan/05:108-115 покрыты поимённо, плюс тесты на тиры σ, подтверждение треков, снежные
 фантомы, классы объектов, A*, зоны, тормозной профиль и контракт эпизодов ARM.
 Контроллер тесты не импортирует. Фронтенд АРМ: 89 тестов Vitest и чистый `tsc --noEmit`.

@@ -26,11 +26,6 @@ jobs:
       - name: Lint with Ruff
         run: uv run ruff check
 
-      - name: Prepare Frontend Dist Stub
-        run: |
-          mkdir -p arm/frontend/dist
-          echo '<!DOCTYPE html><html><body>ARM Safe Route</body></html>' > arm/frontend/dist/index.html
-
       - name: Run Backend Unit Tests
         run: uv run pytest -v
 

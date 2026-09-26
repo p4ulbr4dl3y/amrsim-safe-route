@@ -15,6 +15,8 @@ ENV/
 build/
 develop-eggs/
 dist/
+!arm/frontend/dist/
+!arm/frontend/dist/**
 downloads/
 eggs/
 .eggs/
@@ -54,6 +56,7 @@ results/table_runs/logs/*
 
 # Frontend
 frontend/node_modules/
-frontend/dist/
 frontend/.vite/
 .johnston/config.local.json
+# arm/frontend/dist намеренно НЕ игнорируется: предсобранный SPA входит в сдачу,
+# чтобы чистый клон отдавал интерфейс сразу после `python3 arm/server.py` (см. arm/README.md)
