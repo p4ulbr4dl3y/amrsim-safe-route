@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { RouteName, AmrScenario, MapData, ScenarioZone, ScenarioMapPatch, ScenarioPedestrian } from '../types';
+import { apiClient } from '../api/client';
 import {
   ConstructorCanvas,
   ConstructorTool,
@@ -41,6 +42,8 @@ import {
   Save,
   MousePointer,
   Hand,
+  Building,
+  Route,
 } from 'lucide-react';
 
 interface ConstructorPageProps {
@@ -69,7 +72,13 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
   const [selectedEntity, setSelectedEntity] = useState<SelectedEntity | null>(null);
 
   // Inspector sidebar tab
-  const [sidebarTab, setSidebarTab] = useState<'params' | 'objects' | 'properties' | 'layers'>('params');
+  const [sidebarTab, setSidebarTab] = useState<'params' | 'objects' | 'properties' | 'layers' | 'map'>('params');
+
+  // Clean map creation parameters
+  const [cleanMapWidth, setCleanMapWidth] = useState(120);
+  const [cleanMapHeight, setCleanMapHeight] = useState(100);
+  const [cleanMapClearWalls, setCleanMapClearWalls] = useState(true);
+  const [cleanMapAddBaseLane, setCleanMapAddBaseLane] = useState(true);
 
   // Map layer visibility
   const [layers, setLayers] = useState<ConstructorLayers>({
@@ -82,6 +91,255 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
     docks: true,
     grid: true,
   });
+
+  // Weather & environment status
+  const isSnowActive = Boolean(scenario.weather?.snow);
+  const isFogActive = (scenario.events || []).some((ev) => ev.type === 'fog_bank');
+  const isGnssActive = (scenario.events || []).some(
+    (ev) => ev.type === 'gnss_outage' || ev.type === 'gnss_fault'
+  );
+
+  const toggleSnow = () => {
+    setScenario((prev) => ({
+      ...prev,
+      weather: { ...prev.weather, snow: !prev.weather?.snow },
+    }));
+  };
+
+  const toggleFog = () => {
+    setScenario((prev) => {
+      const current = prev.events || [];
+      const hasFog = current.some((ev) => ev.type === 'fog_bank');
+      const newEvents = hasFog
+        ? current.filter((ev) => ev.type !== 'fog_bank')
+        : [...current, { type: 'fog_bank', t1: 30.0, t2: 120.0 }];
+      return { ...prev, events: newEvents };
+    });
+  };
+
+  const toggleGnss = () => {
+    setScenario((prev) => {
+      const current = prev.events || [];
+      const hasGnss = current.some(
+        (ev) => ev.type === 'gnss_outage' || ev.type === 'gnss_fault'
+      );
+      const newEvents = hasGnss
+        ? current.filter(
+            (ev) => ev.type !== 'gnss_outage' && ev.type !== 'gnss_fault'
+          )
+        : [...current, { type: 'gnss_outage', t1: 40.0, t2: 100.0 }];
+      return { ...prev, events: newEvents };
+    });
+  };
+
+  // Rotation math & helpers
+  const normalizeDeg = (deg: number) => {
+    let d = Math.round(deg) % 360;
+    if (d < 0) d += 360;
+    return d;
+  };
+
+  const selectedObstacle = useMemo(() => {
+    if (selectedEntity?.type === 'obstacle' && selectedEntity.index !== undefined) {
+      return scenario.map_patches?.[selectedEntity.index] || null;
+    }
+    return null;
+  }, [selectedEntity, scenario.map_patches]);
+
+  const obstacleCurrentAngle = useMemo(() => {
+    if (!selectedObstacle) return 0;
+    if (selectedObstacle.heading !== undefined) return normalizeDeg(selectedObstacle.heading);
+    const poly = selectedObstacle.polygon || [];
+    if (poly.length >= 2) {
+      return normalizeDeg(
+        (Math.atan2(poly[1][1] - poly[0][1], poly[1][0] - poly[0][0]) * 180) / Math.PI
+      );
+    }
+    return 0;
+  }, [selectedObstacle]);
+
+  const rotateSelectedObstacle = (deltaDeg: number) => {
+    if (!selectedEntity || selectedEntity.type !== 'obstacle' || selectedEntity.index === undefined) return;
+    const deltaRad = (deltaDeg * Math.PI) / 180;
+    const cos = Math.cos(deltaRad);
+    const sin = Math.sin(deltaRad);
+
+    setScenario((prev) => {
+      const patches = [...(prev.map_patches || [])];
+      const target = patches[selectedEntity.index!];
+      if (!target) return prev;
+      const poly = target.polygon || [];
+      const cx = poly.reduce((s, p) => s + p[0], 0) / (poly.length || 1);
+      const cy = poly.reduce((s, p) => s + p[1], 0) / (poly.length || 1);
+      const newPoly = poly.map(([px, py]) => {
+        const rx = px - cx;
+        const ry = py - cy;
+        return [
+          Math.round((cx + rx * cos - ry * sin) * 100) / 100,
+          Math.round((cy + rx * sin + ry * cos) * 100) / 100,
+        ] as [number, number];
+      });
+      const curHeading = target.heading !== undefined
+        ? target.heading
+        : poly.length >= 2
+        ? Math.round((Math.atan2(poly[1][1] - poly[0][1], poly[1][0] - poly[0][0]) * 180) / Math.PI)
+        : 0;
+      const newHeading = normalizeDeg(curHeading + deltaDeg);
+      patches[selectedEntity.index!] = {
+        ...target,
+        polygon: newPoly,
+        heading: newHeading,
+      };
+      return { ...prev, map_patches: patches };
+    });
+  };
+
+  const setObstacleAbsoluteAngle = (targetDeg: number) => {
+    const delta = normalizeDeg(targetDeg) - normalizeDeg(obstacleCurrentAngle);
+    rotateSelectedObstacle(delta);
+  };
+
+  const selectedPed = useMemo(() => {
+    if (selectedEntity?.type === 'pedestrian' && selectedEntity.index !== undefined) {
+      return scenario.pedestrians?.[selectedEntity.index] || null;
+    }
+    return null;
+  }, [selectedEntity, scenario.pedestrians]);
+
+  const pedestrianCurrentAngle = useMemo(() => {
+    if (!selectedPed) return 0;
+    if (selectedPed.heading !== undefined) return normalizeDeg(selectedPed.heading);
+    const wps = selectedPed.waypoints || [];
+    if (wps.length >= 2) {
+      return normalizeDeg(
+        (Math.atan2(wps[1][1] - wps[0][1], wps[1][0] - wps[0][0]) * 180) / Math.PI
+      );
+    }
+    return 0;
+  }, [selectedPed]);
+
+  const rotateSelectedPedestrian = (deltaDeg: number) => {
+    if (!selectedEntity || selectedEntity.type !== 'pedestrian' || selectedEntity.index === undefined) return;
+    setScenario((prev) => {
+      const peds = [...(prev.pedestrians || [])];
+      const target = peds[selectedEntity.index!];
+      if (!target) return prev;
+      const wps = target.waypoints || [[0, 0], [0, 10]];
+      const [x0, y0] = wps[0] || [0, 0];
+      const [x1, y1] = wps[1] || [x0, y0 + 10];
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const dist = Math.max(2, Math.sqrt(dx * dx + dy * dy));
+      const curHeading = target.heading !== undefined
+        ? target.heading
+        : Math.round((Math.atan2(dy, dx) * 180) / Math.PI);
+      const newHeading = normalizeDeg(curHeading + deltaDeg);
+      const rad = (newHeading * Math.PI) / 180;
+      const newX1 = Math.round((x0 + dist * Math.cos(rad)) * 10) / 10;
+      const newY1 = Math.round((y0 + dist * Math.sin(rad)) * 10) / 10;
+      const newWps = [[x0, y0], [newX1, newY1], ...wps.slice(2)] as [number, number][];
+      peds[selectedEntity.index!] = {
+        ...target,
+        waypoints: newWps,
+        heading: newHeading,
+      };
+      return { ...prev, pedestrians: peds };
+    });
+  };
+
+  const setPedestrianAbsoluteAngle = (targetDeg: number) => {
+    const delta = normalizeDeg(targetDeg) - normalizeDeg(pedestrianCurrentAngle);
+    rotateSelectedPedestrian(delta);
+  };
+
+  // Clean map creation handler
+  const handleCreateCleanMap = (
+    w = cleanMapWidth,
+    h = cleanMapHeight,
+    clearWalls = cleanMapClearWalls,
+    addLane = cleanMapAddBaseLane
+  ) => {
+    const width = Math.max(20, Math.min(500, w));
+    const height = Math.max(20, Math.min(500, h));
+    const centerY = Math.round(height / 2);
+    const laneWidth = 10;
+
+    const baseDrivable = addLane
+      ? [
+          [
+            [10, centerY - laneWidth / 2],
+            [width - 10, centerY - laneWidth / 2],
+            [width - 10, centerY + laneWidth / 2],
+            [10, centerY + laneWidth / 2],
+          ],
+        ]
+      : [];
+
+    const newMap: any = {
+      frame: 'x east, y north, meters; heading radians from +x counterclockwise',
+      bounds: [0, 0, width, height],
+      drivable: baseDrivable,
+      buildings: clearWalls ? [] : scenario.map?.buildings || [],
+      points: {
+        dock_start: {
+          x: 15,
+          y: centerY,
+          heading: 0,
+          tol: 0.5,
+          label: 'Стартовый док',
+        },
+        dock_end: {
+          x: width - 15,
+          y: centerY,
+          heading: 0,
+          tol: 0.5,
+          label: 'Целевой док',
+        },
+      },
+      zones: [],
+      gates: [],
+      crossing: [],
+    };
+
+    const newScenario: AmrScenario = {
+      schema: 'amr-1.0',
+      name: `custom_map_${width}x${height}`,
+      description: `Пользовательская карта ${width}×${height}м с базовым проездом.`,
+      dt: 0.1,
+      duration_s: 300.0,
+      hidden: false,
+      provide_detections: false,
+      weather: {
+        snow: false,
+      },
+      events: [],
+      start: {
+        x: 15,
+        y: centerY,
+        theta: 0.0,
+      },
+      missions: [
+        {
+          id: 'm1',
+          from: 'dock_start',
+          to: 'dock_end',
+          deadline_s: 180.0,
+          reference_length_m: width - 30,
+          reference_path: [
+            [15, centerY],
+            [width - 15, centerY],
+          ],
+        },
+      ],
+      map: newMap,
+      map_patches: [],
+      pedestrians: [],
+    };
+
+    setScenario(newScenario);
+    setSelectedEntity(null);
+    showToast(`Чистая карта ${width}×${height}м создана`);
+  };
 
   // Modals state
   const [showImportModal, setShowImportModal] = useState(false);
@@ -191,6 +449,9 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
   const handleLaunchInSimulator = () => {
     handleSaveToStorage();
     const scName = scenario.name.trim() || 'custom_scenario';
+    apiClient.saveScenario(scName, scenario).catch((err) => {
+      console.warn('[ConstructorPage] Auto-save before simulation failed:', err);
+    });
     onNavigate('runner', { scenario: scName });
   };
 
@@ -319,7 +580,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
   }, [selectedEntity]);
 
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-57px)] overflow-hidden bg-slate-100 min-w-[1240px]">
+    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full min-w-[1240px] gap-4">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-16 right-6 z-50 bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
@@ -329,25 +590,17 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
       )}
 
       {/* Top Application Toolbar */}
-      <div className="bg-white border-b border-slate-200 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 z-20 shadow-xs">
+      <div className="bg-white rounded-xl border border-slate-200 p-3.5 px-5 flex flex-wrap items-center justify-between gap-4 z-20 shadow-sm">
         {/* Left: Title & Preset Selector */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
-              <Navigation className="w-4 h-4 transform rotate-45" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm font-bold text-slate-900 tracking-tight">
-                  Конструктор сценариев AMR
-                </h1>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-semibold">
-                  amr-1.0
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500">
-                Визуальное создание, редактирование и экспорт карт полигона
-              </p>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-bold text-slate-900 tracking-tight">
+                Конструктор сценариев AMR
+              </h1>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-semibold">
+                amr-1.0
+              </span>
             </div>
           </div>
 
@@ -359,7 +612,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
             <select
               value={selectedTemplateId}
               onChange={(e) => handleSelectTemplate(e.target.value)}
-              className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             >
               {scenarioTemplates.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -373,6 +626,73 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
               title="Сбросить к исходному шаблону"
             >
               <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setSidebarTab('map')}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors border border-slate-200 ml-1"
+              title="Создать чистую карту с нуля"
+            >
+              <Plus className="w-3.5 h-3.5 text-blue-600" />
+              <span>Чистая карта</span>
+            </button>
+          </div>
+
+          <div className="h-6 w-px bg-slate-200 mx-1 hidden md:block" />
+
+          {/* Compact Weather & Environment Toggles */}
+          <div className="flex items-center gap-1.5 bg-slate-100/80 p-1 rounded-lg border border-slate-200">
+            {/* Snow Toggle */}
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={isSnowActive}
+              onClick={toggleSnow}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                isSnowActive
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              }`}
+              title={isSnowActive ? 'Снег включен (клик для отключения)' : 'Включить снег'}
+            >
+              <input
+                type="checkbox"
+                readOnly
+                checked={isSnowActive}
+                className="sr-only"
+                tabIndex={-1}
+              />
+              <CloudSnow className="w-3.5 h-3.5" />
+              <span>Снег</span>
+            </button>
+
+            {/* Fog Toggle */}
+            <button
+              type="button"
+              onClick={toggleFog}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                isFogActive
+                  ? 'bg-amber-500 text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              }`}
+              title={isFogActive ? 'Туман активен (клик для отключения)' : 'Включить туман'}
+            >
+              <CloudFog className="w-3.5 h-3.5" />
+              <span>Туман</span>
+            </button>
+
+            {/* GNSS Outage Toggle */}
+            <button
+              type="button"
+              onClick={toggleGnss}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                isGnssActive
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              }`}
+              title={isGnssActive ? 'Сбой ГНСС активен (клик для отключения)' : 'Включить сбой ГНСС'}
+            >
+              <Radio className="w-3.5 h-3.5" />
+              <span>ГНСС</span>
             </button>
           </div>
         </div>
@@ -445,59 +765,50 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
         </div>
       </div>
 
-      {/* Main Workspace: Left Inspector & Center Canvas */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* Main Workspace: Left Vertical Tabs + Inspector & Center Canvas */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex-1 flex overflow-hidden min-h-[640px] relative">
+        {/* Left Vertical Tab Strip with hover-expand */}
+        <div className="w-12 hover:w-44 transition-all duration-200 ease-in-out bg-slate-50 border-r border-slate-200 flex flex-col py-3 px-1.5 space-y-1 group z-20 overflow-hidden flex-shrink-0 select-none shadow-xs">
+          {[
+            { id: 'params', label: 'Параметры', icon: Sliders },
+            { id: 'objects', label: 'Объекты', icon: List },
+            { id: 'properties', label: 'Свойства', icon: Box },
+            { id: 'layers', label: 'Слои', icon: Layers },
+            { id: 'map', label: 'Карта', icon: MapPin },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = sidebarTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setSidebarTab(tab.id as any)}
+                className={`w-full flex items-center h-10 px-2.5 gap-3 rounded-lg text-xs font-semibold transition-colors ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-600 border border-blue-200 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+                title={tab.label}
+              >
+                <Icon className="w-4 h-4 flex-shrink-0" />
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap overflow-hidden">
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         {/* Left Inspector Sidebar */}
-        <aside className="w-96 bg-white border-r border-slate-200 flex flex-col z-10 shadow-sm">
-          {/* Sidebar Tabs */}
-          <div className="flex items-center border-b border-slate-200 px-3 pt-2 gap-1 bg-slate-50/50">
-            <button
-              onClick={() => setSidebarTab('params')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-lg transition-colors border-b-2 ${
-                sidebarTab === 'params'
-                  ? 'bg-white text-blue-600 border-blue-600 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 border-transparent'
-              }`}
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              <span>Параметры</span>
-            </button>
-
-            <button
-              onClick={() => setSidebarTab('objects')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-lg transition-colors border-b-2 ${
-                sidebarTab === 'objects'
-                  ? 'bg-white text-blue-600 border-blue-600 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 border-transparent'
-              }`}
-            >
-              <List className="w-3.5 h-3.5" />
-              <span>Объекты</span>
-            </button>
-
-            <button
-              onClick={() => setSidebarTab('properties')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-lg transition-colors border-b-2 ${
-                sidebarTab === 'properties'
-                  ? 'bg-white text-blue-600 border-blue-600 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 border-transparent'
-              }`}
-            >
-              <Box className="w-3.5 h-3.5" />
-              <span>Свойства</span>
-            </button>
-
-            <button
-              onClick={() => setSidebarTab('layers')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-lg transition-colors border-b-2 ${
-                sidebarTab === 'layers'
-                  ? 'bg-white text-blue-600 border-blue-600 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 border-transparent'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Слои</span>
-            </button>
+        <aside className="w-80 lg:w-96 bg-white border-r border-slate-200 flex flex-col z-10 shadow-sm overflow-hidden flex-shrink-0">
+          {/* Header showing current tab name */}
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 bg-slate-50/70">
+            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              {sidebarTab === 'params' && 'Параметры сценария'}
+              {sidebarTab === 'objects' && 'Объекты на карте'}
+              {sidebarTab === 'properties' && 'Свойства элемента'}
+              {sidebarTab === 'layers' && 'Слои отображения'}
+              {sidebarTab === 'map' && 'Конструктор карты'}
+            </span>
           </div>
 
           {/* Sidebar Tab Content */}
@@ -567,89 +878,12 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                   </div>
                 </div>
 
-                {/* Weather & Environment Settings */}
-                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CloudSnow className="w-4 h-4 text-blue-500" />
-                      <span className="text-xs font-bold text-slate-800">Погода: Снег / Осадки</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(scenario.weather?.snow)}
-                        onChange={(e) =>
-                          setScenario((prev) => ({
-                            ...prev,
-                            weather: { ...prev.weather, snow: e.target.checked },
-                          }))
-                        }
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
+                {/* Weather & Environment Info */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                  <span className="text-xs font-bold text-slate-800">Погода и помехи</span>
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    При включенном снеге симулятор добавляет ложные эхо-сигналы лидара и утраивает проскальзывание одометрии платформы.
+                    Управление снегом, туманом и сбоями ГНСС вынесено в компактные кнопки в верхней панели ([Снег], [Туман], [ГНСС]).
                   </p>
-                </div>
-
-                {/* Dynamic Weather Events */}
-                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CloudFog className="w-4 h-4 text-amber-500" />
-                      <span className="text-xs font-bold text-slate-800">События тумана и ГНСС</span>
-                    </div>
-                    <button
-                      onClick={() =>
-                        setScenario((prev) => ({
-                          ...prev,
-                          events: [
-                            ...(prev.events || []),
-                            { type: 'fog_bank', t1: 30.0, t2: 90.0 },
-                          ],
-                        }))
-                      }
-                      className="text-[11px] text-blue-600 font-semibold hover:underline flex items-center gap-1"
-                    >
-                      <Plus className="w-3 h-3" /> Добавить
-                    </button>
-                  </div>
-
-                  {(!scenario.events || scenario.events.length === 0) ? (
-                    <p className="text-[11px] text-slate-400 italic">События не настроены (чистая видимость)</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {scenario.events.map((ev, idx) => (
-                        <div
-                          key={idx}
-                          className="bg-white border border-slate-200 rounded-lg p-2.5 flex items-center justify-between text-xs"
-                        >
-                          <div className="space-y-1">
-                            <span className="font-semibold text-slate-800">
-                              {ev.type === 'fog_bank' ? '🌫️ Полоса тумана' : '📡 Сбой ГНСС'}
-                            </span>
-                            <div className="text-[11px] text-slate-500">
-                              t = {ev.t1} с ... {ev.t2} с ({(ev.t2 - ev.t1).toFixed(1)} с)
-                            </div>
-                          </div>
-                          <button
-                            onClick={() =>
-                              setScenario((prev) => {
-                                const evs = [...(prev.events || [])];
-                                evs.splice(idx, 1);
-                                return { ...prev, events: evs };
-                              })
-                            }
-                            className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -1003,6 +1237,50 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                       />
                     </div>
 
+                    {/* Obstacle Rotation Controls */}
+                    <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-700">Угол поворота:</span>
+                        <span className="font-mono font-bold text-slate-900 text-xs">
+                          {obstacleCurrentAngle}°
+                        </span>
+                      </div>
+
+                      <input
+                        type="range"
+                        min="0"
+                        max="360"
+                        step="5"
+                        value={obstacleCurrentAngle}
+                        onChange={(e) => setObstacleAbsoluteAngle(parseInt(e.target.value) || 0)}
+                        className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      />
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => rotateSelectedObstacle(45)}
+                          className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold py-1 rounded-md transition-colors"
+                        >
+                          +45°
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rotateSelectedObstacle(90)}
+                          className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold py-1 rounded-md transition-colors"
+                        >
+                          +90°
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rotateSelectedObstacle(-90)}
+                          className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold py-1 rounded-md transition-colors"
+                        >
+                          -90°
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="space-y-1">
                       <span className="text-[11px] font-semibold text-slate-600">Координаты вершин полигона:</span>
                       <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
@@ -1076,6 +1354,50 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                         }
                         className="w-full bg-slate-50 border border-slate-200 text-xs font-mono rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none"
                       />
+                    </div>
+
+                    {/* Pedestrian Rotation Controls */}
+                    <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-700">Угол направления:</span>
+                        <span className="font-mono font-bold text-slate-900 text-xs">
+                          {pedestrianCurrentAngle}°
+                        </span>
+                      </div>
+
+                      <input
+                        type="range"
+                        min="0"
+                        max="360"
+                        step="5"
+                        value={pedestrianCurrentAngle}
+                        onChange={(e) => setPedestrianAbsoluteAngle(parseInt(e.target.value) || 0)}
+                        className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      />
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => rotateSelectedPedestrian(45)}
+                          className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold py-1 rounded-md transition-colors"
+                        >
+                          +45°
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rotateSelectedPedestrian(90)}
+                          className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold py-1 rounded-md transition-colors"
+                        >
+                          +90°
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rotateSelectedPedestrian(-90)}
+                          className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold py-1 rounded-md transition-colors"
+                        >
+                          -90°
+                        </button>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -1422,6 +1744,76 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                 ))}
               </div>
             )}
+
+            {/* 5. TAB: MAP (Чистая карта) */}
+            {sidebarTab === 'map' && (
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <h3 className="text-xs font-bold text-slate-800">Чистая карта полигона</h3>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Создание собственной карты с настройкой габаритов в метрах, очисткой стен и прокладкой базового проезда.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">Ширина карты (м):</label>
+                    <input
+                      type="number"
+                      step="10"
+                      min="20"
+                      max="500"
+                      value={cleanMapWidth}
+                      onChange={(e) => setCleanMapWidth(Math.max(20, parseInt(e.target.value) || 20))}
+                      className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-xs font-mono rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">Длина карты (м):</label>
+                    <input
+                      type="number"
+                      step="10"
+                      min="20"
+                      max="500"
+                      value={cleanMapHeight}
+                      onChange={(e) => setCleanMapHeight(Math.max(20, parseInt(e.target.value) || 20))}
+                      className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-xs font-mono rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-slate-100">
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100/80 rounded-lg border border-slate-200 cursor-pointer transition-colors">
+                    <span className="text-xs font-medium text-slate-700">Очистить стены (без препятствий зданий)</span>
+                    <input
+                      type="checkbox"
+                      checked={cleanMapClearWalls}
+                      onChange={(e) => setCleanMapClearWalls(e.target.checked)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100/80 rounded-lg border border-slate-200 cursor-pointer transition-colors">
+                    <span className="text-xs font-medium text-slate-700">Добавить базовый проезд</span>
+                    <input
+                      type="checkbox"
+                      checked={cleanMapAddBaseLane}
+                      onChange={(e) => setCleanMapAddBaseLane(e.target.checked)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                    />
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleCreateCleanMap()}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Создать чистую карту</span>
+                </button>
+              </div>
+            )}
           </div>
         </aside>
 
@@ -1549,6 +1941,32 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
               <span className="hidden sm:inline">Док</span>
             </button>
 
+            <button
+              onClick={() => setActiveTool('add_wall')}
+              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                activeTool === 'add_wall'
+                  ? 'bg-slate-700 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+              title="Добавить стену или здание (растяните прямоугольник мышью)"
+            >
+              <Building className="w-4 h-4" />
+              <span className="hidden sm:inline">Стена</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTool('add_drivable')}
+              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                activeTool === 'add_drivable'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+              title="Добавить проезжую зону (растяните прямоугольник мышью)"
+            >
+              <Route className="w-4 h-4" />
+              <span className="hidden sm:inline">Проезд</span>
+            </button>
+
             <div className="h-5 w-px bg-slate-200 mx-1" />
 
             <button
@@ -1591,6 +2009,8 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                   {activeTool === 'add_pedestrian' && 'Добавление пешехода (кликните для размещения)'}
                   {activeTool === 'add_zone' && 'Создание зоны (растяните прямоугольник мышью)'}
                   {activeTool === 'add_dock' && 'Добавление дока (кликните для размещения)'}
+                  {activeTool === 'add_wall' && 'Добавление стены / здания (растяните прямоугольник мышью)'}
+                  {activeTool === 'add_drivable' && 'Добавление проезжей зоны (растяните прямоугольник мышью)'}
                   {activeTool === 'delete' && 'Удаление объекта (кликните на объект)'}
                 </strong>
               </span>

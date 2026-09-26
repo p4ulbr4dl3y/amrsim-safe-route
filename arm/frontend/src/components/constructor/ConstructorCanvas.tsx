@@ -10,10 +10,12 @@ export type ConstructorTool =
   | 'add_pedestrian'
   | 'add_zone'
   | 'add_dock'
+  | 'add_wall'
+  | 'add_drivable'
   | 'delete';
 
 export interface SelectedEntity {
-  type: 'robot' | 'obstacle' | 'pedestrian' | 'pedestrian_waypoint' | 'zone' | 'dock';
+  type: 'robot' | 'obstacle' | 'pedestrian' | 'pedestrian_waypoint' | 'zone' | 'dock' | 'building';
   id?: string;
   index?: number;
   waypointIndex?: number;
@@ -64,6 +66,22 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
     | { type: 'pan'; startClientX: number; startClientY: number; initialOffset: { x: number; y: number } }
     | { type: 'move_entity'; entity: SelectedEntity; startWorldX: number; startWorldY: number; initialObjState: any }
     | { type: 'rotate_robot'; centerWorldX: number; centerWorldY: number }
+    | {
+        type: 'rotate_obstacle';
+        index: number;
+        centerWorldX: number;
+        centerWorldY: number;
+        startAngle: number;
+        initialPolygon: [number, number][];
+      }
+    | {
+        type: 'rotate_pedestrian';
+        index: number;
+        centerWorldX: number;
+        centerWorldY: number;
+        initialHeading: number;
+        initialWaypoints: [number, number][];
+      }
     | { type: 'box_draw'; startWorldX: number; startWorldY: number }
     | null
   >(null);
@@ -212,6 +230,33 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
         }
       }
 
+      // 6. Buildings & Walls
+      if (layers.buildings && scenario.map?.buildings) {
+        for (let i = scenario.map.buildings.length - 1; i >= 0; i--) {
+          const b = scenario.map.buildings[i];
+          if (b.polygon && b.polygon.length >= 3) {
+            let minBx = Infinity,
+              maxBx = -Infinity,
+              minBy = Infinity,
+              maxBy = -Infinity;
+            b.polygon.forEach(([bx, by]) => {
+              minBx = Math.min(minBx, bx);
+              maxBx = Math.max(maxBx, bx);
+              minBy = Math.min(minBy, by);
+              maxBy = Math.max(maxBy, by);
+            });
+            if (
+              wx >= minBx - hitRadiusWorld * 0.5 &&
+              wx <= maxBx + hitRadiusWorld * 0.5 &&
+              wy >= minBy - hitRadiusWorld * 0.5 &&
+              wy <= maxBy + hitRadiusWorld * 0.5
+            ) {
+              return { type: 'building', index: i, id: b.id };
+            }
+          }
+        }
+      }
+
       return null;
     },
     [layers, scenario, scale]
@@ -302,13 +347,10 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
 
     // 3. Buildings & Walls
     if (layers.buildings && scenario.map?.buildings) {
-      ctx.fillStyle = '#DDE3EA';
-      ctx.strokeStyle = '#94A3B8';
-      ctx.lineWidth = 1.2;
-
-      scenario.map.buildings.forEach((b) => {
+      scenario.map.buildings.forEach((b, bIdx) => {
         const poly = b.polygon;
         if (poly && poly.length > 2) {
+          const isSelected = selectedEntity?.type === 'building' && selectedEntity.index === bIdx;
           ctx.beginPath();
           const start = toScreen(poly[0][0], poly[0][1]);
           ctx.moveTo(start.x, start.y);
@@ -317,6 +359,9 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
             ctx.lineTo(pt.x, pt.y);
           }
           ctx.closePath();
+          ctx.fillStyle = isSelected ? '#CBD5E1' : '#DDE3EA';
+          ctx.strokeStyle = isSelected ? '#2563EB' : '#94A3B8';
+          ctx.lineWidth = isSelected ? 2.5 : 1.2;
           ctx.fill();
           ctx.stroke();
 
@@ -326,7 +371,7 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
             const centerWy = poly.reduce((acc, p) => acc + p[1], 0) / poly.length;
             const centerSc = toScreen(centerWx, centerWy);
             ctx.font = '11px Inter, sans-serif';
-            ctx.fillStyle = '#64748B';
+            ctx.fillStyle = isSelected ? '#1D4ED8' : '#64748B';
             ctx.textAlign = 'center';
             ctx.fillText(b.id, centerSc.x, centerSc.y);
           }
@@ -439,6 +484,34 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
         ctx.fillStyle = isSelected ? '#1D4ED8' : '#334155';
         ctx.textAlign = 'center';
         ctx.fillText(patch.id, centerSc.x, centerSc.y);
+
+        // Rotation handle above obstacle
+        if (isSelected) {
+          const minSy = Math.min(...poly.map((p) => toScreen(p[0], p[1]).y));
+          const rotHandleSc = { x: centerSc.x, y: minSy - 22 };
+
+          ctx.beginPath();
+          ctx.setLineDash([2, 2]);
+          ctx.moveTo(centerSc.x, minSy);
+          ctx.lineTo(rotHandleSc.x, rotHandleSc.y);
+          ctx.strokeStyle = '#2563EB';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.beginPath();
+          ctx.arc(rotHandleSc.x, rotHandleSc.y, 6.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#2563EB';
+          ctx.fill();
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(rotHandleSc.x, rotHandleSc.y, 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fill();
+        }
       });
     }
 
@@ -547,16 +620,89 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
             ctx.fillText(`${wIdx + 1}`, sc.x, sc.y);
           });
 
+          // Pedestrian heading directional arrow from p0
+          let pedHeading = ped.heading;
+          if (pedHeading === undefined) {
+            if (ped.waypoints.length >= 2) {
+              pedHeading = Math.atan2(
+                ped.waypoints[1][1] - ped.waypoints[0][1],
+                ped.waypoints[1][0] - ped.waypoints[0][0]
+              );
+            } else {
+              pedHeading = 0;
+            }
+          }
+
+          const arrowLen = Math.max(22, 2.8 * scale);
+          const arrowTip = {
+            x: firstScreen.x + Math.cos(pedHeading) * arrowLen,
+            y: firstScreen.y - Math.sin(pedHeading) * arrowLen,
+          };
+
+          ctx.beginPath();
+          ctx.moveTo(firstScreen.x, firstScreen.y);
+          ctx.lineTo(arrowTip.x, arrowTip.y);
+          ctx.strokeStyle = isPedSelected ? '#2563EB' : '#EA580C';
+          ctx.lineWidth = isPedSelected ? 2.5 : 2;
+          ctx.stroke();
+
+          // Arrowhead
+          const angle = Math.atan2(-(arrowTip.y - firstScreen.y), arrowTip.x - firstScreen.x);
+          const headLen = 7;
+          ctx.beginPath();
+          ctx.moveTo(arrowTip.x, arrowTip.y);
+          ctx.lineTo(
+            arrowTip.x - headLen * Math.cos(angle - Math.PI / 6),
+            arrowTip.y + headLen * Math.sin(angle - Math.PI / 6)
+          );
+          ctx.lineTo(
+            arrowTip.x - headLen * Math.cos(angle + Math.PI / 6),
+            arrowTip.y + headLen * Math.sin(angle + Math.PI / 6)
+          );
+          ctx.closePath();
+          ctx.fillStyle = isPedSelected ? '#2563EB' : '#EA580C';
+          ctx.fill();
+
+          // If selected: draw interactive rotation handle
+          if (isPedSelected) {
+            const handleDist = arrowLen + 12;
+            const rotHandleSc = {
+              x: firstScreen.x + Math.cos(pedHeading) * handleDist,
+              y: firstScreen.y - Math.sin(pedHeading) * handleDist,
+            };
+
+            ctx.beginPath();
+            ctx.setLineDash([2, 2]);
+            ctx.moveTo(arrowTip.x, arrowTip.y);
+            ctx.lineTo(rotHandleSc.x, rotHandleSc.y);
+            ctx.strokeStyle = '#2563EB';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.beginPath();
+            ctx.arc(rotHandleSc.x, rotHandleSc.y, 6.5, 0, Math.PI * 2);
+            ctx.fillStyle = '#2563EB';
+            ctx.fill();
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(rotHandleSc.x, rotHandleSc.y, 2.5, 0, Math.PI * 2);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fill();
+          }
+
           // Pedestrian label
-          const firstSc = toScreen(ped.waypoints[0][0], ped.waypoints[0][1]);
           ctx.font = '10px Inter, sans-serif';
           ctx.fillStyle = isPedSelected ? '#1D4ED8' : '#C2410C';
           ctx.textAlign = 'left';
           ctx.textBaseline = 'bottom';
           ctx.fillText(
             `Пешеход ${ped.id} (${ped.speed} м/с${ped.inattentive ? ', невнимателен' : ''})`,
-            firstSc.x + 8,
-            firstSc.y - 6
+            firstScreen.x + 8,
+            firstScreen.y - 6
           );
         }
       });
@@ -811,6 +957,91 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
       return;
     }
 
+    // Check rotation handles if an entity is already selected
+    if (activeTool === 'select' && selectedEntity) {
+      if (selectedEntity.type === 'obstacle' && selectedEntity.index !== undefined) {
+        const patch = scenario.map_patches?.[selectedEntity.index];
+        if (patch && patch.polygon && patch.polygon.length >= 3) {
+          const poly = patch.polygon;
+          const centerWx = poly.reduce((acc, p) => acc + p[0], 0) / poly.length;
+          const centerWy = poly.reduce((acc, p) => acc + p[1], 0) / poly.length;
+          const centerSc = toScreen(centerWx, centerWy);
+          const minSy = Math.min(...poly.map((p) => toScreen(p[0], p[1]).y));
+          const rotHandleSc = { x: centerSc.x, y: minSy - 22 };
+          if (Math.hypot(sx - rotHandleSc.x, sy - rotHandleSc.y) <= 12) {
+            const startAngle = Math.atan2(wy - centerWy, wx - centerWx);
+            setDragAction({
+              type: 'rotate_obstacle',
+              index: selectedEntity.index,
+              centerWorldX: centerWx,
+              centerWorldY: centerWy,
+              startAngle,
+              initialPolygon: JSON.parse(JSON.stringify(poly)),
+            });
+            return;
+          }
+        }
+      }
+
+      if (selectedEntity.type === 'pedestrian' && selectedEntity.index !== undefined) {
+        const ped = scenario.pedestrians?.[selectedEntity.index];
+        if (ped && ped.waypoints && ped.waypoints.length > 0) {
+          const p0 = ped.waypoints[0];
+          const p0Sc = toScreen(p0[0], p0[1]);
+          let pedHeading = ped.heading;
+          if (pedHeading === undefined) {
+            if (ped.waypoints.length >= 2) {
+              pedHeading = Math.atan2(
+                ped.waypoints[1][1] - p0[1],
+                ped.waypoints[1][0] - p0[0]
+              );
+            } else {
+              pedHeading = 0;
+            }
+          }
+          const arrowLen = Math.max(22, 2.8 * scale);
+          const handleDist = arrowLen + 12;
+          const rotHandleSc = {
+            x: p0Sc.x + Math.cos(pedHeading) * handleDist,
+            y: p0Sc.y - Math.sin(pedHeading) * handleDist,
+          };
+          if (Math.hypot(sx - rotHandleSc.x, sy - rotHandleSc.y) <= 12) {
+            setDragAction({
+              type: 'rotate_pedestrian',
+              index: selectedEntity.index,
+              centerWorldX: p0[0],
+              centerWorldY: p0[1],
+              initialHeading: pedHeading,
+              initialWaypoints: JSON.parse(JSON.stringify(ped.waypoints)),
+            });
+            return;
+          }
+        }
+      }
+    }
+
+    // Add Wall tool (start drag box)
+    if (activeTool === 'add_wall') {
+      setDragAction({
+        type: 'box_draw',
+        startWorldX: wx,
+        startWorldY: wy,
+      });
+      setBoxDrawEnd({ x: wx, y: wy });
+      return;
+    }
+
+    // Add Drivable corridor tool (start drag box)
+    if (activeTool === 'add_drivable') {
+      setDragAction({
+        type: 'box_draw',
+        startWorldX: wx,
+        startWorldY: wy,
+      });
+      setBoxDrawEnd({ x: wx, y: wy });
+      return;
+    }
+
     // Select Tool: hit test and drag
     if (activeTool === 'select') {
       const hit = findEntityAt(wx, wy);
@@ -826,6 +1057,8 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
           initialObjState = [...(scenario.pedestrians[hit.index].waypoints[hit.waypointIndex] || [0, 0])];
         } else if (hit.type === 'dock' && hit.id) {
           initialObjState = { ...(scenario.map?.points?.[hit.id] || { x: 0, y: 0 }) };
+        } else if (hit.type === 'building' && hit.index !== undefined) {
+          initialObjState = JSON.parse(JSON.stringify(scenario.map?.buildings?.[hit.index]));
         }
 
         setDragAction({
@@ -883,6 +1116,67 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
           theta: Math.round(theta * 100) / 100,
         },
       }));
+      return;
+    }
+
+    if (dragAction.type === 'rotate_obstacle') {
+      const currentAngle = Math.atan2(wy - dragAction.centerWorldY, wx - dragAction.centerWorldX);
+      const deltaAngle = currentAngle - dragAction.startAngle;
+      const cosA = Math.cos(deltaAngle);
+      const sinA = Math.sin(deltaAngle);
+      const newPoly = dragAction.initialPolygon.map(([px, py]: [number, number]) => {
+        const dx = px - dragAction.centerWorldX;
+        const dy = py - dragAction.centerWorldY;
+        const rx = dx * cosA - dy * sinA;
+        const ry = dx * sinA + dy * cosA;
+        return [
+          Math.round((dragAction.centerWorldX + rx) * 10) / 10,
+          Math.round((dragAction.centerWorldY + ry) * 10) / 10,
+        ] as [number, number];
+      });
+
+      onUpdateScenario((prev) => {
+        const patches = [...(prev.map_patches || [])];
+        if (!patches[dragAction.index]) return prev;
+        patches[dragAction.index] = {
+          ...patches[dragAction.index],
+          polygon: newPoly,
+        };
+        return { ...prev, map_patches: patches };
+      });
+      return;
+    }
+
+    if (dragAction.type === 'rotate_pedestrian') {
+      const dx = wx - dragAction.centerWorldX;
+      const dy = wy - dragAction.centerWorldY;
+      const newHeading = Math.atan2(dy, dx);
+      const deltaAngle = newHeading - dragAction.initialHeading;
+      const cosA = Math.cos(deltaAngle);
+      const sinA = Math.sin(deltaAngle);
+      const p0x = dragAction.centerWorldX;
+      const p0y = dragAction.centerWorldY;
+
+      const updatedWaypoints = dragAction.initialWaypoints.map(([x, y]: [number, number], idx: number) => {
+        if (idx === 0) return [p0x, p0y];
+        const rx = x - p0x;
+        const ry = y - p0y;
+        return [
+          Math.round((p0x + rx * cosA - ry * sinA) * 10) / 10,
+          Math.round((p0y + rx * sinA + ry * cosA) * 10) / 10,
+        ] as [number, number];
+      });
+
+      onUpdateScenario((prev) => {
+        const peds = [...(prev.pedestrians || [])];
+        if (!peds[dragAction.index]) return prev;
+        peds[dragAction.index] = {
+          ...peds[dragAction.index],
+          heading: Math.round(newHeading * 100) / 100,
+          waypoints: updatedWaypoints,
+        };
+        return { ...prev, pedestrians: peds };
+      });
       return;
     }
 
@@ -949,6 +1243,23 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
             map: { ...prev.map, points: pts },
           };
         });
+      } else if (ent.type === 'building' && ent.index !== undefined) {
+        onUpdateScenario((prev) => {
+          const buildings = [...(prev.map?.buildings || [])];
+          if (!buildings[ent.index!]) return prev;
+          const initialPoly: [number, number][] = dragAction.initialObjState.polygon;
+          buildings[ent.index!] = {
+            ...buildings[ent.index!],
+            polygon: initialPoly.map(([px, py]) => [
+              Math.round((px + deltaX) * 10) / 10,
+              Math.round((py + deltaY) * 10) / 10,
+            ]),
+          };
+          return {
+            ...prev,
+            map: { ...prev.map, buildings },
+          };
+        });
       }
     }
   };
@@ -960,9 +1271,48 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
       const minYBox = Math.min(dragAction.startWorldY, boxDrawEnd.y);
       const maxYBox = Math.max(dragAction.startWorldY, boxDrawEnd.y);
 
-      // Only create if not a tiny jitter click (> 1m width & height)
-      if (maxXBox - minXBox > 1 && maxYBox - minYBox > 1) {
-        const zoneCount = (scenario.map?.zones || []).length;
+      if (activeTool === 'add_wall') {
+        const w = maxXBox - minXBox > 0.5 ? maxXBox - minXBox : 4.0;
+        const h = maxYBox - minYBox > 0.5 ? maxYBox - minYBox : 1.5;
+        const cx = (minXBox + maxXBox) / 2;
+        const cy = (minYBox + maxYBox) / 2;
+        const bCount = (scenario.map?.buildings || []).length;
+        const newBuilding = {
+          id: `wall_${bCount + 1}`,
+          polygon: [
+            [Math.round((cx - w / 2) * 10) / 10, Math.round((cy - h / 2) * 10) / 10],
+            [Math.round((cx + w / 2) * 10) / 10, Math.round((cy - h / 2) * 10) / 10],
+            [Math.round((cx + w / 2) * 10) / 10, Math.round((cy + h / 2) * 10) / 10],
+            [Math.round((cx - w / 2) * 10) / 10, Math.round((cy + h / 2) * 10) / 10],
+          ] as [number, number][],
+        };
+        onUpdateScenario((prev) => ({
+          ...prev,
+          map: {
+            ...prev.map,
+            buildings: [...(prev.map?.buildings || []), newBuilding],
+          },
+        }));
+        onSelect({ type: 'building', index: bCount, id: newBuilding.id });
+      } else if (activeTool === 'add_drivable') {
+        const w = maxXBox - minXBox > 0.5 ? maxXBox - minXBox : 12.0;
+        const h = maxYBox - minYBox > 0.5 ? maxYBox - minYBox : 6.0;
+        const cx = (minXBox + maxXBox) / 2;
+        const cy = (minYBox + maxYBox) / 2;
+        const newDrivable: [number, number][] = [
+          [Math.round((cx - w / 2) * 10) / 10, Math.round((cy - h / 2) * 10) / 10],
+          [Math.round((cx + w / 2) * 10) / 10, Math.round((cy - h / 2) * 10) / 10],
+          [Math.round((cx + w / 2) * 10) / 10, Math.round((cy + h / 2) * 10) / 10],
+          [Math.round((cx - w / 2) * 10) / 10, Math.round((cy + h / 2) * 10) / 10],
+        ];
+        onUpdateScenario((prev) => ({
+          ...prev,
+          map: {
+            ...prev.map,
+            drivable: [...(prev.map?.drivable || []), newDrivable],
+          },
+        }));
+      } else if (activeTool === 'add_zone') {
         const prefixMap = {
           speed_limit: 'SL',
           forbidden: 'FB',
@@ -970,6 +1320,7 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
           people_area: 'PA',
         };
         const prefix = prefixMap[activeZoneType] || 'ZN';
+        const zoneCount = (scenario.map?.zones || []).length;
         const newZone: ScenarioZone = {
           id: `${prefix}_${zoneCount + 1}`,
           type: activeZoneType,
@@ -1027,27 +1378,43 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
         return { ...prev, map: { ...prev.map, points: pts } };
       });
       onSelect(null);
+    } else if (ent.type === 'building' && ent.index !== undefined) {
+      onUpdateScenario((prev) => {
+        const buildings = [...(prev.map?.buildings || [])];
+        buildings.splice(ent.index!, 1);
+        return { ...prev, map: { ...prev.map, buildings } };
+      });
+      onSelect(null);
     }
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
-    const newScale = Math.min(15, Math.max(0.8, scale * zoomFactor));
-
+  // Passive: false native wheel listener for zoom without page scrolling
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
 
-    // Zoom towards mouse pointer
-    setOffset({
-      x: mouseX - (mouseX - offset.x) * (newScale / scale),
-      y: mouseY - (mouseY - offset.y) * (newScale / scale),
-    });
-    setScale(newScale);
-  };
+    const onWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      setScale((prevScale) => {
+        const newScale = Math.min(15, Math.max(0.8, prevScale * zoomFactor));
+        setOffset((prevOffset) => ({
+          x: mouseX - (mouseX - prevOffset.x) * (newScale / prevScale),
+          y: mouseY - (mouseY - prevOffset.y) * (newScale / prevScale),
+        }));
+        return newScale;
+      });
+    };
+
+    canvas.addEventListener('wheel', onWheelNative, { passive: false });
+    return () => {
+      canvas.removeEventListener('wheel', onWheelNative);
+    };
+  }, []);
 
   return (
     <div className={`relative w-full h-full overflow-hidden select-none bg-slate-50 ${className}`}>
@@ -1057,7 +1424,6 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
         className={`w-full h-full block ${
           activeTool === 'pan' || dragAction?.type === 'pan'
             ? 'cursor-grab'

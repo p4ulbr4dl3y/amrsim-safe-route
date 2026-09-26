@@ -1624,5 +1624,107 @@ def test_arm_readme_and_openapi_status_contract(http_server):
         assert "docked" not in status_schema["enum"]
 
 
+def test_storage_save_scenario(tmp_path, monkeypatch):
+    """Проверить сохранение сценария на диск через storage.save_scenario."""
+    from arm.services import storage
+
+    monkeypatch.setattr(server, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(storage, "ROOT_DIR", tmp_path)
+
+    sc_data = {
+        "schema": "amr-1.0",
+        "name": "custom_test_1",
+        "map": {"bounds": [0, 0, 100, 100]},
+    }
+    safe_id, file_path = server.save_scenario(sc_data)
+    assert safe_id == "custom_test_1"
+    assert file_path.exists()
+    assert file_path.name == "custom_test_1.json"
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["name"] == "custom_test_1"
+
+    # Поиск сохраненного сценария через get_scenario_file
+    monkeypatch.setattr(storage, "BACKEND_SCENARIOS_DIR", tmp_path / "scenarios")
+    found = storage.get_scenario_file("custom_test_1")
+    assert found is not None and found.exists()
+
+
+def test_api_post_scenarios_endpoint(http_server, tmp_path, monkeypatch):
+    """Проверить сохранение сценария через POST /api/scenarios."""
+    from arm.core import config
+    from arm.services import storage
+
+    monkeypatch.setattr(server, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(storage, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(config, "ROOT_DIR", tmp_path)
+
+    sc_payload = {
+        "id": "my_new_scenario",
+        "data": {
+            "schema": "amr-1.0",
+            "name": "my_new_scenario",
+            "map": {"bounds": [0, 0, 50, 50]},
+        },
+    }
+    url = f"{http_server}/api/scenarios"
+    req = Request(
+        url,
+        data=json.dumps(sc_payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(req) as resp:
+        assert resp.status == 201
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["success"] is True
+        assert data["id"] == "my_new_scenario"
+        assert "file" in data
+
+
+def test_api_post_run_with_scenario_data(http_server, monkeypatch):
+    """Проверить, что POST /api/run принимает scenarioData и исключает ошибку Scenario not found."""
+    from unittest.mock import MagicMock
+    from arm.transport import handler
+
+    mock_run = MagicMock(return_value={
+        "exitCode": 0,
+        "stdout": "Simulation OK",
+        "stderr": "",
+        "reportPath": "out/test.json",
+        "logPath": "out/test.jsonl",
+        "report": {"score": {"total": 95.0}},
+        "score": 95.0,
+    })
+    monkeypatch.setattr(handler, "run_simulation", mock_run)
+
+    payload = {
+        "scenario": "custom_autosave_scen",
+        "controller": "team_dreamteam_4_0/controller.py",
+        "seed": 7,
+        "scenarioData": {
+            "schema": "amr-1.0",
+            "name": "custom_autosave_scen",
+            "map": {"bounds": [0, 0, 100, 100]},
+        },
+    }
+    url = f"{http_server}/api/run"
+    req = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(req) as resp:
+        assert resp.status == 200
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["exitCode"] == 0
+        assert mock_run.called
+        kwargs = mock_run.call_args[1]
+        assert kwargs.get("scenario_data") is not None
+
+
+
 
 

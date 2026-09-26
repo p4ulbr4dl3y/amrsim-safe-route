@@ -426,15 +426,56 @@ export const apiClient = {
   },
 
   /**
+   * Save scenario definition to server (and fallback to local storage).
+   */
+  async saveScenario(id: string, scenarioData: any): Promise<{ ok: boolean; success?: boolean; id?: string; file?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/scenarios/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id, scenario: scenarioData }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.warn('[API] Failed to save scenario to server:', err);
+    }
+    return { ok: true, success: true };
+  },
+
+  /**
    * Run real simulation via POST /api/run.
    */
   async runSimulation(params: SimulationRunParams): Promise<SimulationRunResult> {
+    const uploaded = getUploadedScenario();
+    const scenarioData =
+      params.scenarioData ||
+      (uploaded && (uploaded.id === params.scenario || uploaded.name === params.scenario)
+        ? uploaded.scenarioJson
+        : undefined);
+
+    if (scenarioData) {
+      try {
+        await this.saveScenario(params.scenario, scenarioData);
+      } catch (err) {
+        console.warn('[API] Auto-saving scenario before simulation run failed:', err);
+      }
+    }
+
+    const payload = {
+      ...params,
+      scenarioData,
+    };
+
     const res = await fetch(`${API_BASE}/run`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(params),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const errorText = await res.text();

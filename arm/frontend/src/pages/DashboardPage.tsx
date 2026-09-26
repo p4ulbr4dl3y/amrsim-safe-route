@@ -749,15 +749,28 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
         {/* KPI 3: Safety */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-3.5 h-3.5 rounded-full bg-amber-500 ring-4 ring-amber-100"></div>
+          <div
+            className={`w-3.5 h-3.5 rounded-full ring-4 ${
+              (data?.safetyFatal ?? 0) > 0
+                ? 'bg-rose-500 ring-rose-100'
+                : (data?.safetyWarnings ?? 0) > 0
+                ? 'bg-amber-500 ring-amber-100'
+                : 'bg-emerald-500 ring-emerald-100'
+            }`}
+          ></div>
           <div>
             <div className="text-xs text-slate-500 font-medium">Безопасность</div>
-            <div className="text-sm font-bold text-slate-900 mt-1">
-              <span className="text-slate-900">{data?.safetyFatal ?? 0}</span> Фатальных ·{' '}
-              <span className="text-amber-600 font-mono font-semibold">
+            <div className="text-xl font-bold font-mono mt-0.5 flex items-baseline gap-1.5">
+              {(data?.safetyFatal ?? 0) > 0 && (
+                <>
+                  <span className="text-rose-600 font-bold">{data?.safetyFatal}</span>
+                  <span className="text-xs font-normal text-slate-500 font-sans">Фатальных ·{' '}</span>
+                </>
+              )}
+              <span className={(data?.safetyWarnings ?? 0) > 0 ? 'text-amber-600' : 'text-slate-900'}>
                 {data?.safetyWarnings ?? 0}
               </span>{' '}
-              Предупреждений
+              <span className="text-xs font-normal text-slate-500 font-sans">Предупреждений</span>
             </div>
           </div>
         </div>

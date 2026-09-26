@@ -64,13 +64,64 @@ def get_scenario_file(scenario_id: str | None) -> Path | None:
         candidate = base / f"{norm_id}.json"
         if candidate.exists():
             return candidate
+        if scenario_id:
+            candidate2 = base / f"{scenario_id}.json"
+            if candidate2.exists():
+                return candidate2
         candidate = base / norm_id
         if candidate.exists() and candidate.is_file():
             return candidate
         for f in base.glob("*.json"):
-            if f.stem == norm_id or f.stem.startswith(f"{norm_id}_"):
+            if (
+                f.stem == norm_id
+                or f.stem.lower() == norm_id.lower()
+                or (scenario_id and f.stem.lower() == str(scenario_id).lower())
+                or f.stem.startswith(f"{norm_id}_")
+            ):
                 return f
     return None
+
+
+def save_scenario(data: dict[str, Any], scenario_id: str | None = None) -> tuple[str, Path]:
+    """Сохраняет сценарий на диск в scenarios/<id>.json."""
+    raw_content = data
+    if isinstance(data, dict):
+        if "scenario" in data and isinstance(data["scenario"], dict):
+            raw_content = data["scenario"]
+        elif "data" in data and isinstance(data["data"], dict):
+            raw_content = data["data"]
+
+    # Определение идентификатора сценария
+    sc_id = scenario_id or (data.get("id") if isinstance(data, dict) else None)
+    if not sc_id and isinstance(raw_content, dict):
+        sc_id = raw_content.get("id") or raw_content.get("name")
+    if not sc_id:
+        sc_id = "custom_scenario"
+
+    sc_id = str(sc_id).strip()
+    if sc_id.endswith(".json"):
+        sc_id = sc_id[:-5]
+
+    # Нормализация имени файла: замена недопустимых символов
+    safe_name = "".join(c if (c.isalnum() or c in ("_", "-")) else "_" for c in sc_id).strip("_")
+    if not safe_name:
+        safe_name = "custom_scenario"
+
+    target_dir = ROOT_DIR / "scenarios"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / f"{safe_name}.json"
+
+    # Гарантируем обязательные поля amr-1.0 при сохранении
+    if isinstance(raw_content, dict):
+        if "schema" not in raw_content:
+            raw_content["schema"] = "amr-1.0"
+        if "name" not in raw_content:
+            raw_content["name"] = safe_name
+
+    with open(target_path, "w", encoding="utf-8") as f:
+        json.dump(raw_content, f, ensure_ascii=False, indent=2)
+
+    return safe_name, target_path
 
 
 def get_scenario_report(scenario_id: str) -> dict[str, Any] | None:

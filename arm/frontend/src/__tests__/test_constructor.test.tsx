@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 import { ConstructorPage } from '../pages/ConstructorPage';
+import { ConstructorCanvas } from '../components/constructor/ConstructorCanvas';
 import { validateScenario } from '../utils/scenarioValidator';
 import { scenarioTemplates } from '../utils/scenarioTemplates';
 import { getUploadedScenario, clearUploadedScenario } from '../utils/scenarioStorage';
@@ -112,6 +113,8 @@ describe('Scenario Constructor Page', () => {
     expect(screen.getByText('Пешеход')).toBeTruthy();
     expect(screen.getByText('Зона')).toBeTruthy();
     expect(screen.getByText('Док')).toBeTruthy();
+    expect(screen.getByText('Стена')).toBeTruthy();
+    expect(screen.getByText('Проезд')).toBeTruthy();
   });
 
   it('allows editing scenario metadata and toggling weather', () => {
@@ -271,6 +274,137 @@ describe('Scenario Constructor Page', () => {
     // Click "Запустить в симуляторе"
     fireEvent.click(screen.getByText('Запустить в симуляторе'));
     expect(onNavigateMock).toHaveBeenCalledWith('runner', expect.objectContaining({ scenario: expect.any(String) }));
+  });
+
+  it('toggles compact weather buttons for snow, fog, and gnss in toolbar', () => {
+    render(
+      <ConstructorPage
+        onNavigate={onNavigateMock}
+        onScenarioChange={onScenarioChangeMock}
+      />
+    );
+
+    // Fog toggle button
+    const fogBtn = screen.getByText('Туман');
+    expect(fogBtn).toBeTruthy();
+    fireEvent.click(fogBtn);
+
+    // GNSS toggle button
+    const gnssBtn = screen.getByText('ГНСС');
+    expect(gnssBtn).toBeTruthy();
+    fireEvent.click(gnssBtn);
+
+    // Snow toggle button
+    const snowBtn = screen.getByText('Снег');
+    expect(snowBtn).toBeTruthy();
+    fireEvent.click(snowBtn);
+  });
+
+  it('creates clean map with custom dimensions and base lane in Map tab', () => {
+    render(
+      <ConstructorPage
+        onNavigate={onNavigateMock}
+        onScenarioChange={onScenarioChangeMock}
+      />
+    );
+
+    // Open "Карта" tab
+    fireEvent.click(screen.getByText('Карта'));
+    expect(screen.getByText('Чистая карта полигона')).toBeTruthy();
+    expect(screen.getByText('Ширина карты (м):')).toBeTruthy();
+    expect(screen.getByText('Длина карты (м):')).toBeTruthy();
+
+    // Click "Создать чистую карту"
+    const createMapBtn = screen.getByRole('button', { name: /Создать чистую карту/i });
+    fireEvent.click(createMapBtn);
+
+    // Toast notification should appear
+    expect(screen.getByText(/Чистая карта 120×100м создана/i)).toBeTruthy();
+  });
+
+  it('displays rotation angle, slider, and quick buttons for pedestrian in Properties tab', () => {
+    render(
+      <ConstructorPage
+        onNavigate={onNavigateMock}
+        onScenarioChange={onScenarioChangeMock}
+      />
+    );
+
+    // Switch to Objects tab and pick pedestrian
+    fireEvent.click(screen.getByText('Объекты'));
+    const pedItem = screen.getByText(/p1 \(/i);
+    fireEvent.click(pedItem);
+
+    // Should switch to Properties tab and show rotation controls
+    expect(screen.getByText('Угол направления:')).toBeTruthy();
+    expect(screen.getByText('+45°')).toBeTruthy();
+    expect(screen.getByText('+90°')).toBeTruthy();
+    expect(screen.getByText('-90°')).toBeTruthy();
+
+    // Click quick rotation button (+45 deg: 90 -> 135)
+    fireEvent.click(screen.getByText('+45°'));
+    expect(screen.getByText(/135°/)).toBeTruthy();
+  });
+
+  it('activates wall and drivable tools when toolbar buttons are clicked', () => {
+    render(
+      <ConstructorPage
+        onNavigate={onNavigateMock}
+        onScenarioChange={onScenarioChangeMock}
+      />
+    );
+
+    const wallBtn = screen.getByRole('button', { name: /Стена/i });
+    fireEvent.click(wallBtn);
+    expect(wallBtn.className).toContain('bg-slate-700');
+
+    const drivableBtn = screen.getByRole('button', { name: /Проезд/i });
+    fireEvent.click(drivableBtn);
+    expect(drivableBtn.className).toContain('bg-indigo-600');
+  });
+
+  it('attaches wheel listener with { passive: false } and prevents default scrolling on canvas', () => {
+    const tmpl = scenarioTemplates[0].createScenario();
+    const addEventListenerSpy = vi.spyOn(HTMLCanvasElement.prototype, 'addEventListener');
+
+    const { container } = render(
+      <ConstructorCanvas
+        scenario={tmpl}
+        selectedEntity={null}
+        onSelectEntity={vi.fn()}
+        onUpdateScenario={vi.fn()}
+        activeTool="select"
+        activeZoneType="speed_limit"
+        layers={{
+          robot: true,
+          corridors: true,
+          obstacles: true,
+          pedestrians: true,
+          zones: true,
+          grid: true,
+        }}
+      />
+    );
+
+    const canvas = container.querySelector('canvas')!;
+    expect(canvas).toBeTruthy();
+
+    const wheelCall = addEventListenerSpy.mock.calls.find(
+      (call) => call[0] === 'wheel'
+    );
+    expect(wheelCall).toBeDefined();
+    expect(wheelCall?.[2]).toEqual({ passive: false });
+
+    // Test preventDefault when wheel event is dispatched
+    const wheelEvent = new WheelEvent('wheel', {
+      deltaY: -100,
+      cancelable: true,
+      bubbles: true,
+    });
+    canvas.dispatchEvent(wheelEvent);
+    expect(wheelEvent.defaultPrevented).toBe(true);
+
+    addEventListenerSpy.mockRestore();
   });
 });
 

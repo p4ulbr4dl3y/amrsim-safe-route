@@ -7,6 +7,7 @@ import {
   setSelectedScenario,
   hasUploadedScenario,
   clearUploadedScenario,
+  getUploadedScenario,
   AMR_SCENARIO_CHANGE_EVENT,
 } from '../utils/scenarioStorage';
 
@@ -122,11 +123,18 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({
     }, 400);
 
     try {
+      const uploaded = getUploadedScenario();
+      const scenarioData =
+        uploaded && (uploaded.id === scenario || uploaded.name === scenario)
+          ? uploaded.scenarioJson
+          : undefined;
+
       const res = await apiClient.runSimulation({
         scenario,
         controller,
         seed,
         cheatPose,
+        scenarioData,
       });
 
       clearInterval(progressTimer);

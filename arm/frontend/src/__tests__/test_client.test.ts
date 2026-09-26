@@ -233,4 +233,32 @@ describe('apiClient & fallbackData', () => {
       expect(url).toBe('/api/export/csv?scenario=04_busy_yard');
     });
   });
+
+  describe('saveScenario', () => {
+    it('sends scenario data to /api/scenarios/save on HTTP 200', async () => {
+      const mockResponse = { ok: true, file: 'scenarios/custom_1.json' };
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const res = await apiClient.saveScenario('custom_1', { name: 'custom_1', dt: 0.1 });
+      expect(global.fetch).toHaveBeenCalledWith('/api/scenarios/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'custom_1', scenario: { name: 'custom_1', dt: 0.1 } }),
+      });
+      expect(res).toEqual(mockResponse);
+    });
+
+    it('gracefully handles network error and returns ok: true', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const res = await apiClient.saveScenario('test_offline', { name: 'test_offline' });
+      expect(warnSpy).toHaveBeenCalled();
+      expect(res.ok).toBe(true);
+    });
+  });
 });
+

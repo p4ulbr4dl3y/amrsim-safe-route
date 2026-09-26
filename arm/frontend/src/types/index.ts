@@ -231,6 +231,7 @@ export interface SimulationRunParams {
   controller?: string;
   seed?: number;
   cheatPose?: boolean;
+  scenarioData?: any;
 }
 
 export interface SimulationRunResult {
@@ -243,3 +244,72 @@ export interface SimulationRunResult {
   score: number | null;
   logs: string[];
 }
+
+export interface ScenarioMapPatch {
+  id: string;
+  op: string;
+  polygon: [number, number][];
+  heading?: number;
+  [key: string]: any;
+}
+
+export interface ScenarioPedestrian {
+  id: string;
+  waypoints: [number, number][];
+  speed?: number;
+  inattentive?: boolean;
+  loop?: boolean;
+  t_start?: number;
+  heading?: number;
+  [key: string]: any;
+}
+
+export interface ScenarioZone {
+  id?: string;
+  type: 'speed_limit' | 'forbidden' | 'gnss_shadow' | 'people_area' | string;
+  polygon?: [number, number][];
+  max_speed?: number;
+  [key: string]: any;
+}
+
+export interface AmrScenario {
+  schema?: string;
+  name: string;
+  description?: string;
+  dt?: number;
+  duration_s?: number;
+  hidden?: boolean;
+  provide_detections?: boolean;
+  weather?: {
+    snow?: boolean;
+    [key: string]: any;
+  };
+  events?: {
+    type: string;
+    t1: number;
+    t2: number;
+    [key: string]: any;
+  }[];
+  start: {
+    x: number;
+    y: number;
+    theta: number;
+    [key: string]: any;
+  };
+  map: {
+    frame?: string;
+    bounds?: [number, number, number, number];
+    drivable?: any[];
+    buildings?: any[];
+    points?: Record<string, any>;
+    zones?: ScenarioZone[];
+    gates?: any[];
+    crossing?: any[];
+    [key: string]: any;
+  };
+  map_patches?: ScenarioMapPatch[];
+  pedestrians?: ScenarioPedestrian[];
+  missions?: any[];
+  [key: string]: any;
+}
+
