@@ -333,7 +333,7 @@ def test_readme_scenario_and_seed_claims():
     assert "seed 1" in readme
 
     results_readme = (ROOT / "results" / "README.md").read_text(encoding="utf-8")
-    assert "350 тестов" in results_readme
+    assert "355 тестов" in results_readme
     assert "90 тестов Vitest" in results_readme
 
     arm_readme = (ROOT / "arm" / "README.md").read_text(encoding="utf-8")
@@ -394,14 +394,21 @@ def test_alternatives_has_no_unsubstantiated_claims():
         "около 1.3 мс",
         "не превышает лимит 100 мс",
         "1.3-3.9 мс",
+        "1.262",
+        "3.866",
+        "205.4",
     ):
         assert banned not in alternatives, f"Found unverified claim '{banned}' in ALTERNATIVES.md"
-    assert "1.1-3.9 мс" in alternatives
-    assert "205.4 мс" in alternatives
+    assert "единицы миллисекунд" in alternatives
+    assert "1-4 мс" in alternatives
     # 0.25 м - порог отсечки инлайнеров, а не порог функции Хубера (0.08 м)
     assert "функцией потерь Хубера (порог 0.25" not in alternatives
     assert "функция потерь Хубера с порогом перехода" in alternatives
     assert "0.08" in alternatives
+
+    readme = (ROOT / "results" / "README.md").read_text(encoding="utf-8")
+    assert "355 тестов" in readme
+    assert "350 тестов" not in readme
 
 
 def test_approach_scheme_does_not_link_stop_gap_to_estop():
