@@ -159,6 +159,5 @@ docker compose up --build
 ## 6. Материалы для защиты
 
 - презентация решения: [`presentation.pdf`](presentation.pdf);
-- регламент защиты и сценарий демонстрации на 5 минут: [`PITCH.md`](PITCH.md);
 - инженерное описание подхода: [`APPROACH.md`](APPROACH.md);
 - анализ альтернатив и сравнительные замеры: [`results/ALTERNATIVES.md`](results/ALTERNATIVES.md).

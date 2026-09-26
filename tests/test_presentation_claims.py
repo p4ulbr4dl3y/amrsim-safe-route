@@ -28,7 +28,7 @@ from presentation_claims import (  # noqa: E402
 )
 
 CURRENT = hashlib.sha256((ROOT / "team_dreamteam_4_0" / "controller.py").read_bytes().replace(b"\r\n", b"\n")).hexdigest()[:16]
-PACKET = "2f4a721eafcfb6ed"  # исторический хеш первого пакета, упоминаемый в PITCH и README
+PACKET = "2f4a721eafcfb6ed"  # исторический хеш первого пакета, упоминаемый в README
 
 
 def test_spoken_text_rejects_report_sha():
@@ -195,48 +195,6 @@ def _ticks(relative):
     return rows
 
 
-def test_pitch_matches_logged_moments_and_drops_old_claims():
-    moments = json.loads(
-        (ROOT / "results" / "own_scenarios" / "moments.json").read_text(encoding="utf-8")
-    )
-    pitch = (ROOT / "PITCH.md").read_text(encoding="utf-8")
-    by_key = {}
-    for section in moments["scenarios"]:
-        for moment in section["moments"]:
-            if moment.get("found"):
-                by_key[(section["scenario"], section["seed"], moment["key"])] = moment
-    for key in (
-        ("s4_shadow_start_charger", 7, "arrival_charger"),
-        ("s5_fog_inattentive", 7, "stop_person"),
-        ("04_busy_yard", 7, "stop_person"),
-        ("s4b_shadow_lane_lost", 1, "lane_lost_status"),
-        ("s3_wall_removed", 7, "map_missing"),
-        ("s1_pallet_2m", 7, "offset"),
-        ("s2_container_block", 7, "replan"),
-    ):
-        moment = by_key[key]
-        assert ("%.1f" % float(moment["t"])) in pitch
-    person = by_key[("04_busy_yard", 7, "stop_person")]
-    assert ("t=%.1f" % float(person["t"])) in pitch
-    assert "04_busy_yard" in pitch
-    assert person["status"] in pitch
-    assert person["note"] in pitch
-    assert "hum=0.311" in pitch
-    lost = lost_run(
-        _ticks("results/own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl")
-    )
-    assert "t=%.1f" % lost["resume_t"] in pitch
-    assert "%d тактов" % lost["count"] in pitch
-    assert "s4b_shadow_lane_lost_seed1" in pitch
-    assert PACKET in pitch
-    assert CURRENT in pitch
-    assert "99.22-100" in pitch
-    assert "Слайд 9" in pitch
-    assert "скрытых прогонов" in pitch
-    for banned in ("98.88", "IMM", "60 сквозных", "Нагумо", "до 0.22", "99.43-100"):
-        assert banned not in pitch
-
-
 def test_s4b_lost_sequence_and_recovery():
     """Сценарий s4b seed 1: сплошной участок lost со стоянкой v=0 и возобновление движения."""
     ticks = _ticks("results/own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl")
@@ -370,11 +328,6 @@ def test_gnss_filtering_no_direct_pose_overwrite_and_smooth_blend():
     assert "new_x = x + shift_x" not in gnss_code
     assert "new_y = y + shift_y" not in gnss_code
     assert "k = 0.15" in gnss_code or "0.15" in gnss_code
-
-    pitch = (ROOT / "PITCH.md").read_text(encoding="utf-8")
-    assert "0.15" in pitch
-    assert "копирования фикса в pose_est" in pitch or "копирования фикса" in pitch
-
     approach = (ROOT / "APPROACH.md").read_text(encoding="utf-8")
     assert "0.15" in approach
     assert "прямого копирования в позу" in approach or "копирования сырого ГНСС" in approach
