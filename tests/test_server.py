@@ -1386,6 +1386,27 @@ def test_scenario_01e_clear_easy_no_spoofing():
         assert "lidarRays" not in t
 
 
+def test_view_models_lidar_rays_present():
+    """В моделях отображения build_replay_view_model и build_dashboard_view_model формируются лучи лидара."""
+    rep_vm = server.build_replay_view_model("01_clear")
+    assert "ticks" in rep_vm
+    assert len(rep_vm["ticks"]) > 0
+    t0 = rep_vm["ticks"][0]
+    assert "lidarRays" in t0
+    rays = t0["lidarRays"]
+    assert len(rays) == 9
+    # Центральный луч 4 направлен строго вперед (0 рад)
+    assert abs(rays[4]["angle"]) < 1e-4
+    # Крайние лучи симметричны
+    assert abs(rays[0]["angle"] - (-0.6)) < 1e-4
+    assert abs(rays[8]["angle"] - 0.6) < 1e-4
+
+    dash_vm = server.build_dashboard_view_model("01_clear")
+    assert dash_vm.get("previewTick") is not None
+    assert "lidarRays" in dash_vm["previewTick"]
+    assert len(dash_vm["previewTick"]["lidarRays"]) == 9
+
+
 def test_build_analytics_view_model_null_score_and_blocks(monkeypatch):
     """build_analytics_view_model handles null score and null blocks/max safely."""
     # Test with {"score": {"blocks": None, "max": None}}

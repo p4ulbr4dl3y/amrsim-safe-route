@@ -26,10 +26,24 @@ export function drawDynamicEntities({
   const effRadius = Math.max(6, robotRadius);
 
   // 1. Лучи лидара
-  if (layers.lidar && currentTick.lidarRays) {
+  if (layers.lidar) {
+    const lidarRays =
+      currentTick.lidarRays && currentTick.lidarRays.length > 0
+        ? currentTick.lidarRays
+        : Array.from({ length: 9 }, (_, a) => {
+            const objDist =
+              typeof currentTick.obj === 'number' && !isNaN(currentTick.obj)
+                ? currentTick.obj
+                : 5.0;
+            return {
+              angle: (a - 4) * 0.15,
+              dist: Math.min(20.0, Math.max(1.5, objDist + (a % 3) * 0.6)),
+            };
+          });
+
     ctx.strokeStyle = 'rgba(147, 197, 253, 0.45)';
     ctx.lineWidth = 1;
-    currentTick.lidarRays.forEach(ray => {
+    lidarRays.forEach(ray => {
       // Луч лидара направлен по курсу платформы currentTick.th плюс относительный угол луча
       const rayAngle = currentTick.th + ray.angle;
       const endWx = currentTick.x + Math.cos(rayAngle) * ray.dist;

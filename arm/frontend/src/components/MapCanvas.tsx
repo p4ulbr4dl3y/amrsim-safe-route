@@ -60,6 +60,18 @@ const EMPTY_MAP: MapData = {
   points: {},
 };
 
+export function getLidarRays(tick?: Partial<TickData> | null): { angle: number; dist: number }[] {
+  if (!tick) return [];
+  if (tick.lidarRays && tick.lidarRays.length > 0) {
+    return tick.lidarRays;
+  }
+  const objDist = typeof tick.obj === 'number' && !isNaN(tick.obj) ? tick.obj : 5.0;
+  return Array.from({ length: 9 }, (_, a) => ({
+    angle: (a - 4) * 0.15,
+    dist: Math.min(20.0, Math.max(1.5, objDist + (a % 3) * 0.6)),
+  }));
+}
+
 export const MapCanvas: React.FC<MapCanvasProps> = ({
   currentTick,
   historyTicks = [],
@@ -602,23 +614,25 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       const effRadius = Math.max(6, robotRadius);
 
       // 8a. 9-Ray Lidar Fan
-      if (layers.lidar && currentTick.lidarRays && currentTick.lidarRays.length > 0) {
-        currentTick.lidarRays.forEach(ray => {
-          const hitX = currentTick.x + ray.dist * Math.cos(currentTick.th + ray.angle);
-          const hitY = currentTick.y + ray.dist * Math.sin(currentTick.th + ray.angle);
+      if (layers.lidar) {
+        const lidarRays = getLidarRays(currentTick);
+        lidarRays.forEach(ray => {
+          const rayAngle = currentTick.th + ray.angle;
+          const hitX = currentTick.x + ray.dist * Math.cos(rayAngle);
+          const hitY = currentTick.y + ray.dist * Math.sin(rayAngle);
           const hitScreen = toScreen(hitX, hitY);
 
           ctx.beginPath();
           ctx.moveTo(robotScreen.x, robotScreen.y);
           ctx.lineTo(hitScreen.x, hitScreen.y);
-          ctx.strokeStyle = 'rgba(96, 165, 250, 0.4)';
+          ctx.strokeStyle = 'rgba(147, 197, 253, 0.45)';
           ctx.lineWidth = 1;
           ctx.stroke();
 
-          // Ray endpoint dot
+          // Ray endpoint dot (согласно макету АРМ)
           ctx.beginPath();
-          ctx.arc(hitScreen.x, hitScreen.y, 2, 0, Math.PI * 2);
-          ctx.fillStyle = '#3B82F6';
+          ctx.arc(hitScreen.x, hitScreen.y, Math.max(2, 0.25 * currentScale), 0, Math.PI * 2);
+          ctx.fillStyle = '#2563EB';
           ctx.fill();
         });
       }

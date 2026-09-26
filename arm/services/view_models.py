@@ -253,6 +253,16 @@ def build_dashboard_view_model(scenario_id: str) -> dict[str, Any]:
     # Такты предпросмотра и истории для миникарты
     preview_idx = min(200, len(sampled_ticks) - 1) if sampled_ticks else 0
     preview_tick = sampled_ticks[preview_idx] if sampled_ticks else None
+    if preview_tick and "lidarRays" not in preview_tick:
+        preview_tick = dict(preview_tick)
+        obj_dist = _safe_float(preview_tick.get("obj"), 5.0)
+        preview_tick["lidarRays"] = [
+            {
+                "angle": round((a - 4) * 0.15, 4),
+                "dist": round(min(20.0, max(1.5, obj_dist + (a % 3) * 0.6)), 3),
+            }
+            for a in range(9)
+        ]
     history_ticks = sampled_ticks[: preview_idx + 1] if sampled_ticks else []
 
     return {
@@ -350,12 +360,27 @@ def build_replay_view_model(scenario_id: str, seed: int = 7) -> dict[str, Any]:
         for idx, ep in enumerate(episodes_raw)
     ]
 
+    ticks = ticks_data.get("ticks", [])
+    formatted_ticks = []
+    for t in ticks:
+        t_copy = dict(t)
+        if "lidarRays" not in t_copy:
+            obj_dist = _safe_float(t_copy.get("obj"), 5.0)
+            t_copy["lidarRays"] = [
+                {
+                    "angle": round((a - 4) * 0.15, 4),
+                    "dist": round(min(20.0, max(1.5, obj_dist + (a % 3) * 0.6)), 3),
+                }
+                for a in range(9)
+            ]
+        formatted_ticks.append(t_copy)
+
     return {
         "scenario": norm_id,
         "seed": seed,
         "header": header,
         "mapData": map_data,
-        "ticks": ticks_data.get("ticks", []),
+        "ticks": formatted_ticks,
         "missions": missions,
         "totalTicks": ticks_data.get("totalTicks", 0),
         "duration": ticks_data.get("duration", 0.0),

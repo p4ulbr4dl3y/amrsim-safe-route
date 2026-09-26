@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { getLidarRays } from '../components/MapCanvas';
 
 export interface MapBounds {
   minX: number;
@@ -231,6 +232,50 @@ describe('MapCanvas Geometry & Projection', () => {
       // When tick time is undefined (overview or static view), visible as active
       expect(isObstacleActiveAtTick(dropTime, undefined)).toBe(true);
       expect(isObstacleActiveAtTick(dropTime, null)).toBe(true);
+    });
+  });
+
+  describe('Lidar Rays Visualization & Fallback', () => {
+    it('returns empty array when tick is undefined or null', () => {
+      expect(getLidarRays(null)).toEqual([]);
+      expect(getLidarRays(undefined)).toEqual([]);
+    });
+
+    it('preserves existing lidarRays if provided in tick', () => {
+      const customRays = [
+        { angle: -0.2, dist: 3.5 },
+        { angle: 0.0, dist: 4.2 },
+        { angle: 0.2, dist: 3.8 },
+      ];
+      const tick = { t: 1.0, x: 10, y: 20, th: 0, lidarRays: customRays };
+      expect(getLidarRays(tick)).toBe(customRays);
+    });
+
+    it('generates 9-ray lidar fan dynamically when tick has no lidarRays', () => {
+      const tick = { t: 1.0, x: 10, y: 20, th: 0, obj: 4.0 };
+      const rays = getLidarRays(tick);
+      expect(rays.length).toBe(9);
+
+      // Central ray (index 4) points straight forward (angle = 0)
+      expect(rays[4].angle).toBeCloseTo(0.0, 5);
+
+      // Edge rays are symmetric: -0.6 rad to +0.6 rad
+      expect(rays[0].angle).toBeCloseTo(-0.6, 5);
+      expect(rays[8].angle).toBeCloseTo(0.6, 5);
+
+      // Rays are within distance bounds [1.5, 20.0]
+      rays.forEach((ray) => {
+        expect(ray.dist).toBeGreaterThanOrEqual(1.5);
+        expect(ray.dist).toBeLessThanOrEqual(20.0);
+      });
+    });
+
+    it('uses fallback distance 5.0 when tick.obj is missing or null', () => {
+      const tick = { t: 1.0, x: 10, y: 20, th: 0 };
+      const rays = getLidarRays(tick);
+      expect(rays.length).toBe(9);
+      expect(rays[0].dist).toBeCloseTo(5.0, 2);
+      expect(rays[1].dist).toBeCloseTo(5.6, 2);
     });
   });
 });
