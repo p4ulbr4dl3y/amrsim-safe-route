@@ -19,6 +19,7 @@ from collections import OrderedDict
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -192,6 +193,10 @@ def normalize_scenario_id(scenario_id: str | None) -> str:
     return aliases.get(s, s)
 
 
+def _safe_dict(val: Any) -> dict:
+    return val if isinstance(val, dict) else {}
+
+
 def _safe_float(val: any, default: float = 0.0) -> float:
     if val is None:
         return default
@@ -288,6 +293,8 @@ def get_scenario_report(scenario_id: str) -> dict | None:
             try:
                 with open(p, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    if not isinstance(data, dict):
+                        return None
                     _REPORT_CACHE[norm_id] = data
                     return data
             except Exception:
@@ -453,7 +460,7 @@ def run_simulation(
             "reportPath": str(report_path),
             "logPath": str(log_path),
             "report": report_data,
-            "score": (report_data.get("score") or {}).get("total") if report_data else None,
+            "score": _safe_dict(report_data.get("score")).get("total") if isinstance(report_data, dict) else None,
         }
 
 
@@ -648,10 +655,10 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
 
     map_data = extract_map_data(scen_def, header)
 
-    score_data = (report.get("score") or {}) if report else {}
+    score_data = _safe_dict(report.get("score")) if isinstance(report, dict) else {}
     total_score = round(_safe_float(score_data.get("total")), 2)
     deliveries_count = score_data.get("deliveries", 0)
-    missions = (report.get("missions") or []) if report else []
+    missions = (report.get("missions") or []) if isinstance(report, dict) else []
     deliveries_total = len(missions) if missions else 2
 
     fatal = 1 if score_data.get("fatal") else 0
@@ -780,6 +787,8 @@ def build_replay_missions(header: dict | None, raw_ticks: list[dict]) -> list[di
     missions: list[dict] = []
 
     for m in missions_raw:
+        if not isinstance(m, dict):
+            continue
         m_id = m.get("id")
         from_pt = m.get("from", "") or ""
         to_pt = m.get("to", "") or ""
@@ -787,6 +796,8 @@ def build_replay_missions(header: dict | None, raw_ticks: list[dict]) -> list[di
         # Абсолютное время старта миссии по первому такту с совпадающим идентификатором
         t_start = 0.0
         for tk in raw_ticks:
+            if not isinstance(tk, dict):
+                continue
             if tk.get("m") == m_id:
                 t_start = _safe_float(tk.get("t"), 0.0)
                 break
@@ -821,7 +832,8 @@ def build_replay_view_model(scenario_id: str, seed: int = 7) -> dict:
     raw_ticks = ticks_data.get("raw_ticks") or ticks_data.get("ticks", [])
     missions = build_replay_missions(header, raw_ticks)
 
-    episodes_raw = (report.get("score") or {}).get("episodes") or [] if report else []
+    score_data = _safe_dict(report.get("score")) if isinstance(report, dict) else {}
+    episodes_raw = score_data.get("episodes") or []
     episodes_formatted = [
         {
             "id": f"ep-{idx + 1}",
@@ -855,7 +867,7 @@ def build_episodes_view_model(scenario_id: str) -> dict:
     ticks_data = parse_ticks_log(norm_id)
     raw_ticks = ticks_data.get("raw_ticks", [])
 
-    score = (report.get("score") or {}) if report else {}
+    score = _safe_dict(report.get("score")) if isinstance(report, dict) else {}
     episodes_raw = score.get("episodes") or []
 
     # Поиск ближайшего такта по временной метке
@@ -1219,9 +1231,10 @@ def build_episodes_view_model(scenario_id: str) -> dict:
 def build_missions_view_model(scenario_id: str) -> dict:
     norm_id = normalize_scenario_id(scenario_id)
     report = get_scenario_report(norm_id)
-    raw_missions = (report.get("missions") or []) if report else []
-    score_blocks = (((report.get("score") or {}) if report else {}).get("blocks") or {})
-    score_max = (((report.get("score") or {}) if report else {}).get("max") or {})
+    raw_missions = (report.get("missions") or []) if isinstance(report, dict) else []
+    score_data = _safe_dict(report.get("score")) if isinstance(report, dict) else {}
+    score_blocks = _safe_dict(score_data.get("blocks"))
+    score_max = _safe_dict(score_data.get("max"))
 
     missions = []
     completed = 0
@@ -1285,9 +1298,9 @@ def build_missions_view_model(scenario_id: str) -> dict:
 def build_analytics_view_model(scenario_id: str) -> dict:
     norm_id = normalize_scenario_id(scenario_id)
     report = get_scenario_report(norm_id)
-    score_data = (report.get("score") or {}) if report else {}
-    blocks_raw = score_data.get("blocks") or {}
-    max_raw = score_data.get("max") or {}
+    score_data = _safe_dict(report.get("score")) if isinstance(report, dict) else {}
+    blocks_raw = _safe_dict(score_data.get("blocks"))
+    max_raw = _safe_dict(score_data.get("max"))
 
     block_names = {
         "delivery": "Доставка груза",
@@ -1406,54 +1419,61 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
         # 1. API: список сценариев
         # ----------------------------------------------------------------------
         if path == "/api/scenarios":
-            scenarios = []
-            seen = set()
+            try:
+                scenarios = []
+                seen = set()
 
-            # Стандартные сценарии
-            if SCENARIOS_DIR.exists():
-                for f in sorted(SCENARIOS_DIR.glob("*.json")):
-                    sc_id = f.stem
-                    if sc_id not in seen:
-                        seen.add(sc_id)
-                        meta = SCENARIO_META.get(sc_id, {})
-                        rep = get_scenario_report(sc_id)
-                        scenarios.append(
-                            {
-                                "id": sc_id,
-                                "name": meta.get("title", f"{sc_id}.json"),
-                                "description": meta.get(
-                                    "description", "Сценарий тестирования AMR SafeRoute"
-                                ),
-                                "type": "standard",
-                                "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
-                                "hasReport": rep is not None,
-                                "score": (rep.get("score") or {}).get("total") if rep else None,
-                            }
-                        )
+                # Стандартные сценарии
+                if SCENARIOS_DIR.exists():
+                    for f in sorted(SCENARIOS_DIR.glob("*.json")):
+                        sc_id = f.stem
+                        if sc_id not in seen:
+                            seen.add(sc_id)
+                            meta = SCENARIO_META.get(sc_id, {})
+                            rep = get_scenario_report(sc_id)
+                            rep_score = rep.get("score") if isinstance(rep, dict) else None
+                            score = rep_score.get("total") if isinstance(rep_score, dict) else None
+                            scenarios.append(
+                                {
+                                    "id": sc_id,
+                                    "name": meta.get("title", f"{sc_id}.json"),
+                                    "description": meta.get(
+                                        "description", "Сценарий тестирования AMR SafeRoute"
+                                    ),
+                                    "type": "standard",
+                                    "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
+                                    "hasReport": isinstance(rep, dict),
+                                    "score": score,
+                                }
+                            )
 
-            # Пользовательские сценарии команды
-            if TEAM_SCENARIOS_DIR.exists():
-                for f in sorted(TEAM_SCENARIOS_DIR.glob("*.json")):
-                    sc_id = f.stem
-                    if sc_id not in seen:
-                        seen.add(sc_id)
-                        meta = SCENARIO_META.get(sc_id, {})
-                        rep = get_scenario_report(sc_id)
-                        scenarios.append(
-                            {
-                                "id": sc_id,
-                                "name": meta.get("title", f"backend/{sc_id}.json"),
-                                "description": meta.get(
-                                    "description", "Собственный сценарий команды О4"
-                                ),
-                                "type": "custom",
-                                "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
-                                "hasReport": rep is not None,
-                                "score": (rep.get("score") or {}).get("total") if rep else None,
-                            }
-                        )
+                # Пользовательские сценарии команды
+                if TEAM_SCENARIOS_DIR.exists():
+                    for f in sorted(TEAM_SCENARIOS_DIR.glob("*.json")):
+                        sc_id = f.stem
+                        if sc_id not in seen:
+                            seen.add(sc_id)
+                            meta = SCENARIO_META.get(sc_id, {})
+                            rep = get_scenario_report(sc_id)
+                            rep_score = rep.get("score") if isinstance(rep, dict) else None
+                            score = rep_score.get("total") if isinstance(rep_score, dict) else None
+                            scenarios.append(
+                                {
+                                    "id": sc_id,
+                                    "name": meta.get("title", f"backend/{sc_id}.json"),
+                                    "description": meta.get(
+                                        "description", "Собственный сценарий команды О4"
+                                    ),
+                                    "type": "custom",
+                                    "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
+                                    "hasReport": isinstance(rep, dict),
+                                    "score": score,
+                                }
+                            )
 
-            return self.send_json(scenarios)
+                return self.send_json(scenarios)
+            except Exception as e:
+                return self.send_json({"error": str(e)}, status=500)
 
         # ----------------------------------------------------------------------
         # 2. SDUI: модель представления дашборда
