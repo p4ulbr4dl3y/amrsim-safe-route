@@ -444,3 +444,80 @@ def test_eval_script_execution():
         with pytest.raises(SystemExit) as exc:
             runpy.run_path(str(Path(amr_eval.__file__)), run_name="__main__")
         assert exc.value.code == 0
+
+
+def test_format_table_baseline_without_scenarios():
+    rows = [
+        {
+            "scenario": "scen_a",
+            "missions": "1/1",
+            "delivery": 40.0,
+            "efficiency": 20.0,
+            "safety": 15.0,
+            "rules": 10.0,
+            "pose": 5.0,
+            "collisions": 5.0,
+            "total": 95.0,
+            "step_mean_ms": 1.0,
+            "step_max_ms": 2.0,
+            "counted": True,
+            "fatal": False,
+        }
+    ]
+    # baseline_summary present but without "scenarios" key
+    tbl_empty = format_table(rows, baseline_summary={})
+    assert "BaseΔ" not in tbl_empty
+    assert "95.00" in tbl_empty
+
+    tbl_no_scen = format_table(rows, baseline_summary={"version": 1})
+    assert "BaseΔ" not in tbl_no_scen
+    assert "95.00" in tbl_no_scen
+
+
+def test_format_table_delta_missing_scenarios_arithmetic():
+    rows = [
+        {
+            "scenario": "scen_in_base",
+            "missions": "1/1",
+            "delivery": 40.0,
+            "efficiency": 20.0,
+            "safety": 15.0,
+            "rules": 10.0,
+            "pose": 5.0,
+            "collisions": 5.0,
+            "total": 90.0,
+            "step_mean_ms": 1.0,
+            "step_max_ms": 2.0,
+            "counted": True,
+            "fatal": False,
+        },
+        {
+            "scenario": "scen_not_in_base",
+            "missions": "1/1",
+            "delivery": 40.0,
+            "efficiency": 10.0,
+            "safety": 15.0,
+            "rules": 10.0,
+            "pose": 5.0,
+            "collisions": 0.0,
+            "total": 80.0,
+            "step_mean_ms": 1.0,
+            "step_max_ms": 2.0,
+            "counted": True,
+            "fatal": False,
+        },
+    ]
+    baseline = {
+        "scenarios": {
+            "scen_in_base": {"total": 85.0},
+        }
+    }
+    tbl = format_table(rows, baseline_summary=baseline)
+    lines = tbl.strip().split("\n")
+    summary_line = lines[-1]
+    # Total score should be 170.00
+    assert "170.00" in summary_line
+    # Delta should be +5.00 (from scen_in_base), NOT +85.00 (170 - 85)
+    assert "+5.00" in summary_line
+    assert "+85.00" not in summary_line
+

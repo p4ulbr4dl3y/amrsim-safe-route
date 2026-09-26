@@ -286,8 +286,13 @@ class TestGeomEdgeCases(unittest.TestCase):
     def test_inside_polygon_empty_or_degenerate(self):
         # degenerate poly < 3 vertices
         self.assertFalse(inside_polygon(1.0, 1.0, [[0, 0], [1, 1]]))
-        # empty query points
-        res = inside_polygon(np.empty((0, 2)), [[0, 0], [1, 0], [1, 1]])
+        # empty query points (1D list and 1D numpy array)
+        poly = [[0, 0], [10, 0], [10, 10], [0, 10]]
+        self.assertFalse(inside_polygon([], poly))
+        self.assertFalse(inside_polygon(np.empty(0), poly))
+        # empty query points (2D array)
+        res = inside_polygon(np.empty((0, 2)), poly)
+        self.assertIsInstance(res, np.ndarray)
         self.assertEqual(len(res), 0)
 
     def test_box_segs_edge_cases(self):
@@ -298,11 +303,28 @@ class TestGeomEdgeCases(unittest.TestCase):
         p2 = np.array([[2.0, 2.0], [3.0, 2.0], [3.0, 3.0]])
         res = box_segs([p1, p2])
         self.assertEqual(res.shape, (6, 4))
+        # 3D numpy array of shape (N, K, 2)
+        p3d = np.array([
+            [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            [[5.0, 5.0], [6.0, 5.0], [6.0, 6.0], [5.0, 6.0]],
+        ])
+        res3d = box_segs(p3d)
+        self.assertEqual(res3d.shape, (8, 4))
+        # Degenerate 3D numpy arrays
+        self.assertEqual(box_segs(np.empty((0, 4, 2))).shape, (0, 4))
+        self.assertEqual(box_segs(np.empty((2, 0, 2))).shape, (0, 4))
+        self.assertEqual(box_segs(np.empty((2, 4, 3))).shape, (0, 4))
         # Invalid shape
         self.assertEqual(box_segs([[0.0, 0.0]]).shape, (0, 4))
 
     def test_polygon_area_degenerate(self):
         self.assertEqual(polygon_area([[0, 0], [1, 1]]), 0.0)
+        # 1D sequence of length >= 3
+        self.assertEqual(polygon_area([1.0, 2.0, 3.0]), 0.0)
+        self.assertEqual(polygon_area([1.0, 2.0, 3.0, 4.0]), 0.0)
+        self.assertEqual(polygon_area(np.array([1.0, 2.0, 3.0, 4.0])), 0.0)
+        # 3D coordinates sequence
+        self.assertEqual(polygon_area([[0, 0, 1], [1, 0, 1], [1, 1, 1]]), 0.0)
 
 
 if __name__ == "__main__":
