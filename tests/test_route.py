@@ -17,6 +17,8 @@ from team_dreamteam_4_0.route import (
     Planner,
     QuinticSpline1D,
     RouteFollower,
+    build_static_free_grid,
+    check_speed_zones,
     compute_cross_track_error,
     compute_curvature_speed_limit,
     compute_pure_pursuit_cmd,
@@ -711,6 +713,125 @@ class TestRouteCoverage(unittest.TestCase):
         rf_res2 = rf.is_drivable(np.array([]))
         self.assertIsInstance(rf_res2, np.ndarray)
         self.assertEqual(len(rf_res2), 0)
+
+
+class TestRouteDefectFixes(unittest.TestCase):
+    def setUp(self):
+        self.map_dict = load_test_map()
+        self.rf = RouteFollower(self.map_dict)
+
+    def test_empty_reference_path_update_mission(self):
+        """P0: update_mission with empty reference_path should not raise IndexError."""
+        mission_empty = {"id": "empty_mission", "reference_path": []}
+        # Should not raise IndexError
+        self.rf.update_mission(mission_empty, (10.0, 10.0, 0.0))
+        self.assertEqual(len(self.rf.active_path), 0)
+
+        # Step should handle empty active_path gracefully
+        cmd = self.rf.step((10.0, 10.0, 0.0), mission=mission_empty)
+        self.assertEqual(cmd["v"], 0.0)
+        self.assertEqual(cmd["w"], 0.0)
+
+    def test_check_speed_zones_non_finite_inputs(self):
+        """P0: check_speed_zones with NaN or Inf should return 0.0 safely without ValueError."""
+        zones = self.map_dict.get("zones", [])
+        self.assertEqual(check_speed_zones(float("nan"), 10.0, 0.0, zones), 0.0)
+        self.assertEqual(check_speed_zones(10.0, float("nan"), 0.0, zones), 0.0)
+        self.assertEqual(check_speed_zones(10.0, 10.0, float("nan"), zones), 0.0)
+        self.assertEqual(check_speed_zones(10.0, 10.0, float("inf"), zones), 0.0)
+        self.assertEqual(check_speed_zones(10.0, 10.0, float("-inf"), zones), 0.0)
+
+        # Also via RouteFollower method
+        self.assertEqual(self.rf.check_speed_zones(10.0, 10.0, float("nan")), 0.0)
+        self.assertEqual(self.rf.check_speed_zones(float("nan"), 10.0, 0.0), 0.0)
+
+    def test_step_goal_representations(self):
+        """P1: RouteFollower.step handles dict, 2D list/tuple, and 3D list/tuple goals."""
+        path = [[100.0, 151.0], [100.05, 151.0]]
+        pose = (100.05, 151.0, 0.0)  # At goal
+
+        # 1. Dict goal with 'heading'
+        m_dict_heading = {"id": "m_dh", "reference_path": path, "goal": {"heading": math.pi / 2}}
+        cmd1 = self.rf.step(pose, mission=m_dict_heading)
+        self.assertTrue(cmd1["arrived"])
+        self.assertGreater(cmd1["w"], 0.0)
+
+        # 2. Dict goal with 'th'
+        m_dict_th = {"id": "m_dt", "reference_path": path, "goal": {"th": -math.pi / 2}}
+        cmd2 = self.rf.step(pose, mission=m_dict_th)
+        self.assertTrue(cmd2["arrived"])
+        self.assertLess(cmd2["w"], 0.0)
+
+        # 3. 2D list/tuple goal (no heading specified -> w should remain 0.0)
+        m_2d_list = {"id": "m_2dl", "reference_path": path, "goal": [100.05, 151.0]}
+        cmd3 = self.rf.step(pose, mission=m_2d_list)
+        self.assertTrue(cmd3["arrived"])
+        self.assertEqual(cmd3["w"], 0.0)
+
+        m_2d_tuple = {"id": "m_2dt", "reference_path": path, "goal": (100.05, 151.0)}
+        cmd4 = self.rf.step(pose, mission=m_2d_tuple)
+        self.assertTrue(cmd4["arrived"])
+        self.assertEqual(cmd4["w"], 0.0)
+
+        # 4. 3D list goal
+        m_3d = {"id": "m_3d", "reference_path": path, "goal": [100.05, 151.0, math.pi / 2]}
+        cmd5 = self.rf.step(pose, mission=m_3d)
+        self.assertTrue(cmd5["arrived"])
+        self.assertGreater(cmd5["w"], 0.0)
+
+    def test_pure_pursuit_and_stanley_nan_inf_pose(self):
+        """P1: NaN or Inf pose coordinates immediately return zero velocity command."""
+        path = np.array([[0.0, 0.0], [5.0, 0.0]])
+
+        # Pure pursuit with NaN/Inf
+        v, w, _, _, _ = compute_pure_pursuit_cmd((float("nan"), 0.0, 0.0), path)
+        self.assertEqual(v, 0.0)
+        self.assertEqual(w, 0.0)
+
+        v, w, _, _, _ = compute_pure_pursuit_cmd((0.0, float("nan"), 0.0), path)
+        self.assertEqual(v, 0.0)
+        self.assertEqual(w, 0.0)
+
+        v, w, _, _, _ = compute_pure_pursuit_cmd((0.0, 0.0, float("nan")), path)
+        self.assertEqual(v, 0.0)
+        self.assertEqual(w, 0.0)
+
+        v, w, _, _, _ = compute_pure_pursuit_cmd((float("inf"), 0.0, 0.0), path)
+        self.assertEqual(v, 0.0)
+        self.assertEqual(w, 0.0)
+
+        # Stanley with NaN
+        v, w, _, _, _ = compute_stanley_cmd((float("nan"), 0.0, 0.0), path)
+        self.assertEqual(v, 0.0)
+        self.assertEqual(w, 0.0)
+
+        v, w, _, _, _ = compute_stanley_cmd((0.0, 0.0, float("nan")), path)
+        self.assertEqual(v, 0.0)
+        self.assertEqual(w, 0.0)
+
+        # RouteFollower.step with NaN pose
+        cmd = self.rf.step((float("nan"), 0.0, 0.0))
+        self.assertEqual(cmd["v"], 0.0)
+        self.assertEqual(cmd["w"], 0.0)
+
+    def test_build_static_free_grid_empty_polys(self):
+        """P2: build_static_free_grid does not crash on empty polygon arrays in drivable_polys."""
+        # Empty array inside drivable_polys
+        grid1, _, _, _, _, _, _ = build_static_free_grid([np.empty((0, 2))], [])
+        self.assertIsInstance(grid1, np.ndarray)
+
+        # Completely empty list
+        grid2, _, _, _, _, _, _ = build_static_free_grid([], [])
+        self.assertIsInstance(grid2, np.ndarray)
+
+        # Mix of valid polygon and empty arrays
+        valid_poly = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
+        grid3, _, _, _, _, _, _ = build_static_free_grid(
+            [valid_poly, np.empty((0, 2)), np.array([])],
+            [np.empty((0, 2))],
+        )
+        self.assertIsInstance(grid3, np.ndarray)
+        self.assertTrue(np.any(grid3))
 
 
 if __name__ == "__main__":

@@ -326,7 +326,7 @@ def inside_polygon(x, y=None, poly=None) -> Union[bool, np.ndarray]:
         poly_arr = np.asarray(y, dtype=float)
         is_single = pts.ndim == 1
         pts_arr = np.atleast_2d(pts)
-        if pts_arr.size == 0 or pts_arr.shape[1] == 0:
+        if pts_arr.size == 0 or pts_arr.shape[1] < 2:
             return False if is_single else np.zeros(0, dtype=bool)
         px = pts_arr[:, 0]
         py = pts_arr[:, 1]
@@ -336,7 +336,12 @@ def inside_polygon(x, y=None, poly=None) -> Union[bool, np.ndarray]:
         py = np.atleast_1d(np.asarray(y, dtype=float))
         poly_arr = np.asarray(poly, dtype=float)
 
-    if len(poly_arr) < 3 or len(px) == 0:
+    if (
+        poly_arr.ndim != 2
+        or poly_arr.shape[1] != 2
+        or len(poly_arr) < 3
+        or len(px) == 0
+    ):
         res = np.zeros(len(px), dtype=bool)
         return bool(res[0]) if (is_single and len(res) > 0) else (False if is_single else res)
 

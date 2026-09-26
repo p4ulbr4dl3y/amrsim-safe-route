@@ -326,6 +326,30 @@ class TestGeomEdgeCases(unittest.TestCase):
         # 3D coordinates sequence
         self.assertEqual(polygon_area([[0, 0, 1], [1, 0, 1], [1, 1, 1]]), 0.0)
 
+    def test_inside_polygon_1d_and_single_column_inputs(self):
+        # 1D polygon inputs should return False without IndexError
+        poly_1d = [1.0, 2.0, 3.0]
+        self.assertFalse(inside_polygon(1.0, 2.0, poly_1d))
+        self.assertFalse(inside_polygon([1.0, 2.0], poly_1d))
+        self.assertFalse(inside_polygon(1.0, 2.0, np.array([0.0, 1.0, 2.0, 3.0])))
+
+        # Single-column polygon inputs (shape N, 1) should return False without IndexError
+        poly_single_col = [[0.0], [1.0], [2.0]]
+        self.assertFalse(inside_polygon(1.0, 2.0, poly_single_col))
+        self.assertFalse(inside_polygon(1.0, 2.0, np.array([[0.0], [1.0], [2.0]])))
+
+        # Array query points with invalid polygons should return boolean array of False
+        pts_query = np.array([[1.0, 2.0], [3.0, 4.0]])
+        res_1d = inside_polygon(pts_query, poly_1d)
+        self.assertIsInstance(res_1d, np.ndarray)
+        self.assertEqual(len(res_1d), 2)
+        self.assertFalse(np.any(res_1d))
+
+        res_col = inside_polygon(pts_query, poly_single_col)
+        self.assertIsInstance(res_col, np.ndarray)
+        self.assertEqual(len(res_col), 2)
+        self.assertFalse(np.any(res_col))
+
 
 if __name__ == "__main__":
     unittest.main()

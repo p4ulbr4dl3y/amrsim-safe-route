@@ -52,6 +52,9 @@ def check_speed_zones(
 
     Возвращает максимально допустимую скорость (м/с), по умолчанию 1.39 м/с.
     """
+    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(th)):
+        return 0.0
+
     c, s = math.cos(th), math.sin(th)
     test_pts = np.array(
         [
@@ -185,6 +188,10 @@ def compute_pure_pursuit_cmd(
     Возвращает (v, w, target_point, current_s, remaining_dist).
     """
     x, y, th = pose
+    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(th)):
+        target_pt = (float(path[0, 0]), float(path[0, 1])) if len(path) > 0 else (0.0, 0.0)
+        return 0.0, 0.0, target_pt, 0.0, 0.0
+
     if len(path) < 2:
         return 0.0, 0.0, (x, y), 0.0, 0.0
 
@@ -248,6 +255,10 @@ def compute_stanley_cmd(
     Возвращает (v, w, target_point, current_s, remaining_dist).
     """
     x, y, th = pose
+    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(th)):
+        target_pt = (float(path[0, 0]), float(path[0, 1])) if len(path) > 0 else (0.0, 0.0)
+        return 0.0, 0.0, target_pt, 0.0, 0.0
+
     if len(path) < 2:
         return 0.0, 0.0, (x, y), 0.0, 0.0
 
