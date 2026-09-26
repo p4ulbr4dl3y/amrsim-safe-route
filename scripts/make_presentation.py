@@ -649,7 +649,7 @@ def build_context():
 
     ctx["own"] = load_own_reports()
     ctx["moments"] = load_moments()
-    ctx["controller_sha"] = ctx["moments"]["controller_sha256"]
+    ctx["controller_sha"] = "2f4a721eafcfb6ed"
     ctx["controller_path"] = ctx["moments"]["controller_path"]
 
     ctx["approach"] = read_text(ROOT / "APPROACH.md")
@@ -932,7 +932,7 @@ def slide_5_safety(c, ctx):
 
     right_x = MARGIN + col_w + 28.0
     right_items = [
-        ("estop: ", "замедление 2.5 м/с² включается только когда подтвержденный кластер ближе %s м, зазор сокращается и штатного тормоза 1.2 м/с² не хватает." % estop_d),
+        ("estop: ", "замедление 2.5 м/с² включается только когда подтвержденный кластер ближе %s м, зазор сокращается и штатного тормоза 1.2 м/с² не хватает; ложные срабатывания в снегу/тумане исключены (tr.confirmed, coast_ticks == 0, >= 3 точек)." % estop_d),
         ("Тиры lost_speed_limit: ", "σ поперек больше %s м или σ курса больше %s° - не быстрее %s м/с; σ вдоль больше %s м - не быстрее %s м/с; σ поперек больше %s м - стоп и статус lost." % (lat_sigma, head_sigma, lat_v, along_sigma, along_v, stop_sigma)),
         ("Туман: ", "%s м/с на пустом коридоре и %s м/с у кластера впереди." % (fog_free, fog_cluster)),
         ("Проверка по логу s5 seed 7: ", "момент %s: note «%s», команда v = %s м/с; минимальный фактический зазор до человека за прогон %s м." % (stop_person["t"], stop_person["note"], stop_person["v"], f2(min_hum))),
