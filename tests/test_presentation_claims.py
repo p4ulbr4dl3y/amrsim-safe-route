@@ -156,6 +156,16 @@ def test_combat_path_rejects_wired_alternatives():
         assert "def compute_stanley_cmd" not in text, f"Found compute_stanley_cmd in {py_file}"
         assert "def smooth_yaw_rate_quintic" not in text, f"Found smooth_yaw_rate_quintic in {py_file}"
         assert "def cbf_velocity_limit" not in text, f"Found cbf_velocity_limit in {py_file}"
+        assert "QuinticSpline1D" not in text, f"Found QuinticSpline1D in {py_file}"
+
+
+def test_controller_package_has_no_quintic_spline():
+    """Боевой пакет team_dreamteam_4_0 не содержит класс QuinticSpline1D."""
+    controller_pkg = ROOT / "team_dreamteam_4_0"
+    for py_file in controller_pkg.rglob("*.py"):
+        text = py_file.read_text(encoding="utf-8")
+        assert "class QuinticSpline1D" not in text, f"Found QuinticSpline1D in {py_file}"
+        assert "QuinticSpline1D" not in text, f"Found QuinticSpline1D reference in {py_file}"
 
 
 def _ticks(relative):

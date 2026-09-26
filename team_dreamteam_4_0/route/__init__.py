@@ -31,9 +31,6 @@ from .pure_pursuit import (
     find_lookahead_point,
     get_path_progress,
 )
-from .spline import (
-    QuinticSpline1D,
-)
 
 __all__ = [
     "Planner",
@@ -61,5 +58,4 @@ __all__ = [
     "check_obstacles_in_tube",
     "apply_lateral_offset",
     "_plan_lateral_shift",
-    "QuinticSpline1D",
 ]
