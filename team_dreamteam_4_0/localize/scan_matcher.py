@@ -324,6 +324,21 @@ def recover_grid_search(
             if len(top_hypotheses) >= 3:
                 break
 
+    # Контраст пика грубой сетки: однозначный пик (лучшая гипотеза заметно выше
+    # ближайшей конкурирующей) необходим, чтобы оправдать крупный скачок позы.
+    # Плоское плато в открытом коридоре допускает ложное восстановление.
+    best_score, bx, by, bth = candidates[0]
+    second_score = 0
+    for score, cx, cy, cand_th in candidates[1:]:
+        if (
+            abs(cx - bx) > 0.75
+            or abs(cy - by) > 0.75
+            or abs(wrap_angle(cand_th - bth)) > math.radians(3.0)
+        ):
+            second_score = score
+            break
+    decisive = best_score >= second_score * 1.15 or best_score - second_score >= 6
+
     # Уровень 2 (Fine): локальная оптимизация Levenberg-Marquardt вокруг отобранных кандидатов
     fine_results = []
     for _score, cx, cy, cth in top_hypotheses:
@@ -335,24 +350,20 @@ def recover_grid_search(
         # Сортировка по числу инлайеров и минимальному СКО невязок
         fine_results.sort(key=lambda item: (-item[0], item[1]))
         _best_inliers, _best_std, fx, fy, fth = fine_results[0]
-        return fx, fy, fth
+        # Скачок позы больше 1 м допускается только при однозначном пике грубой сетки:
+        # при плоском плато подтвержденная LM гипотеза все еще может увести оценку на
+        # 5 м в сторону (ложное восстановление в открытом коридоре), поэтому такая
+        # гипотеза отклоняется.
+        if not (math.hypot(fx - x, fy - y) > 1.0 and not decisive):
+            return fx, fy, fth
 
-    # Резервная эвристика по грубой сетке при недоборе инлайеров LM
-    best_score, bx, by, bth = candidates[0]
-    second_score = 0
-    for score, cx, cy, cand_th in candidates[1:]:
-        if (
-            abs(cx - bx) > 0.75
-            or abs(cy - by) > 0.75
-            or abs(wrap_angle(cand_th - bth)) > math.radians(3.0)
-        ):
-            second_score = score
-            break
-
-    if best_score >= 35 and (
-        best_score >= second_score * 1.15 or best_score - second_score >= 6
-    ):
-        return bx, by, bth
+    # Резервная эвристика по грубой сетке при недоборе инлайеров LM. Гипотеза грубой
+    # сетки возвращается только после подтверждения через match_scan_to_walls: без
+    # подтверждения это не восстановление позы, а скачок оценки.
+    if best_score >= 35 and decisive:
+        confirmed = match_scan_to_walls(bx, by, bth, r_all, rel_all, segs, is_fog=is_fog)
+        if confirmed.success:
+            return confirmed.x, confirmed.y, confirmed.th
 
     return None
 
@@ -431,6 +442,15 @@ def match_scan_to_walls(
     supported = (d_prev < 0.4) | (d_next < 0.4)
     supported_sub = supported[sub_indices]
     candidate_mask = valid_range_mask & supported_sub
+    if candidate_mask.sum() < 20:
+        # Мало подтвержденных соседями лучей (открытый коридор: стены дальше 19 м,
+        # одиночные отклики не поддерживаются). Опираемся на лучи самой карты:
+        # луч считается кандидатом, если карта из текущей позы возвращает конечную
+        # дальность и измерение тоже конечно.
+        exp_map = raycast(x, y, th + rel_sub, near_segs_arr, max_range=max_valid_range)
+        map_mask = np.isfinite(exp_map) & valid_range_mask
+        if map_mask.sum() >= 20:
+            candidate_mask = map_mask
     if candidate_mask.sum() < 20:
         return ScanMatchResult(
             success=False,
