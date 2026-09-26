@@ -464,6 +464,25 @@ def extract_map_data(scen_def: dict | None, header: dict | None) -> dict:
     elif header and isinstance(header, dict) and "map" in header:
         source_map = header["map"]
 
+    missions = []
+    if scen_def and isinstance(scen_def, dict) and "missions" in scen_def:
+        missions = scen_def["missions"]
+    elif header and isinstance(header, dict) and "missions" in header:
+        missions = header["missions"]
+
+    reference_paths = []
+    if isinstance(missions, list):
+        for m in missions:
+            if isinstance(m, dict) and "reference_path" in m:
+                path = m["reference_path"]
+                if isinstance(path, list):
+                    clean_path = []
+                    for pt in path:
+                        if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                            clean_path.append([_safe_float(pt[0]), _safe_float(pt[1])])
+                    if clean_path:
+                        reference_paths.append(clean_path)
+
     if not source_map or not isinstance(source_map, dict):
         return {
             "bounds": [0, 0, 250, 200],
@@ -473,6 +492,7 @@ def extract_map_data(scen_def: dict | None, header: dict | None) -> dict:
             "gates": [],
             "crossing": [],
             "points": {},
+            "referencePaths": reference_paths,
         }
 
     points_raw = source_map.get("points") or {}
@@ -502,6 +522,7 @@ def extract_map_data(scen_def: dict | None, header: dict | None) -> dict:
         "gates": source_map.get("gates") or [],
         "crossing": source_map.get("crossing") or [],
         "points": points_formatted,
+        "referencePaths": reference_paths,
     }
 
 

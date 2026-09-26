@@ -298,25 +298,26 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       });
     }
 
-    // 5. Опорный путь: пунктирная линия
+    // 5. Опорный путь: пунктирная линия из данных сценария
     if (layers.referencePath) {
-      ctx.strokeStyle = '#93C5FD';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 4]);
-      ctx.beginPath();
-      const pStart = toScreen(51.5, 150.0);
-      const pMid1 = toScreen(75.0, 150.0);
-      const pMid2 = toScreen(105.0, 150.0);
-      const pMid3 = toScreen(200.0, 150.0);
-      const pEnd = toScreen(220.0, 158.5);
-
-      ctx.moveTo(pStart.x, pStart.y);
-      ctx.lineTo(pMid1.x, pMid1.y);
-      ctx.lineTo(pMid2.x, pMid2.y);
-      ctx.lineTo(pMid3.x, pMid3.y);
-      ctx.lineTo(pEnd.x, pEnd.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      const paths = activeMap.referencePaths;
+      if (paths && paths.length > 0) {
+        ctx.strokeStyle = '#93C5FD';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 4]);
+        paths.forEach((path: [number, number][]) => {
+          if (!path || path.length < 2) return;
+          ctx.beginPath();
+          const pStart = toScreen(path[0][0], path[0][1]);
+          ctx.moveTo(pStart.x, pStart.y);
+          for (let i = 1; i < path.length; i++) {
+            const p = toScreen(path[i][0], path[i][1]);
+            ctx.lineTo(p.x, p.y);
+          }
+          ctx.stroke();
+        });
+        ctx.setLineDash([]);
+      }
     }
 
     // 6. Станции доков

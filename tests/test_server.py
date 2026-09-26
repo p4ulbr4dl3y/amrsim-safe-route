@@ -557,19 +557,24 @@ def test_extract_map_data_variations():
     empty_map = extract_map_data(None, None)
     assert empty_map["bounds"] == [0, 0, 250, 200]
     assert empty_map["points"] == {}
+    assert empty_map["referencePaths"] == []
 
-    # Header with map
+    # Header with map and missions
     header = {
         "map": {
             "bounds": [0, 0, 100, 100],
             "points": {"ptA": {"x": 10.0, "y": 20.0}},
             "buildings": [],
             "zones": [],
-        }
+        },
+        "missions": [
+            {"id": "m1", "reference_path": [[10.0, 20.0], [30.0, 40.0]]}
+        ],
     }
     header_map = extract_map_data(None, header)
     assert header_map["bounds"] == [0, 0, 100, 100]
     assert "ptA" in header_map["points"]
+    assert header_map["referencePaths"] == [[[10.0, 20.0], [30.0, 40.0]]]
 
 
 def test_parse_ticks_log_edge_cases(tmp_path, monkeypatch):
