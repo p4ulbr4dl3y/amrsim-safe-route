@@ -250,11 +250,39 @@ def test_s4b_lost_sequence_and_recovery():
             assert float(tick.get("v", 0.0)) == 0.0
 
 
-def test_readme_claims_no_batch_teams_and_no_99_7():
-    """README не содержит несуществующий вызов batch teams и не заявляет 99.7 по 03."""
+def test_readme_claims_no_batch_teams_and_valid_eval():
+    """README не содержит несуществующий вызов batch teams, не заявляет 99.7 по 03 и команда eval валидна."""
+    import re
+    import shlex
+    import subprocess
+
+    from eval import build_parser
+
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "batch teams" not in readme
     assert "99.7" not in readme
+
+    match = re.search(r"### Пакетный прогон по набору сидов:\s*```bash\s*\n([^\n]+)", readme)
+    assert match, "Не найдена секция пакетного прогона в README.md"
+    cmd_str = match.group(1).strip()
+
+    parts = shlex.split(cmd_str)
+    eval_idx = next((i for i, p in enumerate(parts) if "eval.py" in p), None)
+    assert eval_idx is not None, f"Команда не вызывает eval.py: {cmd_str}"
+
+    args_to_check = parts[eval_idx + 1 :]
+    parser = build_parser()
+    parsed_args = parser.parse_args(args_to_check)
+    assert parsed_args.seeds is not None
+    assert "1,2,3,7,11,21,42" in parsed_args.seeds
+
+    res = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "eval.py"), "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "--seeds" in res.stdout
 
 
 def test_alternatives_does_not_attribute_stanley_cbf_to_controller():
@@ -309,7 +337,6 @@ def test_readme_scenario_and_seed_claims():
     assert "90 автоматических тестов Vitest" in arm_readme
 
 
-
 def test_s5_fog_moment_stop_person():
     """Момент s5_fog_inattentive фиксирует остановку перед пешеходом в тумане на t=87.4."""
     moments = json.loads(
@@ -346,10 +373,21 @@ def test_gnss_filtering_no_direct_pose_overwrite_and_smooth_blend():
 
 
 def test_alternatives_has_no_unsubstantiated_claims():
-    """ALTERNATIVES.md не содержит неподтвержденных утверждений о субмиллиметрах, 14.6 с, 0.70 балла и ошибке < 0.01 м."""
+    """ALTERNATIVES.md не содержит неподтвержденных утверждений о субмиллиметрах, 14-16 с, 130 мс и около 1.3 мс."""
     alternatives = (ROOT / "results" / "ALTERNATIVES.md").read_text(encoding="utf-8")
-    for banned in ("< 0.01", "субмиллиметр", "14.6", "+0.70", "0.70"):
+    for banned in (
+        "< 0.01",
+        "субмиллиметр",
+        "14.6",
+        "+0.70",
+        "0.70",
+        "14-16",
+        "130 мс",
+        "около 1.3 мс",
+    ):
         assert banned not in alternatives, f"Found unverified claim '{banned}' in ALTERNATIVES.md"
+
+
 
 
 

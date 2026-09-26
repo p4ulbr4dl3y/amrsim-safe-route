@@ -203,8 +203,9 @@ def format_table(
         ]
         total_score_sum += r["total"]
 
+        base_key = scen if (base_scenarios and scen in base_scenarios) else scen.split(" (s=")[0]
         if has_baseline and base_scenarios is not None:
-            base_scen = base_scenarios.get(scen)
+            base_scen = base_scenarios.get(base_key)
             if isinstance(base_scen, dict):
                 base_tot = float(base_scen.get("total") if base_scen.get("total") is not None else 0.0)
                 delta = r["total"] - base_tot
@@ -281,8 +282,9 @@ def check_regressions(
 
     for r in results:
         scen = r["scenario"]
-        if scen in base_scenarios:
-            base_scen = base_scenarios[scen]
+        base_key = scen if scen in base_scenarios else scen.split(" (s=")[0]
+        if base_key in base_scenarios:
+            base_scen = base_scenarios[base_key]
             if isinstance(base_scen, dict):
                 base_tot = float(base_scen.get("total") if base_scen.get("total") is not None else 0.0)
                 new_tot = r["total"]
@@ -294,7 +296,7 @@ def check_regressions(
     return regressions
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Оценка контроллера AMR")
     parser.add_argument(
         "--controller",
@@ -310,6 +312,12 @@ def main() -> None:
         type=int,
         default=7,
         help="Случайное зерно генератора (по умолчанию: 7)",
+    )
+    parser.add_argument(
+        "--seeds",
+        type=str,
+        default=None,
+        help="Список сидов через запятую (например: 1,2,3,7,11,21,42)",
     )
     parser.add_argument(
         "--scenarios",
@@ -352,13 +360,23 @@ def main() -> None:
         action="store_true",
         help="Подробный вывод хода симуляции",
     )
+    return parser
 
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
 
     controller_path = Path(args.controller)
     if not controller_path.exists():
         print(f"Ошибка: контроллер не найден: {controller_path}", file=sys.stderr)
         sys.exit(1)
+
+    seed_list = (
+        [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
+        if args.seeds
+        else [args.seed]
+    )
 
     # Determine baseline summary if available
     baseline_data: Optional[Dict[str, Any]] = None
@@ -384,34 +402,45 @@ def main() -> None:
 
     results: List[Dict[str, Any]] = []
 
-    print(f"Тестирование контроллера: {controller_path} (seed={args.seed})")
+    print(f"Тестирование контроллера: {controller_path} (seeds={seed_list})")
     print(f"Сценариев: {len(args.scenarios)}")
     print("-" * 60)
 
-    for scen_raw in args.scenarios:
-        scen_path = resolve_scenario_path(scen_raw)
-        if not scen_path.exists():
-            print(f"Ошибка: сценарий не найден: {scen_raw} ({scen_path})", file=sys.stderr)
-            sys.exit(1)
+    for seed in seed_list:
+        for scen_raw in args.scenarios:
+            scen_path = resolve_scenario_path(scen_raw)
+            if not scen_path.exists():
+                print(f"Ошибка: сценарий не найден: {scen_raw} ({scen_path})", file=sys.stderr)
+                sys.exit(1)
 
-        scen_stem = scen_path.stem
-        report_file = report_dir / f"{ctrl_label}_{scen_stem}.json"
+            scen_stem = scen_path.stem
+            report_file = (
+                report_dir / f"{ctrl_label}_{scen_stem}_seed{seed}.json"
+                if len(seed_list) > 1
+                else report_dir / f"{ctrl_label}_{scen_stem}.json"
+            )
 
-        report = run_scenario(
-            scenario_path=scen_path,
-            controller_path=controller_path,
-            seed=args.seed,
-            report_path=report_file,
-            verbose=args.verbose,
-        )
-        metrics = extract_metrics(report)
-        results.append(metrics)
+            report = run_scenario(
+                scenario_path=scen_path,
+                controller_path=controller_path,
+                seed=seed,
+                report_path=report_file,
+                verbose=args.verbose,
+            )
+            metrics = extract_metrics(report)
+            if len(seed_list) > 1:
+                metrics["seed"] = seed
+                metrics["scenario"] = f"{metrics['scenario']} (s={seed})"
+            else:
+                metrics["seed"] = seed
+            results.append(metrics)
 
     print("\n" + format_table(results, baseline_summary=baseline_data) + "\n")
 
     # Structure summary data
     summary_obj = {
-        "seed": args.seed,
+        "seeds": seed_list,
+        "seed": seed_list[0] if len(seed_list) == 1 else seed_list,
         "controller": str(controller_path),
         "total_score": round(sum(r["total"] for r in results), 2),
         "avg_score": round(sum(r["total"] for r in results) / len(results), 2) if results else 0.0,
