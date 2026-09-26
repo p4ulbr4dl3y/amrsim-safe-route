@@ -30,13 +30,22 @@ export function drawDynamicEntities({
     ctx.strokeStyle = 'rgba(147, 197, 253, 0.45)';
     ctx.lineWidth = 1;
     currentTick.lidarRays.forEach(ray => {
-      const endWx = currentTick.x + Math.cos(ray.angle) * ray.dist;
-      const endWy = currentTick.y + Math.sin(ray.angle) * ray.dist;
+      // Луч лидара направлен по курсу платформы currentTick.th плюс относительный угол луча
+      const rayAngle = currentTick.th + ray.angle;
+      const endWx = currentTick.x + Math.cos(rayAngle) * ray.dist;
+      const endWy = currentTick.y + Math.sin(rayAngle) * ray.dist;
       const rayEnd = toScreen(endWx, endWy);
+
       ctx.beginPath();
       ctx.moveTo(robotScreen.x, robotScreen.y);
       ctx.lineTo(rayEnd.x, rayEnd.y);
       ctx.stroke();
+
+      // Точка отражения на конце луча (согласно макету АРМ)
+      ctx.beginPath();
+      ctx.arc(rayEnd.x, rayEnd.y, Math.max(2, 0.25 * scale), 0, Math.PI * 2);
+      ctx.fillStyle = '#2563EB';
+      ctx.fill();
     });
   }
 

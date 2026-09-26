@@ -190,7 +190,6 @@ def parse_ticks_log(scenario_id: str, max_samples: int = 1200) -> dict[str, Any]
     for i, t in enumerate(raw_ticks):
         x = _safe_float(t.get("x"), 0.0)
         y = _safe_float(t.get("y"), 0.0)
-        th = _safe_float(t.get("th"), 0.0)
         pe = t.get("pe")
 
         if pe and isinstance(pe, (list, tuple)) and len(pe) >= 2:
@@ -212,11 +211,11 @@ def parse_ticks_log(scenario_id: str, max_samples: int = 1200) -> dict[str, Any]
         )
 
         if i % step == 0 or has_event or i == len(raw_ticks) - 1:
-            # Генерация лучей лидара при необходимости
+            # Генерация лучей лидара (относительные углы лучей в СК робота, 0 = вперед)
             obj_dist = _safe_float(t.get("obj"), 5.0)
             lidar = [
                 {
-                    "angle": th + (a - 4) * 0.15,
+                    "angle": (a - 4) * 0.15,
                     "dist": min(20.0, max(1.5, obj_dist + (a % 3) * 0.6)),
                 }
                 for a in range(9)

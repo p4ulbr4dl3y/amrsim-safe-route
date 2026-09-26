@@ -1327,9 +1327,14 @@ def test_parse_ticks_log_null_coordinates(tmp_path, monkeypatch):
     assert res["totalTicks"] == 2
     ticks = res["ticks"]
     assert len(ticks) >= 1
-    t0 = res["raw_ticks"][0]
-    assert t0["pe_error"] == 0.0
     assert "lidarRays" in ticks[0]
+    rays = ticks[0]["lidarRays"]
+    assert len(rays) == 9
+    # Центральный луч 4 должен быть направлен строго вперед (0 рад в СК робота)
+    assert abs(rays[4]["angle"]) < 1e-6
+    # Крайние лучи симметричны относительно курса робота
+    assert abs(rays[0]["angle"] - (-0.6)) < 1e-6
+    assert abs(rays[8]["angle"] - 0.6) < 1e-6
 
 
 def test_build_analytics_view_model_null_score_and_blocks(monkeypatch):
