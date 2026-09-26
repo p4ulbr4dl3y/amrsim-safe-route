@@ -17,6 +17,7 @@ import {
   mockMissions,
   mockReport,
 } from '../mock/mockData';
+import { getUploadedScenario } from '../utils/scenarioStorage';
 
 const API_BASE = '/api';
 
@@ -239,23 +240,52 @@ const fallbackData = {
  */
 export const apiClient = {
   /**
-   * Fetch list of available scenarios (standard + team).
+   * Fetch list of available scenarios (standard + team + uploaded).
    */
   async fetchScenarios(): Promise<ScenarioItem[]> {
+    let list: ScenarioItem[];
     try {
       const res = await fetch(`${API_BASE}/scenarios`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      list = await res.json();
     } catch (err) {
       console.warn('[API] Failed to fetch scenarios, using fallback:', err);
-      return fallbackData.getScenarios();
+      list = fallbackData.getScenarios();
     }
+
+    const uploaded = getUploadedScenario();
+    if (uploaded) {
+      const filtered = list.filter((s) => s.id !== uploaded.id);
+      const uploadedItem: ScenarioItem = {
+        id: uploaded.id,
+        name: `${uploaded.name} (Загружен)`,
+        description: `Загруженный ${
+          uploaded.fileType === 'scenario'
+            ? 'сценарий'
+            : uploaded.fileType === 'report'
+            ? 'отчет'
+            : 'лог'
+        }: ${uploaded.fileName}`,
+        type: 'custom',
+        file: uploaded.fileName,
+        hasReport: !!uploaded.reportJson || uploaded.fileType === 'report',
+        score: uploaded.dashboardViewModel?.totalScore ?? null,
+      };
+      return [uploadedItem, ...filtered];
+    }
+
+    return list;
   },
 
   /**
    * Fetch ready-to-render Dashboard View Model.
    */
   async fetchDashboard(scenarioId = '04_busy_yard'): Promise<DashboardViewModel> {
+    const uploaded = getUploadedScenario();
+    if (uploaded && uploaded.id === scenarioId && uploaded.dashboardViewModel) {
+      return uploaded.dashboardViewModel;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/ui/dashboard?scenario=${encodeURIComponent(scenarioId)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -270,6 +300,11 @@ export const apiClient = {
    * Fetch Replay telemetry ticks, map geometry, and episode markers.
    */
   async fetchReplay(scenarioId = '04_busy_yard', seed = 7): Promise<ReplayViewModel> {
+    const uploaded = getUploadedScenario();
+    if (uploaded && uploaded.id === scenarioId && uploaded.replayViewModel) {
+      return uploaded.replayViewModel;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/ui/replay?scenario=${encodeURIComponent(scenarioId)}&seed=${seed}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -284,6 +319,21 @@ export const apiClient = {
    * Fetch Episodes & Safety incidents list with telemetry snapshots.
    */
   async fetchEpisodes(scenarioId = '04_busy_yard'): Promise<EpisodesViewModel> {
+    const uploaded = getUploadedScenario();
+    if (uploaded && uploaded.id === scenarioId) {
+      const eps = uploaded.reportJson?.episodes || uploaded.replayViewModel?.episodes || [];
+      return {
+        scenario: scenarioId,
+        summary: {
+          totalCost: eps.reduce((sum: number, ep: any) => sum + (ep.cost || 0), 0),
+          fatalCount: uploaded.dashboardViewModel?.safetyFatal || 0,
+          warningsCount: uploaded.dashboardViewModel?.safetyWarnings || eps.length,
+          ruleViolationsCount: eps.length,
+        },
+        episodes: eps,
+      };
+    }
+
     try {
       const res = await fetch(`${API_BASE}/ui/episodes?scenario=${encodeURIComponent(scenarioId)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -298,6 +348,11 @@ export const apiClient = {
    * Fetch Missions (m1, m2) performance, hold duration, tolerance and margins.
    */
   async fetchMissions(scenarioId = '04_busy_yard'): Promise<MissionsViewModel> {
+    const uploaded = getUploadedScenario();
+    if (uploaded && uploaded.id === scenarioId && uploaded.missionsViewModel) {
+      return uploaded.missionsViewModel;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/ui/missions?scenario=${encodeURIComponent(scenarioId)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -312,6 +367,27 @@ export const apiClient = {
    * Fetch complete Analytics: 6 score blocks, radar chart, compute budget & sandbox.
    */
   async fetchAnalytics(scenarioId = '04_busy_yard'): Promise<AnalyticsViewModel> {
+    const uploaded = getUploadedScenario();
+    if (uploaded && uploaded.id === scenarioId && uploaded.reportJson) {
+      const rep = uploaded.reportJson;
+      const totalScore = uploaded.dashboardViewModel?.totalScore ?? (rep?.score?.total || 100);
+      const blocks = rep?.blocks || rep?.score?.blocks || fallbackData.getAnalytics(scenarioId).blocks;
+      return {
+        scenario: scenarioId,
+        seed: rep?.seed || 7,
+        totalScore,
+        counted: true,
+        blocks,
+        radar: {
+          labels: blocks.map((b: any) => b.name),
+          values: blocks.map((b: any) => (b.percentage ?? 100) / 100),
+          maxValues: blocks.map(() => 1.0),
+        },
+        computeBudget: rep?.computeBudget || fallbackData.getAnalytics(scenarioId).computeBudget,
+        sandbox: rep?.sandbox || { violations: [], stderr_tail: [] },
+      };
+    }
+
     try {
       const res = await fetch(`${API_BASE}/ui/analytics?scenario=${encodeURIComponent(scenarioId)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

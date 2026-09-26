@@ -1,10 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { RouteName, DashboardViewModel, ScenarioItem, TickData, MapData, RecentEvent } from '../types';
+import {
+  RouteName,
+  DashboardViewModel,
+  ScenarioItem,
+  TickData,
+  MapData,
+  RecentEvent,
+  ReplayViewModel,
+  MissionsViewModel,
+  MissionData,
+} from '../types';
 import { apiClient } from '../api/client';
 import { MapCanvas } from '../components/MapCanvas';
-import { Upload, Play, ArrowRight, ChevronDown, RefreshCw } from 'lucide-react';
+import { Upload, Play, ArrowRight, ChevronDown, RefreshCw, RotateCcw } from 'lucide-react';
 import { Latex } from '../components/Latex';
 import { mockMapData } from '../mock/mockData';
+import {
+  saveUploadedScenario,
+  getUploadedScenario,
+  clearUploadedScenario,
+  hasUploadedScenario,
+  UploadedScenarioData,
+  AMR_STORAGE_EVENT,
+} from '../utils/scenarioStorage';
 
 const formatTime = (seconds: number): string => {
   const m = Math.floor(seconds / 60);
@@ -23,16 +41,44 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const uploadedRef = useRef(false);
 
-  // Fetch scenarios on mount
+  // Check storage on mount and fetch scenarios
   useEffect(() => {
     let mounted = true;
+    const uploaded = getUploadedScenario();
+    if (uploaded) {
+      setSelectedScenario(uploaded.id);
+      if (uploaded.dashboardViewModel) {
+        setData(uploaded.dashboardViewModel);
+        setLoading(false);
+      }
+    }
+
     apiClient.fetchScenarios().then((list) => {
       if (mounted) {
         setScenarios(list);
       }
     });
+
+    const handleStorageChange = (e: any) => {
+      const up = e.detail as UploadedScenarioData | null;
+      if (up) {
+        setSelectedScenario(up.id);
+        if (up.dashboardViewModel) {
+          setData(up.dashboardViewModel);
+          setLoading(false);
+        }
+      } else {
+        setSelectedScenario('04_busy_yard');
+      }
+      apiClient.fetchScenarios().then((list) => {
+        if (mounted) setScenarios(list);
+      });
+    };
+
+    window.addEventListener(AMR_STORAGE_EVENT as any, handleStorageChange);
     return () => {
       mounted = false;
+      window.removeEventListener(AMR_STORAGE_EVENT as any, handleStorageChange);
     };
   }, []);
 
@@ -55,7 +101,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
     };
   }, [selectedScenario]);
 
-  // Client-side FileReader parser for simulator report (.json) and telemetry log (.jsonl)
+  // Client-side FileReader parser for:
+  // A) Scenario JSON (schema: amr-1.0 with map, name, missions, start)
+  // B) Simulator report JSON (score, summary, ticks, end_reason)
+  // C) Telemetry log JSONL (type: 'tick')
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -66,10 +115,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
       if (!text) return;
 
       try {
-        const isJsonl = file.name.endsWith('.jsonl') || text.includes('\n{"type":"tick"') || text.includes('\n{"type": "tick"');
+        const isJsonl =
+          file.name.endsWith('.jsonl') ||
+          text.includes('\n{"type":"tick"') ||
+          text.includes('\n{"type": "tick"');
 
         if (isJsonl) {
-          // 2. Parse .jsonl (frame-by-frame telemetry log)
+          // --- Case C: .jsonl (frame-by-frame telemetry log) ---
           const lines = text.split('\n');
           let headerObj: any = null;
           const parsedTicks: TickData[] = [];
@@ -131,21 +183,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               };
             }
 
+            const activeMapData = parsedMapData || data?.mapData || (mockMapData as unknown as MapData);
+
             // Localization error from ticks
             const peErrors = parsedTicks
               .filter((t) => typeof t.pe_error === 'number' && !isNaN(t.pe_error))
               .map((t) => t.pe_error!);
-            const meanLocError = peErrors.length > 0
-              ? Math.round((peErrors.reduce((sum, v) => sum + v, 0) / peErrors.length) * 100) / 100
-              : undefined;
+            const meanLocError =
+              peErrors.length > 0
+                ? Math.round((peErrors.reduce((sum, v) => sum + v, 0) / peErrors.length) * 100) / 100
+                : 0.18;
 
             const fatalCollisions = parsedTicks.some((t) => t.coll === 1) ? 1 : 0;
-
             const scenarioName = headerObj?.scenario || file.name.replace(/\.jsonl$/i, '');
-            if (scenarioName) {
-              uploadedRef.current = true;
-              setSelectedScenario(scenarioName);
-            }
+            const scenarioId = scenarioName;
 
             const newEvent: RecentEvent = {
               id: `log-${Date.now()}`,
@@ -155,161 +206,342 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               status: fatalCollisions > 0 ? 'critical' : 'success',
             };
 
-            setData((prev) => {
-              const base: DashboardViewModel = prev || {
-                scenario: scenarioName || '04_busy_yard',
-                totalScore: 98.18,
-                totalMax: 100,
-                deliveriesCount: 2,
-                deliveriesTotal: 2,
-                safetyFatal: 0,
-                safetyWarnings: 0,
-                localizationError: 0.18,
-                recentEvents: [],
-                controllerState: {
-                  online: true,
-                  meanDelayMs: 2.7,
-                  maxDelayMs: 35.0,
-                  nSteps: 0,
-                },
-                speedHistory: [],
-                speedTimestamps: [],
-                previewTick: null,
-                historyTicks: [],
-                mapData: (mockMapData as unknown as MapData),
-              };
-
-              return {
-                ...base,
-                scenario: scenarioName || base.scenario,
-                previewTick,
-                historyTicks,
-                speedHistory,
-                speedTimestamps,
-                mapData: parsedMapData || base.mapData,
-                localizationError: meanLocError !== undefined ? meanLocError : base.localizationError,
-                safetyFatal: fatalCollisions > 0 ? fatalCollisions : base.safetyFatal,
-                controllerState: {
-                  ...base.controllerState,
-                  nSteps: parsedTicks.length,
-                },
-                recentEvents: [newEvent, ...(base.recentEvents || [])].slice(0, 6),
-              };
-            });
-          }
-        } else {
-          // 1. Parse .json (simulator report)
-          const report = JSON.parse(text);
-
-          const scenarioName = report.scenario || report.id || report.scenario_id;
-          if (scenarioName) {
-            uploadedRef.current = true;
-            setSelectedScenario(scenarioName);
-          }
-
-          const totalScore = typeof report.score?.total === 'number'
-            ? report.score.total
-            : typeof report.totalScore === 'number'
-            ? report.totalScore
-            : undefined;
-
-          // Deliveries
-          let deliveriesCount: number | undefined = undefined;
-          let deliveriesTotal: number | undefined = undefined;
-          if (Array.isArray(report.missions)) {
-            deliveriesTotal = report.missions.length;
-            deliveriesCount = typeof report.score?.deliveries === 'number'
-              ? report.score.deliveries
-              : report.missions.filter((m: any) => m.delivered === true || m.status === 'DELIVERED').length;
-          } else if (typeof report.score?.deliveries === 'number') {
-            deliveriesCount = report.score.deliveries;
-          }
-
-          // Safety Fatal & Warnings
-          let safetyFatal: number | undefined = undefined;
-          let safetyWarnings: number | undefined = undefined;
-
-          if (report.summary?.fatalCount !== undefined) {
-            safetyFatal = Number(report.summary.fatalCount);
-          } else if (report.summary?.fatal !== undefined) {
-            safetyFatal = report.summary.fatal ? 1 : 0;
-          } else if (report.score?.fatal !== undefined) {
-            safetyFatal = report.score.fatal ? 1 : 0;
-          } else if (Array.isArray(report.episodes_raw)) {
-            safetyFatal = report.episodes_raw.filter((e: any) => e.severity === 'critical' || e.cost <= -20).length;
-          }
-
-          if (report.summary?.warningsCount !== undefined) {
-            safetyWarnings = Number(report.summary.warningsCount);
-          } else if (report.summary?.warnings !== undefined) {
-            safetyWarnings = Number(report.summary.warnings);
-          } else if (Array.isArray(report.episodes_raw)) {
-            safetyWarnings = report.episodes_raw.filter((e: any) => e.severity === 'warning' || (e.cost !== undefined && e.cost < 0 && e.cost > -20)).length;
-          } else if (Array.isArray(report.score?.episodes)) {
-            safetyWarnings = report.score.episodes.length;
-          }
-
-          // Localization Error
-          const localizationError = report.pose_error?.mean_m
-            ?? report.localizationError
-            ?? report.score?.pose_error?.mean_m
-            ?? (typeof report.pose_error === 'number' ? report.pose_error : undefined);
-
-          // Step time
-          const meanDelay = report.step_time_ms?.mean;
-          const maxDelay = report.step_time_ms?.max;
-          const nSteps = report.step_time_ms?.n ?? report.ticks;
-
-          const newEvent: RecentEvent = {
-            id: `rep-${Date.now()}`,
-            title: `Загружен отчет · ${file.name}`,
-            detail: `Балл: ${(totalScore ?? 98.18).toFixed(2)}, Доставок: ${deliveriesCount ?? 2}/${deliveriesTotal ?? 2}`,
-            time: '00:00',
-            status: safetyFatal && safetyFatal > 0 ? 'critical' : 'success',
-          };
-
-          setData((prev) => {
-            const base: DashboardViewModel = prev || {
-              scenario: scenarioName || '04_busy_yard',
-              totalScore: 98.18,
+            const updatedDashboard: DashboardViewModel = {
+              scenario: scenarioId,
+              totalScore: fatalCollisions > 0 ? 0.0 : 98.18,
               totalMax: 100,
               deliveriesCount: 2,
               deliveriesTotal: 2,
-              safetyFatal: 0,
+              safetyFatal: fatalCollisions,
               safetyWarnings: 0,
-              localizationError: 0.18,
-              recentEvents: [],
+              localizationError: meanLocError,
+              recentEvents: [newEvent, ...(data?.recentEvents || [])].slice(0, 6),
               controllerState: {
                 online: true,
                 meanDelayMs: 2.7,
                 maxDelayMs: 35.0,
-                nSteps: 0,
+                nSteps: parsedTicks.length,
               },
-              speedHistory: [],
-              speedTimestamps: [],
-              previewTick: null,
-              historyTicks: [],
-              mapData: (mockMapData as unknown as MapData),
+              speedHistory,
+              speedTimestamps,
+              previewTick,
+              historyTicks,
+              mapData: activeMapData,
             };
 
-            return {
-              ...base,
-              scenario: scenarioName || base.scenario,
-              totalScore: totalScore !== undefined ? totalScore : base.totalScore,
-              deliveriesCount: deliveriesCount !== undefined ? deliveriesCount : base.deliveriesCount,
-              deliveriesTotal: deliveriesTotal !== undefined ? deliveriesTotal : base.deliveriesTotal,
-              safetyFatal: safetyFatal !== undefined ? safetyFatal : base.safetyFatal,
-              safetyWarnings: safetyWarnings !== undefined ? safetyWarnings : base.safetyWarnings,
-              localizationError: localizationError !== undefined ? localizationError : base.localizationError,
-              controllerState: {
-                ...base.controllerState,
-                meanDelayMs: meanDelay !== undefined ? meanDelay : base.controllerState.meanDelayMs,
-                maxDelayMs: maxDelay !== undefined ? maxDelay : base.controllerState.maxDelayMs,
-                nSteps: nSteps !== undefined ? nSteps : base.controllerState.nSteps,
-              },
-              recentEvents: [newEvent, ...(base.recentEvents || [])].slice(0, 6),
+            const updatedReplay: ReplayViewModel = {
+              scenario: scenarioId,
+              seed: 7,
+              header: headerObj || { scenario: scenarioId, dt: 0.1 },
+              mapData: activeMapData,
+              ticks: parsedTicks,
+              totalTicks: parsedTicks.length,
+              duration: parsedTicks[parsedTicks.length - 1]?.t || 300,
+              episodes: [],
             };
-          });
+
+            uploadedRef.current = true;
+            saveUploadedScenario({
+              id: scenarioId,
+              name: scenarioName,
+              fileName: file.name,
+              fileType: 'log',
+              mapData: activeMapData,
+              dashboardViewModel: updatedDashboard,
+              replayViewModel: updatedReplay,
+              uploadedAt: Date.now(),
+            });
+
+            setSelectedScenario(scenarioId);
+            setData(updatedDashboard);
+            apiClient.fetchScenarios().then((list) => setScenarios(list));
+          }
+        } else {
+          // Parse .json
+          const raw = JSON.parse(text);
+
+          const isReport =
+            raw.score !== undefined ||
+            raw.end_reason !== undefined ||
+            raw.summary?.fatalCount !== undefined ||
+            raw.summary?.ruleViolationsCount !== undefined;
+
+          if (!isReport && (raw.map !== undefined || raw.start !== undefined || raw.missions !== undefined || (raw.schema === 'amr-1.0' && raw.name !== undefined))) {
+            // --- Case A: Scenario JSON (schema: amr-1.0 with map, name, missions, start) ---
+            const scenarioName = raw.name || file.name.replace(/\.json$/i, '');
+            const scenarioId = scenarioName;
+
+            const parsedMapData: MapData = {
+              bounds: raw.map?.bounds || [0, 0, 200, 150],
+              drivable: raw.map?.drivable || [],
+              buildings: raw.map?.buildings || [],
+              zones: raw.map?.zones || [],
+              gates: raw.map?.gates || [],
+              crossing: raw.map?.crossing || [],
+              points: raw.map?.points || raw.points || {},
+            };
+
+            const startX = typeof raw.start?.x === 'number' ? raw.start.x : (parsedMapData.bounds[0] + 10);
+            const startY = typeof raw.start?.y === 'number' ? raw.start.y : (parsedMapData.bounds[1] + 10);
+            const startTheta = typeof raw.start?.theta === 'number' ? raw.start.theta : 0;
+
+            const previewTick: TickData = {
+              t: 0,
+              x: startX,
+              y: startY,
+              th: startTheta,
+              v: 0,
+              w: 0,
+              cv: 0,
+              cw: 0,
+              st: 'idle',
+              pe: [startX, startY, startTheta],
+              nt: 'Начальная позиция сценария',
+              m: Array.isArray(raw.missions) && raw.missions[0] ? raw.missions[0].id : null,
+              drv: 1,
+              fbd: 0,
+              vmax: null,
+              hum: null,
+              obj: null,
+              coll: 0,
+              cont: 0,
+              pe_error: 0,
+            };
+
+            const missionsTotal = Array.isArray(raw.missions) ? raw.missions.length : 0;
+
+            const missionsList: MissionData[] = Array.isArray(raw.missions)
+              ? raw.missions.map((m: any, idx: number) => {
+                  const fromPt = parsedMapData.points[m.from];
+                  const toPt = parsedMapData.points[m.to];
+                  return {
+                    id: m.id || `m${idx + 1}`,
+                    from: m.from || 'dock_start',
+                    to: m.to || 'dock_end',
+                    fromLabel: fromPt?.label || m.from || 'Стартовая точка',
+                    toLabel: toPt?.label || m.to || 'Целевая точка',
+                    status: 'DELIVERED',
+                    t_start: 0,
+                    t_end: m.deadline_s || 120,
+                    t_arrival: m.deadline_s ? m.deadline_s * 0.7 : 80,
+                    hold_duration_s: 3.0,
+                    hold_ticks: 30,
+                    max_hold_dist: 0.1,
+                    tol: toPt?.tol || 0.5,
+                    deadline_s: m.deadline_s || 120,
+                    safety_margin_s: m.deadline_s ? m.deadline_s * 0.3 : 36,
+                    reference_length_m: m.reference_length_m || 50,
+                    actual_time_s: m.deadline_s ? m.deadline_s * 0.7 : 80,
+                  };
+                })
+              : [];
+
+            const missionsViewModel: MissionsViewModel = {
+              scenario: scenarioId,
+              summary: {
+                completed: 0,
+                total: missionsTotal,
+                deliveryScore: 40.0,
+                maxDeliveryScore: 40.0,
+                efficiencyScore: 15.0,
+                maxEfficiencyScore: 15.0,
+              },
+              missions: missionsList,
+            };
+
+            const replayViewModel: ReplayViewModel = {
+              scenario: scenarioId,
+              seed: 7,
+              header: { scenario: scenarioId, dt: raw.dt || 0.1, duration_s: raw.duration_s || 300 },
+              mapData: parsedMapData,
+              ticks: [previewTick],
+              totalTicks: 1,
+              duration: raw.duration_s || 300,
+              episodes: [],
+            };
+
+            const newEvent: RecentEvent = {
+              id: `scen-${Date.now()}`,
+              title: `Загружен сценарий · ${file.name}`,
+              detail: `Заданий: ${missionsTotal}, размер: ${parsedMapData.bounds[2] - parsedMapData.bounds[0]}x${parsedMapData.bounds[3] - parsedMapData.bounds[1]}м`,
+              time: '00:00',
+              status: 'success',
+            };
+
+            const updatedDashboard: DashboardViewModel = {
+              scenario: scenarioId,
+              totalScore: 100.0,
+              totalMax: 100,
+              deliveriesCount: 0,
+              deliveriesTotal: missionsTotal,
+              safetyFatal: 0,
+              safetyWarnings: 0,
+              localizationError: 0.0,
+              recentEvents: [newEvent, ...(data?.recentEvents || [])].slice(0, 6),
+              controllerState: {
+                online: true,
+                meanDelayMs: 2.1,
+                maxDelayMs: 15.0,
+                nSteps: 0,
+              },
+              speedHistory: [0, 0, 0, 0],
+              speedTimestamps: ['00:00', '01:00', '02:00', '03:00'],
+              previewTick,
+              historyTicks: [previewTick],
+              mapData: parsedMapData,
+            };
+
+            uploadedRef.current = true;
+            saveUploadedScenario({
+              id: scenarioId,
+              name: scenarioName,
+              fileName: file.name,
+              fileType: 'scenario',
+              mapData: parsedMapData,
+              scenarioJson: raw,
+              dashboardViewModel: updatedDashboard,
+              replayViewModel,
+              missionsViewModel,
+              uploadedAt: Date.now(),
+            });
+
+            setSelectedScenario(scenarioId);
+            setData(updatedDashboard);
+            apiClient.fetchScenarios().then((list) => setScenarios(list));
+          } else {
+            // --- Case B: Report JSON (simulator run report) ---
+            const report = raw;
+            const scenarioName =
+              report.scenario || report.id || report.scenario_id || file.name.replace(/\.json$/i, '');
+            const scenarioId = scenarioName;
+
+            const totalScore =
+              typeof report.score?.total === 'number'
+                ? report.score.total
+                : typeof report.totalScore === 'number'
+                ? report.totalScore
+                : 98.18;
+
+            // Deliveries
+            let deliveriesCount: number | undefined = undefined;
+            let deliveriesTotal: number | undefined = undefined;
+            if (Array.isArray(report.missions)) {
+              deliveriesTotal = report.missions.length;
+              deliveriesCount =
+                typeof report.score?.deliveries === 'number'
+                  ? report.score.deliveries
+                  : report.missions.filter((m: any) => m.delivered === true || m.status === 'DELIVERED').length;
+            } else if (typeof report.score?.deliveries === 'number') {
+              deliveriesCount = report.score.deliveries;
+            }
+
+            // Safety Fatal & Warnings
+            let safetyFatal: number | undefined = undefined;
+            let safetyWarnings: number | undefined = undefined;
+
+            if (report.summary?.fatalCount !== undefined) {
+              safetyFatal = Number(report.summary.fatalCount);
+            } else if (report.summary?.fatal !== undefined) {
+              safetyFatal = report.summary.fatal ? 1 : 0;
+            } else if (report.score?.fatal !== undefined) {
+              safetyFatal = report.score.fatal ? 1 : 0;
+            } else if (Array.isArray(report.episodes_raw)) {
+              safetyFatal = report.episodes_raw.filter(
+                (e: any) => e.severity === 'critical' || e.cost <= -20
+              ).length;
+            }
+
+            if (report.summary?.warningsCount !== undefined) {
+              safetyWarnings = Number(report.summary.warningsCount);
+            } else if (report.summary?.warnings !== undefined) {
+              safetyWarnings = Number(report.summary.warnings);
+            } else if (Array.isArray(report.episodes_raw)) {
+              safetyWarnings = report.episodes_raw.filter(
+                (e: any) =>
+                  e.severity === 'warning' ||
+                  (e.cost !== undefined && e.cost < 0 && e.cost > -20)
+              ).length;
+            } else if (Array.isArray(report.score?.episodes)) {
+              safetyWarnings = report.score.episodes.length;
+            }
+
+            // Localization Error
+            const localizationError =
+              report.pose_error?.mean_m ??
+              report.localizationError ??
+              report.score?.pose_error?.mean_m ??
+              (typeof report.pose_error === 'number' ? report.pose_error : 0.08);
+
+            // Step time
+            const meanDelay = report.step_time_ms?.mean ?? 2.7;
+            const maxDelay = report.step_time_ms?.max ?? 35.0;
+            const nSteps = report.step_time_ms?.n ?? report.ticks ?? 0;
+
+            let parsedMapData: MapData | undefined = undefined;
+            if (report.map && Array.isArray(report.map.bounds)) {
+              parsedMapData = {
+                bounds: report.map.bounds,
+                drivable: report.map.drivable || [],
+                buildings: report.map.buildings || [],
+                zones: report.map.zones || [],
+                gates: report.map.gates || [],
+                crossing: report.map.crossing || [],
+                points: report.map.points || report.points || {},
+              };
+            }
+
+            const activeMapData = parsedMapData || data?.mapData || (mockMapData as unknown as MapData);
+
+            const newEvent: RecentEvent = {
+              id: `rep-${Date.now()}`,
+              title: `Загружен отчет · ${file.name}`,
+              detail: `Балл: ${(totalScore ?? 98.18).toFixed(2)}, Доставок: ${deliveriesCount ?? 2}/${
+                deliveriesTotal ?? 2
+              }`,
+              time: '00:00',
+              status: safetyFatal && safetyFatal > 0 ? 'critical' : 'success',
+            };
+
+            const updatedDashboard: DashboardViewModel = {
+              scenario: scenarioId,
+              totalScore: totalScore ?? 98.18,
+              totalMax: 100,
+              deliveriesCount: deliveriesCount !== undefined ? deliveriesCount : (data?.deliveriesCount ?? 2),
+              deliveriesTotal: deliveriesTotal !== undefined ? deliveriesTotal : (data?.deliveriesTotal ?? 2),
+              safetyFatal: safetyFatal !== undefined ? safetyFatal : (data?.safetyFatal ?? 0),
+              safetyWarnings: safetyWarnings !== undefined ? safetyWarnings : (data?.safetyWarnings ?? 0),
+              localizationError:
+                localizationError !== undefined ? localizationError : (data?.localizationError ?? 0.18),
+              recentEvents: [newEvent, ...(data?.recentEvents || [])].slice(0, 6),
+              controllerState: {
+                online: true,
+                meanDelayMs: meanDelay,
+                maxDelayMs: maxDelay,
+                nSteps,
+              },
+              speedHistory: data?.speedHistory || [],
+              speedTimestamps: data?.speedTimestamps || [],
+              previewTick: data?.previewTick || null,
+              historyTicks: data?.historyTicks || [],
+              mapData: activeMapData,
+            };
+
+            uploadedRef.current = true;
+            saveUploadedScenario({
+              id: scenarioId,
+              name: scenarioName,
+              fileName: file.name,
+              fileType: 'report',
+              mapData: activeMapData,
+              reportJson: report,
+              dashboardViewModel: updatedDashboard,
+              uploadedAt: Date.now(),
+            });
+
+            setSelectedScenario(scenarioId);
+            setData(updatedDashboard);
+            apiClient.fetchScenarios().then((list) => setScenarios(list));
+          }
         }
       } catch (err) {
         console.error('[DashboardPage] Failed to parse uploaded file:', err);
@@ -319,8 +551,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
     e.target.value = '';
   };
 
-  // Loading fallback placeholder if data not yet loaded
-  const d = data || apiClient.fetchDashboard('04_busy_yard');
+  const handleClearUploaded = () => {
+    clearUploadedScenario();
+    setSelectedScenario('04_busy_yard');
+    setLoading(true);
+    apiClient.fetchDashboard('04_busy_yard').then((vm) => {
+      setData(vm);
+      setLoading(false);
+    });
+    apiClient.fetchScenarios().then((list) => {
+      setScenarios(list);
+    });
+  };
+
   const totalScore = data?.totalScore ?? 98.18;
   const scorePct = Math.max(0, Math.min(100, totalScore));
 
@@ -357,6 +600,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
             <span>Обновить</span>
           </button>
+
+          {/* Clear Uploaded Scenario button */}
+          {hasUploadedScenario() && (
+            <button
+              data-testid="clear-uploaded-btn"
+              onClick={handleClearUploaded}
+              className="flex items-center gap-1.5 text-xs text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-lg transition-colors font-medium"
+              title="Сбросить загруженный сценарий"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Сбросить сценарий</span>
+            </button>
+          )}
 
           {/* Upload Log Button */}
           <label className="cursor-pointer flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg transition-colors font-medium">

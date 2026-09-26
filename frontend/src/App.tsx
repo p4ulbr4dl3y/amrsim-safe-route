@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { RouteName } from './types';
 import { Header } from './components/Header';
+import { clearUploadedScenario } from './utils/scenarioStorage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ReplayPage } from './pages/ReplayPage';
 import { EpisodesPage } from './pages/EpisodesPage';
@@ -11,6 +12,18 @@ import { RunnerPage } from './pages/RunnerPage';
 export const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<RouteName>('dashboard');
   const [queryParams, setQueryParams] = useState<Record<string, any>>({});
+
+  // Reset uploaded scenario on page reload
+  useEffect(() => {
+    try {
+      const navEntries = performance.getEntriesByType?.('navigation') as PerformanceNavigationTiming[];
+      if (navEntries && navEntries.length > 0 && navEntries[0]?.type === 'reload') {
+        clearUploadedScenario();
+      }
+    } catch (err) {
+      console.warn('[App] Navigation reload check failed:', err);
+    }
+  }, []);
 
   // Parse window.location.hash on mount and on hashchange
   useEffect(() => {
