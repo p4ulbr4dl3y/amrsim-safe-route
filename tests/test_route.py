@@ -1041,7 +1041,19 @@ class TestRouteDefectFixes(unittest.TestCase):
         self.assertAlmostEqual(final_pt[0], 80.0, places=1)
         self.assertAlmostEqual(final_pt[1], 90.0, places=1)
 
+    def test_dock_zone_pure_pursuit_does_not_freeze_on_path_overshoot(self):
+        """Pure pursuit не застывает с v=0, w=0 в зоне дока, если проекция дошла до конца пути."""
+        path = np.array([[55.0, 150.0], [51.5, 150.0]])
+        # Робот сместился в сторону (51.64, 150.21), проекция на отрезок равна длине пути (rem_dist=0)
+        pose = (51.64, 150.21, 2.8)
+        # Проверяем, что команда управления выдает ненулевое угловое или линейное движение к доку
+        v, w, target_pt, curr_s, rem_dist = compute_pure_pursuit_cmd(pose, path, last_s=3.5)
+        self.assertTrue(abs(v) > 0.0 or abs(w) > 0.0)
+        self.assertAlmostEqual(target_pt[0], 51.5, places=2)
+        self.assertAlmostEqual(target_pt[1], 150.0, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
