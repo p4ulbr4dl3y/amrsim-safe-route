@@ -5,7 +5,7 @@
 Перед стартом АРМ уже запущен на `http://localhost:8000`. Во вкладках готовы адреса:
 
 - `http://localhost:8000/#/replay?scenario=s4_shadow_start_charger&t=42`
-- `http://localhost:8000/#/replay?scenario=s5_fog_inattentive&t=40`
+- `http://localhost:8000/#/replay?scenario=s5_fog_inattentive&t=87.4`
 - `http://localhost:8000/#/replay?scenario=04_busy_yard&t=263.5`
 - `http://localhost:8000/#/replay?scenario=s4b_shadow_lane_lost_seed1&t=27.2`
 - `http://localhost:8000/#/replay?scenario=s3_wall_removed&t=9.8`
@@ -38,7 +38,7 @@
 На слайде 6 четыре метки. Дальше экран браузера.
 
 1. Тень и док. Вкладка s4, seed 7, t=42.0, статус `arrived`, note `dock`, балл 100. На карте видны положение и `pose_est`.
-2. Туман. Вкладка s5, t=40.0, note `fog_clear`. Платформа едет, не стоит.
+2. Туман. Вкладка s5, t=87.4, статус `waiting`, note `stop_person`. Остановка перед невнимательным пешеходом в тумане.
 3. Человек. Вкладка 04_busy_yard, seed 7, t=263.5, note `stop_person d=0.7 map_extra zone v=0.95`, hum=0.311 м, v=0.0, статус `waiting`. Полная остановка перед человеком, столкновения нет. Балл прогона 98.87. Пешеход виден на карте.
 4. Потеря ориентации. Вкладка `s4b_shadow_lane_lost_seed1`, t=27.2, статус `lost`, v=0. Участок lost идет до t=27.9, это 8 тактов. Ход возобновляется с t=28.1. Балл 100, миссия до зарядной сдана.
 5. Снесенная стена. Вкладка s3, t=9.8, note `map_missing`, балл 100.

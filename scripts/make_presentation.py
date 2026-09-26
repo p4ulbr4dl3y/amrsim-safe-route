@@ -365,7 +365,7 @@ def build_context():
     s4_arrival, _, _ = checked_moment(
         "s4_shadow_start_charger", 7, "arrival_charger", "dock"
     )
-    s5_fog, _, _ = checked_moment("s5_fog_inattentive", 7, "fog_clear", "fog_clear")
+    s5_fog, _, _ = checked_moment("s5_fog_inattentive", 7, "stop_person", "stop_person")
     yard_person, _, yard_section = checked_moment(
         "04_busy_yard", 7, "stop_person", "stop_person"
     )

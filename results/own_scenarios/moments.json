@@ -138,12 +138,12 @@
       "log": "results/own_scenarios/logs/s5_fog_inattentive.jsonl",
       "moments": [
         {
-          "key": "fog_clear",
+          "key": "stop_person",
           "found": true,
-          "t": 40.0,
-          "status": "moving",
-          "note": "fog_clear zone v=0.95",
-          "v": 0.95
+          "t": 87.4,
+          "status": "waiting",
+          "note": "stop_person d=0.8 slow_person d=3.0 fog_clear zone v=0.95",
+          "v": 0.0
         }
       ]
     },

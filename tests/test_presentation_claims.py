@@ -193,7 +193,7 @@ def test_pitch_matches_logged_moments_and_drops_old_claims():
                 by_key[(section["scenario"], section["seed"], moment["key"])] = moment
     for key in (
         ("s4_shadow_start_charger", 7, "arrival_charger"),
-        ("s5_fog_inattentive", 7, "fog_clear"),
+        ("s5_fog_inattentive", 7, "stop_person"),
         ("04_busy_yard", 7, "stop_person"),
         ("s4b_shadow_lane_lost", 1, "lane_lost_status"),
         ("s3_wall_removed", 7, "map_missing"),
@@ -277,5 +277,49 @@ def test_pedestrian_demo_claim_tick_hum_and_zero_v():
     assert float(tick.get("hum", 99.0)) < 1.0
     assert tick.get("st") == "waiting"
     assert "stop_person" in (tick.get("nt") or "")
+
+
+def test_readme_scenario_and_seed_claims():
+    """README точно указывает 6 пешеходов на 04_busy_yard, поддон s1 в 2 м от оси и seed 1 для lost."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "6 пешеходов" in readme
+    assert "2 м от осевой линии" in readme or "2 м от оси" in readme
+    assert "s4b_shadow_lane_lost" in readme
+    assert "seed 1" in readme
+
+
+def test_s5_fog_moment_stop_person():
+    """Момент s5_fog_inattentive фиксирует остановку перед пешеходом в тумане на t=87.4."""
+    moments = json.loads(
+        (ROOT / "results" / "own_scenarios" / "moments.json").read_text(encoding="utf-8")
+    )
+    s5_moments = None
+    for section in moments["scenarios"]:
+        if section["scenario"] == "s5_fog_inattentive" and section["seed"] == 7:
+            s5_moments = section["moments"]
+            break
+    assert s5_moments is not None
+    stop_moment = next((m for m in s5_moments if m["key"] == "stop_person"), None)
+    assert stop_moment is not None
+    assert stop_moment["t"] == 87.4
+    assert stop_moment["status"] == "waiting"
+    assert stop_moment["v"] == 0.0
+    assert "stop_person" in stop_moment["note"]
+
+
+def test_gnss_filtering_no_direct_pose_overwrite_and_smooth_blend():
+    """Боевой GNSSFilter не переписывает координаты напрямую, а использует сглаживание k <= 0.15."""
+    gnss_code = (ROOT / "team_dreamteam_4_0" / "localize" / "gnss.py").read_text(encoding="utf-8")
+    assert "new_x = x + shift_x" not in gnss_code
+    assert "new_y = y + shift_y" not in gnss_code
+    assert "k = 0.15" in gnss_code or "0.15" in gnss_code
+
+    pitch = (ROOT / "PITCH.md").read_text(encoding="utf-8")
+    assert "0.15" in pitch
+    assert "копирования фикса в pose_est" in pitch or "копирования фикса" in pitch
+
+    approach = (ROOT / "APPROACH.md").read_text(encoding="utf-8")
+    assert "0.15" in approach
+    assert "прямого копирования в позу" in approach or "копирования сырого ГНСС" in approach
 
 
