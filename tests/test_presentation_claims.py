@@ -373,7 +373,7 @@ def test_gnss_filtering_no_direct_pose_overwrite_and_smooth_blend():
 
 
 def test_alternatives_has_no_unsubstantiated_claims():
-    """ALTERNATIVES.md не содержит неподтвержденных утверждений о субмиллиметрах, 14-16 с, 130 мс и около 1.3 мс."""
+    """ALTERNATIVES.md не содержит неподтвержденных утверждений о субмиллиметрах, задержках и диапазонах."""
     alternatives = (ROOT / "results" / "ALTERNATIVES.md").read_text(encoding="utf-8")
     for banned in (
         "< 0.01",
@@ -384,8 +384,12 @@ def test_alternatives_has_no_unsubstantiated_claims():
         "14-16",
         "130 мс",
         "около 1.3 мс",
+        "не превышает лимит 100 мс",
+        "1.3-3.9 мс",
     ):
         assert banned not in alternatives, f"Found unverified claim '{banned}' in ALTERNATIVES.md"
+    assert "1.1-3.9 мс" in alternatives
+    assert "205.4 мс" in alternatives
 
 
 
