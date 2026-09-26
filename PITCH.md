@@ -59,7 +59,7 @@
 
 Объезд и переплан, оба на текущем коде:
 
-- s1, seed 7, t=115.3, note `offset dy=-0.2`, балл 99.52, лог `results/own_scenarios/logs/s1_pallet_2m.jsonl`;
+- s1, seed 7, t=115.3, note `offset dy=-0.2`, балл 99.22, лог `results/own_scenarios/logs/s1_pallet_2m.jsonl`;
 - s2, seed 7, t=147.0, note `replan`, балл 100, лог `results/own_scenarios/logs/s2_container_block.jsonl`.
 
 Почему не ROS 2 и Nav2. Регламент Т3: процесс контроллера на стандартной библиотеке и numpy, без сети и без записи на диск во время прогона.

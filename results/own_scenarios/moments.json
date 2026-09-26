@@ -5,7 +5,7 @@
     {
       "scenario": "s1_pallet_2m",
       "seed": 7,
-      "total": 99.52,
+      "total": 99.22,
       "report": "results/own_scenarios/s1_pallet_2m.json",
       "log": "results/own_scenarios/logs/s1_pallet_2m.jsonl",
       "moments": [

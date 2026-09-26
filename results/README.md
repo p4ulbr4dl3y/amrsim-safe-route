@@ -64,11 +64,11 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 
 Отставание нигде не превышает 0.36 балла при пороге плана 3 балла. Средний балл по открытым сценариям: 99.38; pose 10/10 везде, 0 штрафных эпизодов.
 
-## Свои сценарии (seed 7)
+## Свои сценарии (seed 7, вилка 99.22-100)
 
 | Сценарий | total | pose | safety | missions | момент для сдачи |
 | --- | --- | --- | --- | --- | --- | --- |
-| `s1_pallet_2m` | 99.52 | 10 | 25.0 | 2/2 | t=115.3, note `offset dy=-0.2` (объезд, О4) |
+| `s1_pallet_2m` | 99.22 | 10 | 25.0 | 2/2 | t=115.3, note `offset dy=-0.2` (объезд, О4) |
 | `s2_container_block` | 100.00 | 10 | 25.0 | 1/1 | t=147.0, note `replan` (перепланирование, О4) |
 | `s3_wall_removed` | 100.00 | 10 | 25.0 | 1/1 | t=9.8, note `map_missing` (расхождение карты, О4) |
 | `s4_shadow_start_charger` | 100.00 | 10 | 25.0 | 1/1 | t=42.0, статус `arrived`, note `dock` |
@@ -80,8 +80,8 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 восстановление с t=28.0. Лог лежит в `own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl`.
 
 Во всех прогонах: `collisions = 0`, `fatal = false`, ноль штрафных эпизодов,
-`sandbox_violations` пустой, `max_hold_dist < 0.2` м (порог plan/05:64). Полная таблица моментов
-с фактическими t, статусами и note - в `own_scenarios/moments.md` и `own_scenarios/moments.json`.
+`sandbox_violations` пустой, `max_hold_dist < 0.2` м (порог plan/05:64). Вилка баллов s1-s5: 99.22-100.
+Полная таблица моментов с фактическими t, статусами и note - в `own_scenarios/moments.md` и `own_scenarios/moments.json`.
 
 ## Матрица подтверждения дополнительных возможностей (Критерий О4 - 10 баллов)
 

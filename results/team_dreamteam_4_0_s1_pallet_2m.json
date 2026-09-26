@@ -15,7 +15,7 @@
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 3255,
+ "ticks": 3317,
  "missions": [
   {
    "type": "mission",
@@ -37,9 +37,9 @@
    "from": "shop_a",
    "to": "warehouse",
    "t_start": 160.2,
-   "t_end": 325.4,
-   "t_arrival": 324.5,
-   "max_hold_dist": 0.0576,
+   "t_end": 331.6,
+   "t_arrival": 330.7,
+   "max_hold_dist": 0.0561,
    "deadline_s": 200.6,
    "reference_length_m": 174.271,
    "delivered": true,
@@ -47,8 +47,8 @@
   }
  ],
  "score": {
-  "total": 99.52,
-  "raw_sum": 99.52,
+  "total": 99.22,
+  "raw_sum": 99.224,
   "fatal": false,
   "fatal_t": null,
   "counted": true,
@@ -56,7 +56,7 @@
   "not_counted_blocks": [],
   "blocks": {
    "delivery": 40.0,
-   "efficiency": 14.52,
+   "efficiency": 14.224,
    "safety": 25.0,
    "rules": 10.0,
    "pose": 10.0,
@@ -85,10 +85,10 @@
     "id": "m2",
     "delivered": true,
     "t_start": 160.2,
-    "t_arrival": 324.5,
-    "time_s": 164.3,
-    "ratio": 1.0484,
-    "efficiency": 0.9516236206827295,
+    "t_arrival": 330.7,
+    "time_s": 170.5,
+    "ratio": 1.0879,
+    "efficiency": 0.9120622478783045,
     "reason": "delivered"
    }
   ],
@@ -96,13 +96,13 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 3255,
-  "mean": 1.505,
-  "max": 88.942
+  "n": 3317,
+  "mean": 4.482,
+  "max": 352.85
  },
- "wall_time_s": 6.073,
+ "wall_time_s": 18.159,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
- "log": null
+ "log": "results/own_scenarios/logs/s1_pallet_2m.jsonl"
 }

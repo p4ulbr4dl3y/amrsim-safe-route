@@ -8,7 +8,7 @@
 
 | Сценарий | Seed | Total | Момент | t, с | Статус | Note | Файл лога |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| s1_pallet_2m | 7 | 99.52 | offset | 115.3 | moving | offset dy=-0.2 | results/own_scenarios/logs/s1_pallet_2m.jsonl |
+| s1_pallet_2m | 7 | 99.22 | offset | 115.3 | moving | offset dy=-0.2 | results/own_scenarios/logs/s1_pallet_2m.jsonl |
 | s2_container_block | 7 | 100.0 | replan | 147.0 | moving | replan | results/own_scenarios/logs/s2_container_block.jsonl |
 | s3_wall_removed | 7 | 100.0 | map_missing | 9.8 | moving | map_missing | results/own_scenarios/logs/s3_wall_removed.jsonl |
 | s4_shadow_start_charger | 7 | 100.0 | arrival_charger | 42.0 | arrived | dock | results/own_scenarios/logs/s4_shadow_start_charger.jsonl |

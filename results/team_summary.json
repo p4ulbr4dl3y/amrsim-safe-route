@@ -1,8 +1,8 @@
 {
   "seed": 7,
   "controller": "team_dreamteam_4_0/controller.py",
-  "total_score": 996.48,
-  "avg_score": 99.65,
+  "total_score": 996.18,
+  "avg_score": 99.62,
   "scenarios": {
     "01_clear": {
       "scenario": "01_clear",
@@ -76,16 +76,16 @@
       "scenario": "s1_pallet_2m",
       "missions": "2/2",
       "end_reason": "missions_done",
-      "total": 99.52,
-      "raw_sum": 99.52,
+      "total": 99.22,
+      "raw_sum": 99.224,
       "delivery": 40.0,
-      "efficiency": 14.52,
+      "efficiency": 14.224,
       "safety": 25.0,
       "rules": 10.0,
       "pose": 10.0,
       "collisions": 0.0,
-      "step_mean_ms": 1.505,
-      "step_max_ms": 88.942,
+      "step_mean_ms": 4.482,
+      "step_max_ms": 352.85,
       "counted": true,
       "fatal": false
     },

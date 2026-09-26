@@ -396,6 +396,29 @@ def test_alternatives_has_no_unsubstantiated_claims():
     assert "0.08" in alternatives
 
 
+def test_approach_scheme_does_not_link_stop_gap_to_estop():
+    """Схема и текст в APPROACH.md не связывают зазор 0.8 м со статусом estop и не упоминают 100 Гц."""
+    approach = (ROOT / "APPROACH.md").read_text(encoding="utf-8")
+    assert 'ESTOP{"дистанция < 0.8 м?"}' not in approach
+    assert "100 Гц" not in approach
+    assert "1.2 м" in approach
+    assert "штатный останов" in approach
+
+
+def test_spoken_own_span_matches_minimum_own_reports():
+    """Вилка своих сценариев в колоде не превышает минимум свежих отчетов s1-s5 (99.22)."""
+    own_totals = []
+    for path in sorted((ROOT / "results" / "own_scenarios").glob("s*.json")):
+        rep = json.loads(path.read_text(encoding="utf-8"))
+        if rep.get("counted") and not rep.get("fatal"):
+            own_totals.append(float(rep["score"]["total"]))
+    span = format_score_span(own_totals)
+    min_score = min(own_totals)
+    assert min_score == 99.22
+    assert span.startswith("99.22")
+
+
+
 
 
 
