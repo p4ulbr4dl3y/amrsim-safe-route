@@ -52,6 +52,10 @@ uv sync
 ```bash
 PYTHONPATH=amrsim-participants uv run python -m amrsim check team_dreamteam_4_0
 ```
+На Windows (PowerShell):
+```powershell
+$env:PYTHONPATH="amrsim-participants"; uv run python -m amrsim check team_dreamteam_4_0
+```
 Ожидаемый результат:
 ```text
 check team_dreamteam_4_0: 0 violation(s) or error(s), 0 warning(s)
@@ -79,6 +83,10 @@ result: OK
 ### Запуск симуляции одного сценария:
 ```bash
 PYTHONPATH=amrsim-participants uv run python -m amrsim run scenarios/01_clear.json --controller team_dreamteam_4_0/controller.py --seed 7 --report out/01.json --log out/01.jsonl
+```
+На Windows (PowerShell):
+```powershell
+$env:PYTHONPATH="amrsim-participants"; uv run python -m amrsim run scenarios/01_clear.json --controller team_dreamteam_4_0/controller.py --seed 7 --report out/01.json --log out/01.jsonl
 ```
 
 ### Пакетный прогон по набору сидов:

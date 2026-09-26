@@ -12,8 +12,12 @@ permissions:
 
 jobs:
   backend:
-    name: Backend Lint, Tests & Simulation
-    runs-on: ubuntu-latest
+    name: Backend Lint, Tests & Simulation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,7 +45,7 @@ jobs:
       - name: Run Smoke Simulation (Scenario 01 Clear)
         run: |
           cd amrsim-participants
-          uv run python -m amrsim run scenarios/01_clear.json --controller ../team_dreamteam_4_0/controller.py --seed 1 --report /tmp/test_01.json
+          uv run python -m amrsim run scenarios/01_clear.json --controller ../team_dreamteam_4_0/controller.py --seed 1 --report smoke_01.json
 
   frontend:
     name: Frontend Lint, Tests & Build
