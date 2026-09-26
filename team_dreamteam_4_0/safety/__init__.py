@@ -5,9 +5,6 @@
 """
 
 from .clearance import (
-    CBF_ALPHA,
-    CBF_D_MIN_PED,
-    CBF_D_MIN_STATIC,
     DECEL_NORMAL,
     DT,
     ESTOP_GAP,
@@ -45,9 +42,6 @@ __all__ = [
     "STOP_GAP",
     "STATIC_OBJECT_NEAR_GAP",
     "ESTOP_GAP",
-    "CBF_ALPHA",
-    "CBF_D_MIN_PED",
-    "CBF_D_MIN_STATIC",
     "calculate_clearance",
     "predict_ttc_clearance",
     "determine_status",

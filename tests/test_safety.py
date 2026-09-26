@@ -19,12 +19,17 @@ from team_dreamteam_4_0.safety import (
     predict_ttc_clearance,
 )
 
+# Параметры эталонной барьерной функции для тестов альтернатив
+CBF_ALPHA = 0.5
+CBF_D_MIN_PED = 0.5
+CBF_D_MIN_STATIC = 0.3
+
 
 def cbf_velocity_limit(
-    d: float, v_obs: float = 0.0, is_pedestrian: bool = True, alpha: float = 0.5
+    d: float, v_obs: float = 0.0, is_pedestrian: bool = True, alpha: float = CBF_ALPHA
 ) -> float:
     """Эталонная барьерная функция скорости для тестирования альтернатив."""
-    d_min = 0.5 if is_pedestrian else 0.3
+    d_min = CBF_D_MIN_PED if is_pedestrian else CBF_D_MIN_STATIC
     h = d - d_min
     if h <= 0.0:
         return 0.0

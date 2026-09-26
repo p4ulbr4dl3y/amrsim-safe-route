@@ -168,6 +168,17 @@ def test_controller_package_has_no_quintic_spline():
         assert "QuinticSpline1D" not in text, f"Found QuinticSpline1D reference in {py_file}"
 
 
+def test_controller_package_has_no_cbf_constants():
+    """Боевой пакет team_dreamteam_4_0 не содержит константы CBF."""
+    controller_pkg = ROOT / "team_dreamteam_4_0"
+    banned_cbf = ("CBF_ALPHA", "CBF_D_MIN_PED", "CBF_D_MIN_STATIC")
+    for py_file in controller_pkg.rglob("*.py"):
+        text = py_file.read_text(encoding="utf-8")
+        for sym in banned_cbf:
+            assert sym not in text, f"Found {sym} in {py_file}"
+
+
+
 def _ticks(relative):
     rows = []
     path = ROOT / relative
