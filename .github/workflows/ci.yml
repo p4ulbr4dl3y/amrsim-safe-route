@@ -122,5 +122,6 @@ jobs:
             docker rm amr || true
             docker run -d --name amr --restart always -p 127.0.0.1:8012:8000 --memory=350m amrsim-arm:latest
             docker image prune -f
-            curl -f http://127.0.0.1:8012/api/scenarios > /dev/null
+            sleep 3
+            curl --retry 5 --retry-connrefused --retry-delay 2 -f http://127.0.0.1:8012/api/scenarios > /dev/null
 
