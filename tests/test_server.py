@@ -1451,4 +1451,136 @@ def test_build_dashboard_view_model_null_items_in_lists(monkeypatch):
     assert len(non_sys_events) == 0
 
 
+def test_get_scenario_report_non_dict_json(tmp_path, monkeypatch):
+    """get_scenario_report strictly returns None if the report JSON is non-dict (e.g. list, string)."""
+    server._REPORT_CACHE.clear()
+    monkeypatch.setattr(server, "_REPORT_CACHE", server.BoundedCache(maxsize=10))
+
+    # Test 1: JSON array [1, 2, 3]
+    list_json_path = tmp_path / "list_report.json"
+    list_json_path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+
+    monkeypatch.setattr(
+        server,
+        "OUT_DIR",
+        tmp_path,
+    )
+    # Target "list_report"
+    assert get_scenario_report("list_report") is None
+
+    # Test 2: JSON string "error"
+    str_json_path = tmp_path / "str_report.json"
+    str_json_path.write_text(json.dumps("error"), encoding="utf-8")
+    assert get_scenario_report("str_report") is None
+
+    # Test 3: JSON number 123
+    num_json_path = tmp_path / "num_report.json"
+    num_json_path.write_text(json.dumps(123), encoding="utf-8")
+    assert get_scenario_report("num_report") is None
+
+
+def test_build_replay_missions_null_or_non_dict_items():
+    """build_replay_missions ignores non-dict items in header missions and raw_ticks without failing."""
+    header = {
+        "missions": [
+            None,
+            "not-a-dict",
+            123,
+            {"id": "m1", "from": "warehouse", "to": "shop_a", "deadline_s": 50.0},
+            {"id": "m2", "from": "shop_a", "to": "shop_b", "deadline_s": 60.0},
+        ]
+    }
+    raw_ticks = [
+        None,
+        "invalid_tick",
+        42,
+        {"t": 1.5, "m": "m1"},
+        {"t": 3.0, "m": "m2"},
+    ]
+
+    missions = server.build_replay_missions(header, raw_ticks)
+    assert len(missions) == 2
+    assert missions[0]["id"] == "m1"
+    assert missions[0]["t_start"] == 1.5
+    assert missions[0]["deadline_s"] == 50.0
+    assert missions[1]["id"] == "m2"
+    assert missions[1]["t_start"] == 3.0
+    assert missions[1]["deadline_s"] == 60.0
+
+
+def test_view_models_non_dict_score_and_blocks(monkeypatch):
+    """View models handle reports where score, score.blocks, or score.max are non-dict types."""
+    # 1. score is string
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {"score": "not_a_dict", "missions": []},
+    )
+    dash_vm = build_dashboard_view_model("01_clear")
+    assert dash_vm["totalScore"] == 0.0
+
+    missions_vm = build_missions_view_model("01_clear")
+    assert missions_vm["summary"]["deliveryScore"] == 40.0
+    assert missions_vm["summary"]["maxDeliveryScore"] == 40.0
+
+    analytics_vm = build_analytics_view_model("01_clear")
+    assert analytics_vm["totalScore"] == 0.0
+    for block in analytics_vm["blocks"]:
+        assert block["achieved"] == 0.0
+
+    episodes_vm = build_episodes_view_model("01_clear")
+    assert episodes_vm["summary"]["fatalCount"] == 0
+
+    replay_vm = build_replay_view_model("01_clear")
+    assert isinstance(replay_vm["episodes"], list)
+
+    # 2. score is int, blocks is string, max is list
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {
+            "score": {
+                "total": 75.0,
+                "blocks": "invalid_blocks",
+                "max": [1, 2, 3],
+            },
+            "missions": [],
+        },
+    )
+    dash_vm2 = build_dashboard_view_model("01_clear")
+    assert dash_vm2["totalScore"] == 75.0
+
+    missions_vm2 = build_missions_view_model("01_clear")
+    assert missions_vm2["summary"]["deliveryScore"] == 40.0
+    assert missions_vm2["summary"]["maxDeliveryScore"] == 40.0
+
+    analytics_vm2 = build_analytics_view_model("01_clear")
+    assert analytics_vm2["totalScore"] == 75.0
+    for block in analytics_vm2["blocks"]:
+        assert block["achieved"] == 0.0
+
+
+def test_api_scenarios_non_dict_report(http_server, monkeypatch):
+    """/api/scenarios endpoint safely handles non-dict reports and non-dict score values."""
+    # Report itself is non-dict
+    monkeypatch.setattr(server, "get_scenario_report", lambda sc_id: "error_not_dict")
+    url = f"{http_server}/api/scenarios"
+    with urlopen(url) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        for sc in data:
+            assert sc["hasReport"] is False
+            assert sc["score"] is None
+
+    # Report has non-dict score (e.g. string or number)
+    monkeypatch.setattr(server, "get_scenario_report", lambda sc_id: {"score": "perfect"})
+    with urlopen(url) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        for sc in data:
+            assert sc["hasReport"] is True
+            assert sc["score"] is None
+
+
+
 
