@@ -10,12 +10,12 @@
  "cheat": false,
  "controller": {
   "path": "team_dreamteam_4_0/controller.py",
-  "sha256": "f2bac143b94ac8d6"
+  "sha256": "2f4a721eafcfb6ed"
  },
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 3159,
+ "ticks": 3106,
  "missions": [
   {
    "type": "mission",
@@ -23,9 +23,9 @@
    "from": "warehouse",
    "to": "shop_a",
    "t_start": 0.0,
-   "t_end": 159.4,
-   "t_arrival": 158.5,
-   "max_hold_dist": 0.0791,
+   "t_end": 155.7,
+   "t_arrival": 154.8,
+   "max_hold_dist": 0.072,
    "deadline_s": 200.7,
    "reference_length_m": 174.317,
    "delivered": true,
@@ -36,10 +36,10 @@
    "id": "m2",
    "from": "shop_a",
    "to": "warehouse",
-   "t_start": 159.5,
-   "t_end": 315.8,
-   "t_arrival": 314.9,
-   "max_hold_dist": 0.0647,
+   "t_start": 155.8,
+   "t_end": 310.5,
+   "t_arrival": 309.6,
+   "max_hold_dist": 0.0666,
    "deadline_s": 200.6,
    "reference_length_m": 174.271,
    "delivered": true,
@@ -47,8 +47,8 @@
   }
  ],
  "score": {
-  "total": 99.92,
-  "raw_sum": 99.917,
+  "total": 100.0,
+  "raw_sum": 100.0,
   "fatal": false,
   "fatal_t": null,
   "counted": true,
@@ -56,7 +56,7 @@
   "not_counted_blocks": [],
   "blocks": {
    "delivery": 40.0,
-   "efficiency": 14.917,
+   "efficiency": 15.0,
    "safety": 25.0,
    "rules": 10.0,
    "pose": 10.0,
@@ -75,19 +75,19 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 158.5,
-    "time_s": 158.5,
-    "ratio": 1.0111,
-    "efficiency": 0.9888995336083113,
+    "t_arrival": 154.8,
+    "time_s": 154.8,
+    "ratio": 0.9875,
+    "efficiency": 1.0,
     "reason": "delivered"
    },
    {
     "id": "m2",
     "delivered": true,
-    "t_start": 159.5,
-    "t_arrival": 314.9,
-    "time_s": 155.4,
-    "ratio": 0.9916,
+    "t_start": 155.8,
+    "t_arrival": 309.6,
+    "time_s": 153.8,
+    "ratio": 0.9814,
     "efficiency": 1.0,
     "reason": "delivered"
    }
@@ -96,11 +96,11 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 3159,
-  "mean": 1.159,
-  "max": 25.424
+  "n": 3106,
+  "mean": 1.124,
+  "max": 24.706
  },
- "wall_time_s": 4.844,
+ "wall_time_s": 4.748,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
