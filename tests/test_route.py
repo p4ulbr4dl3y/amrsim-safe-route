@@ -179,13 +179,19 @@ class TestRouteFollower(unittest.TestCase):
             ]
         )
 
-        # 1. Lookahead in dock zone (remaining distance <= 1.5m):
-        # Target must be strictly the dock goal (220.0, 158.5) and v <= 0.15 m/s
-        pose_dock = (220.0, 157.5, math.pi / 2)  # 1.0m to goal
+        # 1. Lookahead in dock zone (remaining distance <= 0.6m):
+        # Target must be strictly the dock goal (220.0, 158.5) and v <= 0.25 m/s
+        pose_dock = (220.0, 158.0, math.pi / 2)  # 0.5m to goal
         v_dock, w_dock, tgt_dock, _, rem_dock = self.rf.pure_pursuit(pose_dock, dock_path)
-        self.assertLessEqual(v_dock, 0.15)
+        self.assertLessEqual(v_dock, 0.25)
         self.assertAlmostEqual(tgt_dock[0], 220.0)
         self.assertAlmostEqual(tgt_dock[1], 158.5)
+
+        # Outside dock zone (> 0.6m): robot is not limited to 0.15/0.25 m/s dock crawl
+        self.rf.last_s = 0.0
+        pose_approach = (220.0, 157.0, math.pi / 2)  # 1.5m to goal
+        v_app, _, _, _, _ = self.rf.pure_pursuit(pose_approach, dock_path)
+        self.assertGreater(v_app, 0.5)
 
         # 2. Terminal arrival within 0.10m:
         cmd = self.rf.step(

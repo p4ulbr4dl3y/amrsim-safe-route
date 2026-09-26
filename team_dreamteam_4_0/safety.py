@@ -338,7 +338,6 @@ class SafetyGovernor:
         person_stop = False
         person_slow = False
         person_slow_cl = math.inf
-        front_hit = False  # Кластер находится строго впереди в пределах коридора
         # Флаг истинного контакта: минимальное расстояние от центра до точки по всем кластерам.
         # Тормозной путь относится к поступательному движению, но корпус представляет собой диск 0.9 м,
         # поэтому разворот на месте безопасен, пока ближайшая точка лежит вне диска.
@@ -359,8 +358,6 @@ class SafetyGovernor:
                 min_overall_clearance = cl
 
             ahead = (pts[:, 0] > 0.0) & (np.abs(pts[:, 1]) < R_PLATFORM + 0.35)
-            if (ahead & (pts[:, 0] < d_stop_corridor)).any():
-                front_hit = True
 
             if is_human:
                 ped_ahead = (pts[:, 0] > 0.0) & (pts[:, 0] < 4.5) & (np.abs(pts[:, 1]) < 1.8)
@@ -471,17 +468,43 @@ class SafetyGovernor:
                         notes["stop_corridor"] = "stop_corridor"
 
         # 7. Экстренное торможение 2.5 м/с^2 только при сближении с подтвержденным кластером
-        # ближе 1.2 м, когда штатного торможения 1.2 м/с^2 недостаточно.
-        # Ложное экстренное торможение при зазоре >= 1.5 м штрафуется.
+        # (tr.confirmed == True, tr.coast_ticks == 0), находящимся строго вне корпуса (d_pts >= R_PLATFORM + 0.05).
+        # Неизвестные кластеры с < 3 точками или фантомы в тумане/снеге отбрасываются,
+        # так как ложное экстренное торможение при зазоре >= 1.5 м штрафуется (estop_no_object).
+        min_estop_clearance = math.inf
+        estop_front_hit = False
+        for tr in tracks:
+            pts = tr.pts
+            if pts is None or len(pts) == 0:
+                continue
+            if not getattr(tr, "confirmed", False):
+                continue
+            if getattr(tr, "coast_ticks", 0) > 0:
+                continue
+            if getattr(tr, "is_unknown", False) and len(pts) < 3:
+                continue
+            if is_fog and len(pts) < 3:
+                continue
+            d_pts = float(np.hypot(pts[:, 0], pts[:, 1]).min())
+            if d_pts < R_PLATFORM + 0.05:
+                continue
+            is_human = tr.is_pedestrian or tr.is_unknown
+            cl = calculate_clearance(pts, is_pedestrian=is_human)
+            if cl < min_estop_clearance:
+                min_estop_clearance = cl
+            ahead = (pts[:, 0] > 0.0) & (np.abs(pts[:, 1]) < R_PLATFORM + 0.35)
+            if (ahead & (pts[:, 0] < d_stop_corridor)).any():
+                estop_front_hit = True
+
         closing = True
         if self._prev_min_cl is not None and math.isfinite(self._prev_min_cl):
-            closing = min_overall_clearance < self._prev_min_cl - 0.005
+            closing = min_estop_clearance < self._prev_min_cl - 0.005
         stopping_normal = (v_now * v_now) / (2.0 * DECEL_NORMAL) + v_now * self.dt
         if (
-            math.isfinite(min_overall_clearance)
-            and min_overall_clearance < ESTOP_GAP
-            and min_overall_clearance < stopping_normal
-            and front_hit
+            math.isfinite(min_estop_clearance)
+            and min_estop_clearance < ESTOP_GAP
+            and min_estop_clearance < stopping_normal
+            and estop_front_hit
             and v_now > 0.05
             and closing
         ):
@@ -489,7 +512,7 @@ class SafetyGovernor:
             v_lim = 0.0
             if stop_reason is None:
                 stop_reason = "estop"
-        self._prev_min_cl = min_overall_clearance if math.isfinite(min_overall_clearance) else None
+        self._prev_min_cl = min_estop_clearance if math.isfinite(min_estop_clearance) else None
 
         # 8. Арбитраж линейной скорости v
         if is_lost:

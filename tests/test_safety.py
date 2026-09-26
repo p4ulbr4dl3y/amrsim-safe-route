@@ -355,9 +355,10 @@ class TestSafety(unittest.TestCase):
         # plan/03:78-84: estop only for a confirmed cluster closer than 1.2 m while closing
         # and when the normal 1.2 m/s^2 brake can no longer stop in time.
         tr = Track(track_id=1, ox=2.0, oy=0.0)
-        tr.pts = np.array([[2.0, 0.0]])  # clearance 0.8 m < 1.2 m
+        tr.pts = np.array([[2.0, 0.0], [2.05, 0.05], [1.95, -0.05]])  # clearance 0.8 m < 1.2 m
         tr.class_label = "pedestrian"
         tr.dyn = True
+        tr.confirmed = True
 
         v_estop, w_estop, st_estop, _ = self.gov.evaluate(
             v_cand=1.39,
@@ -402,6 +403,7 @@ class TestSafety(unittest.TestCase):
         wall.pts = np.array([[1.5, 0.0]])
         wall.class_label = "wall_extra"
         wall.dyn = False
+        wall.confirmed = True
         self.assertTrue(wall.is_wall)
 
         v_safe, w_safe, _, _ = self.gov.evaluate(
@@ -490,6 +492,7 @@ class TestSafety(unittest.TestCase):
         tr.pts = np.array([[1.0, 0.0]])
         tr.class_label = "pedestrian"
         tr.dyn = True
+        tr.confirmed = True
 
         _, w_safe, _, _ = self.gov.evaluate(
             v_cand=1.39,
@@ -864,9 +867,10 @@ class TestSafetyEdgeCases(unittest.TestCase):
         # Line 513: min_overall_clearance < 0.15 with stop_reason is None (wall_extra, remaining_dist <= 0.35)
         # Static wall piece in front (x = 1.0, y = 0.0) -> clearance = 1.0 - 0.9 = 0.10 < 0.15
         tr_close = Track(track_id=2, ox=1.0, oy=0.0)
-        tr_close.pts = np.array([[1.0, 0.0]])
+        tr_close.pts = np.array([[1.0, 0.0], [1.05, 0.05], [0.95, -0.05]])
         tr_close.class_label = "wall_extra"
         tr_close.dyn = False
+        tr_close.confirmed = True
         v_e, w_e, status_e, note_e = gov.evaluate(
             v_cand=1.0,
             w_cand=0.0,
@@ -902,6 +906,100 @@ class TestSafetyEdgeCases(unittest.TestCase):
         self.assertEqual(w_a, 0.0)
         self.assertEqual(status_a, "arrived")
         self.assertEqual(note_a, "dock")
+
+    def test_unconfirmed_track_or_fog_phantom_no_estop(self):
+        # Регрессионный тест: неподтвержденный трек или фантомный отклик в тумане/снеге
+        # не должен вызывать статус estop (штраф estop_no_object).
+        # Экстренное торможение разрешено только для подтвержденного трека (confirmed == True)
+        # вне платформы (d_pts >= R_PLATFORM + 0.05).
+        gov = SafetyGovernor(v_top=1.39, dt=0.1)
+        # 1. Неподтвержденный трек перед роботом
+        tr_unconf = Track(track_id=99, ox=1.5, oy=0.0)
+        tr_unconf.pts = np.array([[1.5, 0.0], [1.55, 0.05], [1.45, -0.05]])
+        tr_unconf.class_label = "pedestrian"
+        tr_unconf.dyn = True
+        tr_unconf.confirmed = False
+
+        v_u, w_u, st_u, _ = gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.3,
+            v_odom=1.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr_unconf],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+            is_fog=True,
+        )
+        self.assertNotEqual(st_u, "estop")
+
+        # 2. Фантом в тумане с 2 точками или трек в режиме экстраполяции (coast_ticks > 0) не вызывают estop
+        tr_fog2 = Track(track_id=101, ox=1.5, oy=0.0)
+        tr_fog2.pts = np.array([[1.5, 0.0], [1.55, 0.05]])
+        tr_fog2.class_label = "pedestrian"
+        tr_fog2.dyn = True
+        tr_fog2.confirmed = True
+        _, _, st_fog2, _ = gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.3,
+            v_odom=1.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr_fog2],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+            is_fog=True,
+        )
+        self.assertNotEqual(st_fog2, "estop")
+
+        tr_coast = Track(track_id=102, ox=1.5, oy=0.0)
+        tr_coast.pts = np.array([[1.5, 0.0], [1.55, 0.05], [1.45, -0.05]])
+        tr_coast.class_label = "pedestrian"
+        tr_coast.dyn = True
+        tr_coast.confirmed = True
+        tr_coast.coast_ticks = 1
+        _, _, st_coast, _ = gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.3,
+            v_odom=1.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr_coast],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+            is_fog=True,
+        )
+        self.assertNotEqual(st_coast, "estop")
+
+        # 3. Подтвержденный плотный трек вызывает estop при неизбежном столкновении
+        tr_conf = Track(track_id=100, ox=2.0, oy=0.0)
+        tr_conf.pts = np.array([[2.0, 0.0], [2.05, 0.05], [1.95, -0.05]])
+        tr_conf.class_label = "pedestrian"
+        tr_conf.dyn = True
+        tr_conf.confirmed = True
+
+        v_c, w_c, st_c, _ = gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.3,
+            v_odom=1.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr_conf],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+            is_fog=True,
+        )
+        self.assertEqual(st_c, "estop")
+        self.assertEqual(v_c, 0.0)
+        self.assertEqual(w_c, 0.0)
 
     def test_import_fallback(self):
         import sys

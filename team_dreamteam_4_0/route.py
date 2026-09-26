@@ -809,8 +809,8 @@ class RouteFollower:
         goal_pt = path[-1]
         dist_to_goal = math.hypot(x - goal_pt[0], y - goal_pt[1])
 
-        # Правило упреждения у дока: в пределах 1.5 м целиться строго в точку дока
-        is_dock_zone = dist_to_goal <= 1.5 or rem_dist <= 1.5
+        # Правило упреждения у дока: в пределах 0.6 м целиться строго в точку дока
+        is_dock_zone = dist_to_goal <= 0.6 or rem_dist <= 0.6
         if is_dock_zone:
             target_pt = (float(goal_pt[0]), float(goal_pt[1]))
         else:
@@ -835,10 +835,10 @@ class RouteFollower:
             return v, w, target_pt, curr_s, rem_dist
 
         # Ограничения скорости:
-        # - скорость стыковки 0.15 м/с в пределах 1.5 м;
+        # - скорость стыковки 0.25 м/с в пределах 0.6 м;
         # - ограничение скорости поворота: |alpha| > 0.35 -> v <= 0.5;
         # - профиль торможения.
-        v_dock = 0.15 if is_dock_zone else 1.39
+        v_dock = 0.25 if is_dock_zone else 1.39
         # Ограничение скорости поворота: |alpha| > 0.35 -> v <= 0.5
         v_turn = 0.5 if abs(alpha) > 0.35 else 1.39
         # Профиль служебного торможения
