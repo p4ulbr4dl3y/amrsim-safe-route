@@ -172,6 +172,122 @@ def get_scenario_file(scenario_id: str | None) -> Path | None:
     return None
 
 
+def heal_scenario_drivable_microgaps(
+    drivable_polys: list[Any], max_gap: float = 0.35
+) -> list[Any]:
+    """Устраняет микрозазоры (< 0.35 м) между смежными прямоугольными полигонами дорог."""
+    if not drivable_polys or len(drivable_polys) < 2:
+        return drivable_polys
+    res = [[[float(pt[0]), float(pt[1])] for pt in p] for p in drivable_polys]
+    n = len(res)
+    for i in range(n):
+        p1 = res[i]
+        if len(p1) != 4:
+            continue
+        xs1 = [pt[0] for pt in p1]
+        ys1 = [pt[1] for pt in p1]
+        minx1, maxx1 = min(xs1), max(xs1)
+        miny1, maxy1 = min(ys1), max(ys1)
+        for j in range(i + 1, n):
+            p2 = res[j]
+            if len(p2) != 4:
+                continue
+            xs2 = [pt[0] for pt in p2]
+            ys2 = [pt[1] for pt in p2]
+            minx2, maxx2 = min(xs2), max(xs2)
+            miny2, maxy2 = min(ys2), max(ys2)
+
+            x_ov = min(maxx1, maxx2) - max(minx1, minx2)
+            if x_ov > 0.5:
+                if 0.0 < miny2 - maxy1 <= max_gap:
+                    mid = round((maxy1 + miny2) / 2.0, 4)
+                    for pt in p1:
+                        if abs(pt[1] - maxy1) < 1e-4:
+                            pt[1] = mid
+                    for pt in p2:
+                        if abs(pt[1] - miny2) < 1e-4:
+                            pt[1] = mid
+                elif 0.0 < miny1 - maxy2 <= max_gap:
+                    mid = round((maxy2 + miny1) / 2.0, 4)
+                    for pt in p2:
+                        if abs(pt[1] - maxy2) < 1e-4:
+                            pt[1] = mid
+                    for pt in p1:
+                        if abs(pt[1] - miny1) < 1e-4:
+                            pt[1] = mid
+
+            y_ov = min(maxy1, maxy2) - max(miny1, miny2)
+            if y_ov > 0.5:
+                if 0.0 < minx2 - maxx1 <= max_gap:
+                    mid = round((maxx1 + minx2) / 2.0, 4)
+                    for pt in p1:
+                        if abs(pt[0] - maxx1) < 1e-4:
+                            pt[0] = mid
+                    for pt in p2:
+                        if abs(pt[0] - minx2) < 1e-4:
+                            pt[0] = mid
+                elif 0.0 < minx1 - maxx2 <= max_gap:
+                    mid = round((maxx2 + minx1) / 2.0, 4)
+                    for pt in p2:
+                        if abs(pt[0] - maxx2) < 1e-4:
+                            pt[0] = mid
+                    for pt in p1:
+                        if abs(pt[0] - minx1) < 1e-4:
+                            pt[0] = mid
+    return res
+
+
+def sync_scenario_missions_with_points(scenario_dict: dict[str, Any]) -> None:
+    """Синхронизирует опорный маршрут миссий с текущими координатами доков points."""
+    map_data = scenario_dict.get("map")
+    if not isinstance(map_data, dict):
+        return
+    points = map_data.get("points")
+    if not isinstance(points, dict):
+        return
+    missions = scenario_dict.get("missions")
+    if not isinstance(missions, list):
+        return
+
+    for m in missions:
+        if not isinstance(m, dict):
+            continue
+        to_id = m.get("to")
+        from_id = m.get("from")
+        to_pt = points.get(to_id) if to_id else None
+        from_pt = points.get(from_id) if from_id else None
+
+        to_xy = [float(to_pt["x"]), float(to_pt["y"])] if (to_pt and "x" in to_pt and "y" in to_pt) else None
+        from_xy = [float(from_pt["x"]), float(from_pt["y"])] if (from_pt and "x" in from_pt and "y" in from_pt) else None
+
+        ref_path = m.get("reference_path")
+        if not isinstance(ref_path, list) or len(ref_path) == 0:
+            if from_xy and to_xy:
+                m["reference_path"] = [from_xy, to_xy]
+        else:
+            new_path = [[float(p[0]), float(p[1])] for p in ref_path if isinstance(p, (list, tuple)) and len(p) >= 2]
+            if len(new_path) >= 1 and to_xy:
+                last_p = new_path[-1]
+                if math.hypot(last_p[0] - to_xy[0], last_p[1] - to_xy[1]) > 0.1:
+                    if len(new_path) <= 2:
+                        new_path[-1] = to_xy
+                    else:
+                        new_path.append(to_xy)
+            if len(new_path) >= 1 and from_xy:
+                first_p = new_path[0]
+                if math.hypot(first_p[0] - from_xy[0], first_p[1] - from_xy[1]) > 0.1:
+                    new_path[0] = from_xy
+            m["reference_path"] = new_path
+
+        pts = m.get("reference_path", [])
+        if len(pts) >= 2:
+            length = sum(
+                math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1])
+                for k in range(1, len(pts))
+            )
+            m["reference_length_m"] = round(length, 2)
+
+
 def save_scenario(data: dict[str, Any], scenario_id: str | None = None) -> tuple[str, Path]:
     """Сохраняет сценарий на диск в scenarios/<id>.json."""
     raw_content = data
@@ -207,6 +323,13 @@ def save_scenario(data: dict[str, Any], scenario_id: str | None = None) -> tuple
             raw_content["schema"] = "amr-1.0"
         if "name" not in raw_content:
             raw_content["name"] = safe_name
+
+        # Лечение микроразрывов дорог и синхронизация миссий с доками
+        if isinstance(raw_content.get("map"), dict) and "drivable" in raw_content["map"]:
+            raw_content["map"]["drivable"] = heal_scenario_drivable_microgaps(
+                raw_content["map"]["drivable"]
+            )
+        sync_scenario_missions_with_points(raw_content)
 
     with open(target_path, "w", encoding="utf-8") as f:
         json.dump(raw_content, f, ensure_ascii=False, indent=2)

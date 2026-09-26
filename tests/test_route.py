@@ -984,6 +984,46 @@ class TestRouteDefectFixes(unittest.TestCase):
         self.assertIsInstance(grid3, np.ndarray)
         self.assertTrue(np.any(grid3))
 
+    def test_heal_drivable_microgaps(self):
+        """Проверка сшивки микроразрывов между смежными дорогами."""
+        from team_dreamteam_4_0.route.grid import heal_drivable_microgaps
+
+        # Две дороги с разрывом 20 см по Y
+        r1 = np.array([[10.0, 50.0], [30.0, 50.0], [30.0, 70.0], [10.0, 70.0]])
+        r2 = np.array([[10.0, 70.2], [30.0, 70.2], [30.0, 85.0], [10.0, 85.0]])
+
+        healed = heal_drivable_microgaps([r1, r2], max_gap=0.35)
+        self.assertEqual(len(healed), 2)
+        # Обе дороги теперь смыкаются в Y = 70.1
+        self.assertAlmostEqual(healed[0][:, 1].max(), 70.1, places=3)
+        self.assertAlmostEqual(healed[1][:, 1].min(), 70.1, places=3)
+
+    def test_update_mission_moved_dock(self):
+        """Проверка автоматической дотяжки траектории до смещенного целевого дока."""
+        m_map = {
+            "bounds": [0, 0, 150, 150],
+            "drivable": [[[0, 0], [120, 0], [120, 100], [0, 100]]],
+            "points": {
+                "dock_start": {"x": 10.0, "y": 10.0},
+                "dock_end": {"x": 80.0, "y": 90.0},
+            },
+        }
+        rf = RouteFollower(m_map)
+        mission = {
+            "id": "m_moved",
+            "from": "dock_start",
+            "to": "dock_end",
+            # Старый маршрут заканчивался в (40.0, 10.0), а док передвинут в (80.0, 90.0)
+            "reference_path": [[10.0, 10.0], [40.0, 10.0]],
+        }
+        rf.update_mission(mission, pose=(10.0, 10.0, 0.0))
+        # Конечная точка активного маршрута должна вести к реальному положению дока (80.0, 90.0)
+        self.assertGreater(len(rf.active_path), 0)
+        final_pt = rf.active_path[-1]
+        self.assertAlmostEqual(final_pt[0], 80.0, places=1)
+        self.assertAlmostEqual(final_pt[1], 90.0, places=1)
+
 
 if __name__ == "__main__":
     unittest.main()
+

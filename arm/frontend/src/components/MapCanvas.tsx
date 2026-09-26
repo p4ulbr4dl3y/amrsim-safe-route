@@ -377,14 +377,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
           ctx.lineWidth = 1;
           const p0 = toScreen(poly[0][0], poly[0][1]);
           const p1 = toScreen(poly[1][0], poly[1][1]);
+          const p2 = toScreen(poly[2][0], poly[2][1]);
           const p3 = toScreen(poly[3][0], poly[3][1]);
           const ribCount = 4;
           for (let r = 1; r < ribCount; r++) {
             const frac = r / ribCount;
             const topX = p0.x + (p1.x - p0.x) * frac;
             const topY = p0.y + (p1.y - p0.y) * frac;
-            const botX = p3.x + (p1.x - p0.x) * frac;
-            const botY = p3.y + (p1.y - p0.y) * frac;
+            const botX = p3.x + (p2.x - p3.x) * frac;
+            const botY = p3.y + (p2.y - p3.y) * frac;
             ctx.beginPath();
             ctx.moveTo(topX, topY);
             ctx.lineTo(botX, botY);

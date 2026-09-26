@@ -1787,6 +1787,58 @@ def test_api_post_run_custom_map_without_data(http_server, monkeypatch):
         assert mock_run.called
 
 
+def test_save_scenario_heals_gaps_and_syncs_missions(tmp_path, monkeypatch):
+    """save_scenario сшивает микроразрывы дорог и синхронизирует опорный маршрут с целевым доком."""
+    from arm.services import storage
+
+    monkeypatch.setattr(storage, "ROOT_DIR", tmp_path)
+    sc_data = {
+        "schema": "amr-1.0",
+        "name": "test_heal_sync",
+        "map": {
+            "bounds": [0, 0, 100, 100],
+            "drivable": [
+                [[10.0, 50.0], [30.0, 50.0], [30.0, 70.0], [10.0, 70.0]],
+                [[10.0, 70.2], [30.0, 70.2], [30.0, 85.0], [10.0, 85.0]],
+            ],
+            "points": {
+                "dock_start": {"x": 15.0, "y": 55.0},
+                "dock_end": {"x": 20.0, "y": 80.0},
+            },
+        },
+        "missions": [
+            {
+                "id": "m1",
+                "from": "dock_start",
+                "to": "dock_end",
+                "reference_path": [[15.0, 55.0], [15.0, 60.0]],
+            }
+        ],
+    }
+    safe_name, target_path = storage.save_scenario(sc_data)
+    assert safe_name == "test_heal_sync"
+    assert target_path.exists()
+
+    with open(target_path, "r", encoding="utf-8") as f:
+        saved = json.load(f)
+
+    # Проверка сшивки микрозазора
+    drivable = saved["map"]["drivable"]
+    assert len(drivable) == 2
+    y_top_first = max(p[1] for p in drivable[0])
+    y_bot_second = min(p[1] for p in drivable[1])
+    assert abs(y_top_first - 70.1) < 1e-3
+    assert abs(y_bot_second - 70.1) < 1e-3
+
+    # Проверка синхронизации миссии
+    mission = saved["missions"][0]
+    ref_path = mission["reference_path"]
+    assert ref_path[-1] == [20.0, 80.0]
+    assert ref_path[0] == [15.0, 55.0]
+    assert mission["reference_length_m"] > 0
+
+
+
 
 
 

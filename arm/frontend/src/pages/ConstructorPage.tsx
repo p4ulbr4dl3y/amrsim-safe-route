@@ -54,6 +54,122 @@ interface ConstructorPageProps {
   onScenarioChange?: (scenario: string) => void;
 }
 
+export const syncMissionsWithPoints = (
+  missions: AmrScenario['missions'] | undefined,
+  points: Record<string, any> | undefined
+): NonNullable<AmrScenario['missions']> => {
+  if (!missions || !points) return missions || [];
+  return missions.map((m) => {
+    const fromPt = m.from ? points[m.from] : null;
+    const toPt = m.to ? points[m.to] : null;
+    if (!fromPt && !toPt) return m;
+
+    const oldPath: [number, number][] = m.reference_path || [];
+    const fromX = fromPt ? fromPt.x : (oldPath[0]?.[0] ?? 0);
+    const fromY = fromPt ? fromPt.y : (oldPath[0]?.[1] ?? 0);
+    const toX = toPt ? toPt.x : (oldPath[oldPath.length - 1]?.[0] ?? fromX);
+    const toY = toPt ? toPt.y : (oldPath[oldPath.length - 1]?.[1] ?? fromY);
+
+    let newRefPath: [number, number][];
+    if (oldPath.length <= 2) {
+      newRefPath = [[fromX, fromY], [toX, toY]];
+    } else {
+      newRefPath = [[fromX, fromY], ...oldPath.slice(1, -1), [toX, toY]];
+    }
+
+    let len = 0;
+    for (let k = 1; k < newRefPath.length; k++) {
+      len += Math.hypot(newRefPath[k][0] - newRefPath[k - 1][0], newRefPath[k][1] - newRefPath[k - 1][1]);
+    }
+
+    return {
+      ...m,
+      reference_path: newRefPath,
+      reference_length_m: Math.round(len * 10) / 10,
+    };
+  });
+};
+
+export const healDrivableMicrogaps = (
+  drivablePolys: [number, number][][] | undefined,
+  maxGap = 0.35
+): [number, number][][] => {
+  if (!drivablePolys || drivablePolys.length < 2) return drivablePolys || [];
+  const res: [number, number][][] = drivablePolys.map((poly) =>
+    poly.map(([x, y]) => [x, y] as [number, number])
+  );
+  const n = res.length;
+  for (let i = 0; i < n; i++) {
+    const p1 = res[i];
+    if (p1.length !== 4) continue;
+    const xs1 = p1.map((p) => p[0]);
+    const ys1 = p1.map((p) => p[1]);
+    const minx1 = Math.min(...xs1);
+    const maxx1 = Math.max(...xs1);
+    const miny1 = Math.min(...ys1);
+    const maxy1 = Math.max(...ys1);
+
+    for (let j = i + 1; j < n; j++) {
+      const p2 = res[j];
+      if (p2.length !== 4) continue;
+      const xs2 = p2.map((p) => p[0]);
+      const ys2 = p2.map((p) => p[1]);
+      const minx2 = Math.min(...xs2);
+      const maxx2 = Math.max(...xs2);
+      const miny2 = Math.min(...ys2);
+      const maxy2 = Math.max(...ys2);
+
+      const xOverlap = Math.min(maxx1, maxx2) - Math.max(minx1, minx2);
+      if (xOverlap > 0.5) {
+        if (miny2 - maxy1 > 0 && miny2 - maxy1 <= maxGap) {
+          const mid = Math.round(((maxy1 + miny2) / 2) * 100) / 100;
+          for (let k = 0; k < 4; k++) {
+            if (Math.abs(p1[k][1] - maxy1) < 1e-4) p1[k][1] = mid;
+            if (Math.abs(p2[k][1] - miny2) < 1e-4) p2[k][1] = mid;
+          }
+        } else if (miny1 - maxy2 > 0 && miny1 - maxy2 <= maxGap) {
+          const mid = Math.round(((maxy2 + miny1) / 2) * 100) / 100;
+          for (let k = 0; k < 4; k++) {
+            if (Math.abs(p2[k][1] - maxy2) < 1e-4) p2[k][1] = mid;
+            if (Math.abs(p1[k][1] - miny1) < 1e-4) p1[k][1] = mid;
+          }
+        }
+      }
+
+      const yOverlap = Math.min(maxy1, maxy2) - Math.max(miny1, miny2);
+      if (yOverlap > 0.5) {
+        if (minx2 - maxx1 > 0 && minx2 - maxx1 <= maxGap) {
+          const mid = Math.round(((maxx1 + minx2) / 2) * 100) / 100;
+          for (let k = 0; k < 4; k++) {
+            if (Math.abs(p1[k][0] - maxx1) < 1e-4) p1[k][0] = mid;
+            if (Math.abs(p2[k][0] - minx2) < 1e-4) p2[k][0] = mid;
+          }
+        } else if (minx1 - maxx2 > 0 && minx1 - maxx2 <= maxGap) {
+          const mid = Math.round(((maxx2 + minx1) / 2) * 100) / 100;
+          for (let k = 0; k < 4; k++) {
+            if (Math.abs(p2[k][0] - maxx2) < 1e-4) p2[k][0] = mid;
+            if (Math.abs(p1[k][0] - minx1) < 1e-4) p1[k][0] = mid;
+          }
+        }
+      }
+    }
+  }
+  return res;
+};
+
+export const sanitizeScenario = (scenario: AmrScenario): AmrScenario => {
+  const healedDrivable = healDrivableMicrogaps(scenario.map?.drivable);
+  const syncedMissions = syncMissionsWithPoints(scenario.missions, scenario.map?.points);
+  return {
+    ...scenario,
+    map: {
+      ...scenario.map,
+      drivable: healedDrivable,
+    },
+    missions: syncedMissions,
+  };
+};
+
 export const ConstructorPage: React.FC<ConstructorPageProps> = ({
   onNavigate,
   onScenarioChange,
@@ -442,20 +558,22 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
 
   // Save to scenarioStorage
   const handleSaveToStorage = async () => {
-    const scName = scenario.name.trim() || 'custom_scenario';
+    const cleanScenario = sanitizeScenario(scenario);
+    setScenario(cleanScenario);
+    const scName = cleanScenario.name.trim() || 'custom_scenario';
     const mapData: MapData = {
-      bounds: scenario.map.bounds || [0, 0, 250, 200],
-      drivable: scenario.map.drivable || [],
-      buildings: scenario.map.buildings || [],
-      zones: scenario.map.zones || [],
-      gates: scenario.map.gates || [],
-      crossing: scenario.map.crossing || [],
-      points: scenario.map.points || {},
+      bounds: cleanScenario.map.bounds || [0, 0, 250, 200],
+      drivable: cleanScenario.map.drivable || [],
+      buildings: cleanScenario.map.buildings || [],
+      zones: cleanScenario.map.zones || [],
+      gates: cleanScenario.map.gates || [],
+      crossing: cleanScenario.map.crossing || [],
+      points: cleanScenario.map.points || {},
     };
 
-    const missionsTotal = Array.isArray(scenario.missions) ? scenario.missions.length : 0;
-    const missionsList = Array.isArray(scenario.missions)
-      ? scenario.missions.map((m, idx) => ({
+    const missionsTotal = Array.isArray(cleanScenario.missions) ? cleanScenario.missions.length : 0;
+    const missionsList = Array.isArray(cleanScenario.missions)
+      ? cleanScenario.missions.map((m, idx) => ({
           id: m.id || `m${idx + 1}`,
           from: m.from || 'dock_start',
           to: m.to || 'dock_end',
@@ -482,7 +600,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
       fileName: `${scName}.json`,
       fileType: 'scenario',
       mapData,
-      scenarioJson: scenario,
+      scenarioJson: cleanScenario,
       missionsViewModel: {
         scenario: scName,
         summary: {
@@ -502,7 +620,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
     persistSelectedScenario(scName);
     onScenarioChange?.(scName);
     try {
-      await apiClient.saveScenario(scName, scenario);
+      await apiClient.saveScenario(scName, cleanScenario);
     } catch (err) {
       console.warn('[ConstructorPage] Auto-save before simulation failed:', err);
     }
@@ -511,7 +629,9 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
 
   // Run in simulator
   const handleLaunchInSimulator = () => {
-    const scName = scenario.name.trim() || 'custom_scenario';
+    const cleanScenario = sanitizeScenario(scenario);
+    setScenario(cleanScenario);
+    const scName = cleanScenario.name.trim() || 'custom_scenario';
     handleSaveToStorage();
     onNavigate('runner', { scenario: scName });
   };
@@ -519,7 +639,9 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
   // Copy scenario JSON to clipboard
   const handleCopyJson = async () => {
     try {
-      const formatted = JSON.stringify(scenario, null, 2);
+      const cleanScenario = sanitizeScenario(scenario);
+      setScenario(cleanScenario);
+      const formatted = JSON.stringify(cleanScenario, null, 2);
       await navigator.clipboard.writeText(formatted);
       setCopiedFeedback(true);
       showToast('Сценарий скопирован в буфер обмена');
@@ -531,9 +653,11 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
 
   // Download scenario JSON file
   const handleDownloadJson = () => {
-    const fileName = `${scenario.name || 'scenario'}.json`;
+    const cleanScenario = sanitizeScenario(scenario);
+    setScenario(cleanScenario);
+    const fileName = `${cleanScenario.name || 'scenario'}.json`;
     const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
-      JSON.stringify(scenario, null, 2)
+      JSON.stringify(cleanScenario, null, 2)
     )}`;
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', jsonString);
@@ -1697,18 +1821,19 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                           type="number"
                           step="0.5"
                           value={scenario.map?.points?.[selectedEntity.id]?.x || 0}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const newX = parseFloat(e.target.value) || 0;
                             setScenario((prev) => {
                               const pts = { ...(prev.map?.points || {}) };
-                              if (pts[selectedEntity.id!]) {
-                                pts[selectedEntity.id!] = {
-                                  ...pts[selectedEntity.id!],
-                                  x: parseFloat(e.target.value) || 0,
-                                };
-                              }
-                              return { ...prev, map: { ...prev.map, points: pts } };
-                            })
-                          }
+                              if (!pts[selectedEntity.id!]) return prev;
+                              pts[selectedEntity.id!] = {
+                                ...pts[selectedEntity.id!],
+                                x: newX,
+                              };
+                              const missions = syncMissionsWithPoints(prev.missions, pts);
+                              return { ...prev, map: { ...prev.map, points: pts }, missions };
+                            });
+                          }}
                           className="w-full bg-slate-50 border border-slate-200 text-xs font-mono rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none"
                         />
                       </div>
@@ -1718,18 +1843,19 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                           type="number"
                           step="0.5"
                           value={scenario.map?.points?.[selectedEntity.id]?.y || 0}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const newY = parseFloat(e.target.value) || 0;
                             setScenario((prev) => {
                               const pts = { ...(prev.map?.points || {}) };
-                              if (pts[selectedEntity.id!]) {
-                                pts[selectedEntity.id!] = {
-                                  ...pts[selectedEntity.id!],
-                                  y: parseFloat(e.target.value) || 0,
-                                };
-                              }
-                              return { ...prev, map: { ...prev.map, points: pts } };
-                            })
-                          }
+                              if (!pts[selectedEntity.id!]) return prev;
+                              pts[selectedEntity.id!] = {
+                                ...pts[selectedEntity.id!],
+                                y: newY,
+                              };
+                              const missions = syncMissionsWithPoints(prev.missions, pts);
+                              return { ...prev, map: { ...prev.map, points: pts }, missions };
+                            });
+                          }}
                           className="w-full bg-slate-50 border border-slate-200 text-xs font-mono rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none"
                         />
                       </div>

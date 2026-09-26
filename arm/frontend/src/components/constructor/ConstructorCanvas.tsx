@@ -1233,14 +1233,42 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
         onUpdateScenario((prev) => {
           const pts = { ...(prev.map?.points || {}) };
           if (!pts[ent.id!]) return prev;
+          const newX = Math.round((dragAction.initialObjState.x + deltaX) * 10) / 10;
+          const newY = Math.round((dragAction.initialObjState.y + deltaY) * 10) / 10;
           pts[ent.id!] = {
             ...pts[ent.id!],
-            x: Math.round((dragAction.initialObjState.x + deltaX) * 10) / 10,
-            y: Math.round((dragAction.initialObjState.y + deltaY) * 10) / 10,
+            x: newX,
+            y: newY,
           };
+          const missions = (prev.missions || []).map((m) => {
+            if (m.to === ent.id || m.from === ent.id) {
+              const fromX = m.from === ent.id ? newX : (pts[m.from]?.x ?? (m.reference_path?.[0]?.[0] ?? newX));
+              const fromY = m.from === ent.id ? newY : (pts[m.from]?.y ?? (m.reference_path?.[0]?.[1] ?? newY));
+              const toX = m.to === ent.id ? newX : (pts[m.to]?.x ?? (m.reference_path?.[m.reference_path.length - 1]?.[0] ?? newX));
+              const toY = m.to === ent.id ? newY : (pts[m.to]?.y ?? (m.reference_path?.[m.reference_path.length - 1]?.[1] ?? newY));
+              const oldPath = m.reference_path || [];
+              let newRefPath: [number, number][];
+              if (oldPath.length <= 2) {
+                newRefPath = [[fromX, fromY], [toX, toY]];
+              } else {
+                newRefPath = [[fromX, fromY], ...oldPath.slice(1, -1), [toX, toY]];
+              }
+              let len = 0;
+              for (let k = 1; k < newRefPath.length; k++) {
+                len += Math.hypot(newRefPath[k][0] - newRefPath[k - 1][0], newRefPath[k][1] - newRefPath[k - 1][1]);
+              }
+              return {
+                ...m,
+                reference_path: newRefPath,
+                reference_length_m: Math.round(len * 10) / 10,
+              };
+            }
+            return m;
+          });
           return {
             ...prev,
             map: { ...prev.map, points: pts },
+            missions,
           };
         });
       } else if (ent.type === 'building' && ent.index !== undefined) {
@@ -1295,15 +1323,16 @@ export const ConstructorCanvas: React.FC<ConstructorCanvasProps> = ({
         }));
         onSelect({ type: 'building', index: bCount, id: newBuilding.id });
       } else if (activeTool === 'add_drivable') {
-        const w = maxXBox - minXBox > 0.5 ? maxXBox - minXBox : 12.0;
-        const h = maxYBox - minYBox > 0.5 ? maxYBox - minYBox : 6.0;
-        const cx = (minXBox + maxXBox) / 2;
-        const cy = (minYBox + maxYBox) / 2;
+        const roundSnap = (v: number) => Math.round(v * 2) / 2;
+        const w = maxXBox - minXBox > 0.5 ? Math.max(1.0, roundSnap(maxXBox - minXBox)) : 12.0;
+        const h = maxYBox - minYBox > 0.5 ? Math.max(1.0, roundSnap(maxYBox - minYBox)) : 6.0;
+        const cx = roundSnap((minXBox + maxXBox) / 2);
+        const cy = roundSnap((minYBox + maxYBox) / 2);
         const newDrivable: [number, number][] = [
-          [Math.round((cx - w / 2) * 10) / 10, Math.round((cy - h / 2) * 10) / 10],
-          [Math.round((cx + w / 2) * 10) / 10, Math.round((cy - h / 2) * 10) / 10],
-          [Math.round((cx + w / 2) * 10) / 10, Math.round((cy + h / 2) * 10) / 10],
-          [Math.round((cx - w / 2) * 10) / 10, Math.round((cy + h / 2) * 10) / 10],
+          [roundSnap(cx - w / 2), roundSnap(cy - h / 2)],
+          [roundSnap(cx + w / 2), roundSnap(cy - h / 2)],
+          [roundSnap(cx + w / 2), roundSnap(cy + h / 2)],
+          [roundSnap(cx - w / 2), roundSnap(cy + h / 2)],
         ];
         onUpdateScenario((prev) => ({
           ...prev,

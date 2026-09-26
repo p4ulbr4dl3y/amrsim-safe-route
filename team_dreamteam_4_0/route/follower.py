@@ -366,6 +366,40 @@ class RouteFollower:
         else:
             self.active_path = ref_path.copy()
 
+        to_xy = None
+        to_key = mission.get("to")
+        if to_key is not None:
+            if isinstance(to_key, str) and to_key in self.points:
+                to_xy = (float(self.points[to_key]["x"]), float(self.points[to_key]["y"]))
+            elif isinstance(to_key, dict) and "x" in to_key and "y" in to_key:
+                to_xy = (float(to_key["x"]), float(to_key["y"]))
+            elif isinstance(to_key, (list, tuple, np.ndarray)) and len(to_key) >= 2:
+                to_xy = (float(to_key[0]), float(to_key[1]))
+        if to_xy is None and "goal" in mission:
+            g_raw = mission["goal"]
+            if isinstance(g_raw, dict) and "x" in g_raw and "y" in g_raw:
+                to_xy = (float(g_raw["x"]), float(g_raw["y"]))
+            elif isinstance(g_raw, (list, tuple, np.ndarray)) and len(g_raw) >= 2:
+                to_xy = (float(g_raw[0]), float(g_raw[1]))
+
+        if to_xy is not None and len(self.active_path) > 0:
+            last_pt = self.active_path[-1]
+            dist_to_goal = math.hypot(last_pt[0] - to_xy[0], last_pt[1] - to_xy[1])
+            if dist_to_goal > 0.5:
+                # Опорный маршрут не доходит до истинной цели миссии (перемещенный док)
+                direct_leg = self.plan_path((pose[0], pose[1]), to_xy)
+                if direct_leg is not None and len(direct_leg) > 1:
+                    self.active_path = np.asarray(direct_leg, dtype=float)
+                    self.reference_path = self.active_path.copy()
+                else:
+                    final_leg = self.plan_path((last_pt[0], last_pt[1]), to_xy)
+                    if final_leg is not None and len(final_leg) > 0:
+                        self.active_path = np.vstack([self.active_path, np.asarray(final_leg, dtype=float)])
+                        self.reference_path = self.active_path.copy()
+                    else:
+                        self.active_path = np.vstack([self.active_path, np.array([[to_xy[0], to_xy[1]]])])
+                        self.reference_path = self.active_path.copy()
+
     def plan_path(
         self,
         start: Tuple[float, float],
