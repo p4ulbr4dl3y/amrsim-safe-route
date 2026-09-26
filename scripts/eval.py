@@ -362,7 +362,14 @@ def main() -> None:
 
     # Determine baseline summary if available
     baseline_data: Optional[Dict[str, Any]] = None
-    baseline_file = Path(args.baseline) if args.baseline else Path("results/baseline_summary.json")
+    default_base = (
+        REPO_ROOT / "results/team_benchmark_summary.json"
+        if (REPO_ROOT / "results/team_benchmark_summary.json").exists()
+        else REPO_ROOT / "results/team_summary.json"
+        if (REPO_ROOT / "results/team_summary.json").exists()
+        else REPO_ROOT / "results/baseline_summary.json"
+    )
+    baseline_file = Path(args.baseline) if args.baseline else default_base
     if baseline_file.exists():
         try:
             with open(baseline_file, "r", encoding="utf-8") as f:

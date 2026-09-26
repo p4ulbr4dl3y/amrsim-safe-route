@@ -9,8 +9,8 @@
  "salted": false,
  "cheat": false,
  "controller": {
-  "path": "team_dreamteam_4_0/controller.py",
-  "sha256": "6afc196bfb8ba3bb"
+  "path": "/Users/yegor/doc-1790342627/team_dreamteam_4_0/controller.py",
+  "sha256": "16663a8ab8213232"
  },
  "counted": true,
  "end_reason": "missions_done",
@@ -25,7 +25,7 @@
    "t_start": 0.0,
    "t_end": 176.5,
    "t_arrival": 175.6,
-   "max_hold_dist": 0.0503,
+   "max_hold_dist": 0.0574,
    "deadline_s": 252.0,
    "reference_length_m": 218.918,
    "delivered": true,
@@ -33,8 +33,8 @@
   }
  ],
  "score": {
-  "total": 97.0,
-  "raw_sum": 97.0,
+  "total": 100.0,
+  "raw_sum": 100.0,
   "fatal": false,
   "fatal_t": null,
   "counted": true,
@@ -45,7 +45,7 @@
    "efficiency": 15.0,
    "safety": 25.0,
    "rules": 10.0,
-   "pose": 7.0,
+   "pose": 10.0,
    "collisions": 0.0
   },
   "max": {
@@ -68,35 +68,15 @@
     "reason": "delivered"
    }
   ],
-  "episodes": [
-   {
-    "type": "pose_error",
-    "block": "pose",
-    "t_start": 84.7,
-    "t_end": 145.5,
-    "x": 99.61,
-    "y": 95.29,
-    "cost": -3.0
-   }
-  ],
-  "top_episodes": [
-   {
-    "type": "pose_error",
-    "block": "pose",
-    "t_start": 84.7,
-    "t_end": 145.5,
-    "x": 99.61,
-    "y": 95.29,
-    "cost": -3.0
-   }
-  ]
+  "episodes": [],
+  "top_episodes": []
  },
  "step_time_ms": {
   "n": 1766,
-  "mean": 1.731,
-  "max": 23.636
+  "mean": 1.39,
+  "max": 24.197
  },
- "wall_time_s": 3.784,
+ "wall_time_s": 3.184,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
