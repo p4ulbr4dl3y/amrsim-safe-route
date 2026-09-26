@@ -2,6 +2,8 @@ import { DashboardViewModel, ReplayViewModel, MissionsViewModel, MapData } from 
 
 export const AMR_UPLOADED_SCENARIO_KEY = 'amr_uploaded_scenario';
 export const AMR_STORAGE_EVENT = 'amr-scenario-storage-change';
+export const AMR_SELECTED_SCENARIO_KEY = 'amr_selected_scenario';
+export const AMR_SCENARIO_CHANGE_EVENT = 'amr-selected-scenario-change';
 
 export interface UploadedScenarioData {
   id: string;
@@ -85,6 +87,45 @@ export function clearUploadedScenario(): void {
  */
 export function hasUploadedScenario(): boolean {
   return getUploadedScenario() !== null;
+}
+
+/**
+ * Retrieves the currently active scenario ID.
+ * Priority: 1. uploaded scenario id, 2. localStorage[AMR_SELECTED_SCENARIO_KEY], 3. '04_busy_yard' fallback.
+ */
+export function getSelectedScenario(): string {
+  const uploaded = getUploadedScenario();
+  if (uploaded && uploaded.id) {
+    return uploaded.id;
+  }
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(AMR_SELECTED_SCENARIO_KEY);
+      if (stored) {
+        return stored;
+      }
+    }
+  } catch (e) {
+    console.warn('[scenarioStorage] Failed to read selected scenario:', e);
+  }
+  return '04_busy_yard';
+}
+
+/**
+ * Persists the selected scenario ID to localStorage and notifies listeners via CustomEvent.
+ */
+export function setSelectedScenario(id: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(AMR_SELECTED_SCENARIO_KEY, id);
+    }
+  } catch (e) {
+    console.warn('[scenarioStorage] Failed to save selected scenario:', e);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(AMR_SCENARIO_CHANGE_EVENT, { detail: id }));
+  }
 }
 
 // Window lifecycle listeners: clear on reload or closing page

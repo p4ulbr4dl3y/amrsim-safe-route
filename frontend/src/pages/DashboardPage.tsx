@@ -22,6 +22,9 @@ import {
   hasUploadedScenario,
   UploadedScenarioData,
   AMR_STORAGE_EVENT,
+  getSelectedScenario,
+  setSelectedScenario as persistSelectedScenario,
+  AMR_SCENARIO_CHANGE_EVENT,
 } from '../utils/scenarioStorage';
 
 const formatTime = (seconds: number): string => {
@@ -32,14 +35,43 @@ const formatTime = (seconds: number): string => {
 
 interface DashboardPageProps {
   onNavigate: (route: RouteName, params?: Record<string, any>) => void;
+  activeScenario?: string;
+  onScenarioChange?: (scenario: string) => void;
 }
 
-export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
-  const [selectedScenario, setSelectedScenario] = useState('04_busy_yard');
+export const DashboardPage: React.FC<DashboardPageProps> = ({
+  onNavigate,
+  activeScenario,
+  onScenarioChange,
+}) => {
+  const [selectedScenario, setSelectedScenario] = useState<string>(
+    activeScenario || getSelectedScenario()
+  );
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [data, setData] = useState<DashboardViewModel | null>(null);
   const [loading, setLoading] = useState(true);
   const uploadedRef = useRef(false);
+
+  // Sync with activeScenario prop
+  useEffect(() => {
+    if (activeScenario && activeScenario !== selectedScenario) {
+      setSelectedScenario(activeScenario);
+    }
+  }, [activeScenario]);
+
+  // Sync with global scenario change event
+  useEffect(() => {
+    const handleStorageChange = (e: any) => {
+      const sc = e.detail;
+      if (sc && sc !== selectedScenario) {
+        setSelectedScenario(sc);
+      }
+    };
+    window.addEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    return () => {
+      window.removeEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    };
+  }, [selectedScenario]);
 
   // Check storage on mount and fetch scenarios
   useEffect(() => {
@@ -538,7 +570,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               uploadedAt: Date.now(),
             });
 
-            setSelectedScenario(scenarioId);
+            handleScenarioChange(scenarioId);
             setData(updatedDashboard);
             apiClient.fetchScenarios().then((list) => setScenarios(list));
           }
@@ -551,9 +583,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
     e.target.value = '';
   };
 
+  const handleScenarioChange = (newSc: string) => {
+    setSelectedScenario(newSc);
+    persistSelectedScenario(newSc);
+    onScenarioChange?.(newSc);
+    if (typeof window !== 'undefined') {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const [route, queryStr] = rawHash.split('?');
+      const sp = new URLSearchParams(queryStr || '');
+      sp.set('scenario', newSc);
+      window.location.hash = `#/${route || 'dashboard'}?${sp.toString()}`;
+    }
+  };
+
   const handleClearUploaded = () => {
     clearUploadedScenario();
-    setSelectedScenario('04_busy_yard');
+    handleScenarioChange('04_busy_yard');
     setLoading(true);
     apiClient.fetchDashboard('04_busy_yard').then((vm) => {
       setData(vm);
@@ -583,7 +628,26 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   return (
     <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full gap-5">
       {/* Subheader Toolbar */}
-      <div className="flex flex-wrap items-center justify-end gap-4 bg-white p-3.5 px-5 rounded-xl border border-slate-200 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-3.5 px-5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-3">
+          <label className="text-xs text-slate-500 font-medium">Сценарий:</label>
+          <div className="relative min-w-[200px]">
+            <select
+              value={selectedScenario}
+              onChange={(e) => handleScenarioChange(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg px-3 py-1.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+            >
+              {scenarios.map((sc) => (
+                <option key={sc.id} value={sc.id}>
+                  {sc.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-2 pointer-events-none" />
+          </div>
+          {loading && <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />}
+        </div>
+
         <div className="flex items-center gap-3">
           {/* Refresh button */}
           <button

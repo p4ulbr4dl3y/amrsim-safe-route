@@ -2,16 +2,30 @@ import React, { useState, useEffect } from 'react';
 import { RouteName, ScenarioItem } from '../types';
 import { apiClient } from '../api/client';
 import { Play, Terminal as TerminalIcon, ExternalLink, ChevronDown, RefreshCw, BarChart2 } from 'lucide-react';
+import {
+  getSelectedScenario,
+  setSelectedScenario,
+  AMR_SCENARIO_CHANGE_EVENT,
+} from '../utils/scenarioStorage';
 
 interface RunnerPageProps {
   onNavigate: (route: RouteName, params?: Record<string, any>) => void;
   queryParams?: {
     scenario?: string;
   };
+  activeScenario?: string;
+  onScenarioChange?: (scenario: string) => void;
 }
 
-export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams }) => {
-  const [scenario, setScenario] = useState(queryParams?.scenario || '04_busy_yard');
+export const RunnerPage: React.FC<RunnerPageProps> = ({
+  onNavigate,
+  queryParams,
+  activeScenario,
+  onScenarioChange,
+}) => {
+  const [scenario, setScenario] = useState<string>(
+    activeScenario || queryParams?.scenario || getSelectedScenario()
+  );
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [controller, setController] = useState('backend/controller.py');
   const [seed, setSeed] = useState(7);
@@ -36,6 +50,40 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
     '[SUCCESS] Simulation finished with exit code 0',
     '[SCORE] Final score: 98.18 / 100 (counted: true)',
   ]);
+
+  // Sync with activeScenario prop
+  useEffect(() => {
+    if (activeScenario && activeScenario !== scenario) {
+      setScenario(activeScenario);
+    }
+  }, [activeScenario]);
+
+  // Sync with global scenario change event
+  useEffect(() => {
+    const handleStorageChange = (e: any) => {
+      const sc = e.detail;
+      if (sc && sc !== scenario) {
+        setScenario(sc);
+      }
+    };
+    window.addEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    return () => {
+      window.removeEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    };
+  }, [scenario]);
+
+  const handleScenarioChange = (newSc: string) => {
+    setScenario(newSc);
+    setSelectedScenario(newSc);
+    onScenarioChange?.(newSc);
+    if (typeof window !== 'undefined') {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const [route, queryStr] = rawHash.split('?');
+      const sp = new URLSearchParams(queryStr || '');
+      sp.set('scenario', newSc);
+      window.location.hash = `#/${route || 'runner'}?${sp.toString()}`;
+    }
+  };
 
   // Load scenarios on mount
   useEffect(() => {
@@ -139,7 +187,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
               <div className="relative">
                 <select
                   value={scenario}
-                  onChange={(e) => setScenario(e.target.value)}
+                  onChange={(e) => handleScenarioChange(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-2.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                 >
                   {scenarios.length > 0 ? (

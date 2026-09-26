@@ -3,6 +3,11 @@ import { RouteName, AnalyticsViewModel, ScenarioItem } from '../types';
 import { apiClient } from '../api/client';
 import { Download, CheckCircle2, AlertOctagon, ChevronDown, RefreshCw } from 'lucide-react';
 import { Latex } from '../components/Latex';
+import {
+  getSelectedScenario,
+  setSelectedScenario,
+  AMR_SCENARIO_CHANGE_EVENT,
+} from '../utils/scenarioStorage';
 
 const BLOCK_FORMULAS: Record<string, string> = {
   delivery: 'S_{\\text{del}}',
@@ -18,15 +23,45 @@ interface AnalyticsPageProps {
   queryParams?: {
     scenario?: string;
   };
+  activeScenario?: string;
+  onScenarioChange?: (scenario: string) => void;
 }
 
-export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryParams }) => {
-  const [scenario, setScenario] = useState(queryParams?.scenario || '04_busy_yard');
+export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
+  onNavigate,
+  queryParams,
+  activeScenario,
+  onScenarioChange,
+}) => {
+  const [scenario, setScenario] = useState(
+    activeScenario || queryParams?.scenario || getSelectedScenario()
+  );
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [data, setData] = useState<AnalyticsViewModel | null>(null);
   const [stderrOpen, setStderrOpen] = useState(true);
   const [showFormulas, setShowFormulas] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Sync with activeScenario prop
+  useEffect(() => {
+    if (activeScenario && activeScenario !== scenario) {
+      setScenario(activeScenario);
+    }
+  }, [activeScenario]);
+
+  // Sync with global scenario change event
+  useEffect(() => {
+    const handleStorageChange = (e: any) => {
+      const sc = e.detail;
+      if (sc && sc !== scenario) {
+        setScenario(sc);
+      }
+    };
+    window.addEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    return () => {
+      window.removeEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    };
+  }, [scenario]);
 
   // Load scenarios on mount
   useEffect(() => {
@@ -45,6 +80,19 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
       setScenario(queryParams.scenario);
     }
   }, [queryParams?.scenario]);
+
+  const handleScenarioChange = (newSc: string) => {
+    setScenario(newSc);
+    setSelectedScenario(newSc);
+    onScenarioChange?.(newSc);
+    if (typeof window !== 'undefined') {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const [route, queryStr] = rawHash.split('?');
+      const sp = new URLSearchParams(queryStr || '');
+      sp.set('scenario', newSc);
+      window.location.hash = `#/${route || 'analytics'}?${sp.toString()}`;
+    }
+  };
 
   // Load analytics when scenario changes
   useEffect(() => {
@@ -113,22 +161,17 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full gap-5">
       {/* Top Banner matching analytics.png */}
       <div className="bg-white p-5 px-8 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
-        {/* Score & Counted badge */}
+        {/* Score & Scenario Selector */}
         <div className="flex items-center gap-4">
           <div className="text-3xl font-extrabold text-slate-900 font-mono">
             {totalScore.toFixed(2)} <span className="text-xl font-normal text-slate-400">/ 100</span>
-          </div>
-
-          <div className="bg-emerald-50 text-emerald-700 text-xs font-semibold px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1.5 font-mono">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-            {data?.counted ? 'COUNTED' : 'NOT COUNTED'}
           </div>
 
           {/* Scenario Selector */}
           <div className="relative min-w-[200px] ml-2">
             <select
               value={scenario}
-              onChange={(e) => setScenario(e.target.value)}
+              onChange={(e) => handleScenarioChange(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg px-3 py-1.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             >
               {scenarios.map((sc) => (

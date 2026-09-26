@@ -6,6 +6,11 @@ import {
   Play, Pause, SkipBack, SkipForward, ChevronLeft, ChevronRight, 
   ChevronDown, User, Layers, RefreshCw
 } from 'lucide-react';
+import {
+  getSelectedScenario,
+  setSelectedScenario,
+  AMR_SCENARIO_CHANGE_EVENT,
+} from '../utils/scenarioStorage';
 
 interface ReplayPageProps {
   queryParams?: {
@@ -16,10 +21,18 @@ interface ReplayPageProps {
     mission?: string;
     run?: string;
   };
+  activeScenario?: string;
+  onScenarioChange?: (scenario: string) => void;
 }
 
-export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
-  const [scenario, setScenario] = useState(queryParams?.scenario || '04_busy_yard');
+export const ReplayPage: React.FC<ReplayPageProps> = ({
+  queryParams,
+  activeScenario,
+  onScenarioChange,
+}) => {
+  const [scenario, setScenario] = useState<string>(
+    activeScenario || queryParams?.scenario || getSelectedScenario()
+  );
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [ticks, setTicks] = useState<TickData[]>([]);
   const [mapData, setMapData] = useState<MapData | undefined>(undefined);
@@ -31,6 +44,44 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
   const [followRobot, setFollowRobot] = useState(false);
   const [layersMenuOpen, setLayersMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Sync with activeScenario prop
+  useEffect(() => {
+    if (activeScenario && activeScenario !== scenario) {
+      setScenario(activeScenario);
+    }
+  }, [activeScenario]);
+
+  // Sync with global scenario change event
+  useEffect(() => {
+    const handleStorageChange = (e: any) => {
+      const sc = e.detail;
+      if (sc && sc !== scenario) {
+        setScenario(sc);
+      }
+    };
+    window.addEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    return () => {
+      window.removeEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    };
+  }, [scenario]);
+
+  const handleScenarioChange = (newSc: string) => {
+    setScenario(newSc);
+    setSelectedScenario(newSc);
+    onScenarioChange?.(newSc);
+    if (typeof window !== 'undefined') {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const [route, queryStr] = rawHash.split('?');
+      const sp = new URLSearchParams(queryStr || '');
+      sp.set('scenario', newSc);
+      sp.delete('t');
+      sp.delete('x');
+      sp.delete('y');
+      sp.delete('mission');
+      window.location.hash = `#/${route || 'replay'}?${sp.toString()}`;
+    }
+  };
 
   // Layers configuration
   const [layers, setLayers] = useState<MapLayersConfig>({
@@ -234,7 +285,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
         <div className="relative min-w-[200px]">
           <select
             value={scenario}
-            onChange={(e) => setScenario(e.target.value)}
+            onChange={(e) => handleScenarioChange(e.target.value)}
             className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg px-3 py-2 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
           >
             {scenarios.length > 0 ? (

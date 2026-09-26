@@ -283,6 +283,21 @@ export const apiClient = {
   async fetchDashboard(scenarioId = '04_busy_yard'): Promise<DashboardViewModel> {
     const uploaded = getUploadedScenario();
     if (uploaded && uploaded.id === scenarioId && uploaded.dashboardViewModel) {
+      if (uploaded.fileType === 'log' || uploaded.fileType === 'report') {
+        return uploaded.dashboardViewModel;
+      }
+      // If uploaded as 'scenario', check server first to see if a real simulation was executed
+      try {
+        const res = await fetch(`${API_BASE}/ui/dashboard?scenario=${encodeURIComponent(scenarioId)}`);
+        if (res.ok) {
+          const serverVm = await res.json();
+          if (serverVm && serverVm.scenario) {
+            return serverVm;
+          }
+        }
+      } catch (err) {
+        // Fall back to uploaded
+      }
       return uploaded.dashboardViewModel;
     }
 
@@ -302,6 +317,23 @@ export const apiClient = {
   async fetchReplay(scenarioId = '04_busy_yard', seed = 7): Promise<ReplayViewModel> {
     const uploaded = getUploadedScenario();
     if (uploaded && uploaded.id === scenarioId && uploaded.replayViewModel) {
+      // Use uploaded replayViewModel directly only if a real multi-tick log was uploaded
+      if (uploaded.fileType === 'log' && uploaded.replayViewModel.ticks && uploaded.replayViewModel.ticks.length > 1) {
+        return uploaded.replayViewModel;
+      }
+
+      // If uploaded as 'scenario', query the server first to check for simulation out/*.jsonl
+      try {
+        const res = await fetch(`${API_BASE}/ui/replay?scenario=${encodeURIComponent(scenarioId)}&seed=${seed}`);
+        if (res.ok) {
+          const serverVm = await res.json();
+          if (serverVm && serverVm.ticks && serverVm.ticks.length > 0) {
+            return serverVm;
+          }
+        }
+      } catch (err) {
+        // Fall back to uploaded stub
+      }
       return uploaded.replayViewModel;
     }
 

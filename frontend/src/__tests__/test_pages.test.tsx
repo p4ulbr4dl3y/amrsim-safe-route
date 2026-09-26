@@ -83,7 +83,7 @@ describe('Operator Workstation Pages', () => {
       render(<EpisodesPage onNavigate={onNavigateMock} />);
 
       await waitFor(() => {
-        expect(screen.getByText(/Эпизоды безопасности/i)).toBeTruthy();
+        expect(screen.getByText(/Штрафные баллы/i)).toBeTruthy();
       });
 
       // Metric summary cards
@@ -108,7 +108,7 @@ describe('Operator Workstation Pages', () => {
       render(<MissionsPage onNavigate={onNavigateMock} />);
 
       await waitFor(() => {
-        expect(screen.getByText(/Задания и Доставка/i)).toBeTruthy();
+        expect(screen.getByText(/Результат доставки/i)).toBeTruthy();
       });
 
       // Missions summary and labels

@@ -58,7 +58,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // Auto-fit bounds for mini-map mode (fit entire warehouse bounds)
+  // Auto-fit bounds for map (fit entire warehouse bounds)
   const getBoundsFit = (canvasWidth: number, canvasHeight: number) => {
     const minX = (activeMap.bounds && activeMap.bounds[0]) ?? 0;
     const minY = (activeMap.bounds && activeMap.bounds[1]) ?? 0;
@@ -66,7 +66,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     const maxY = (activeMap.bounds && activeMap.bounds[3]) ?? 200;
     const worldW = Math.max(1, maxX - minX);
     const worldH = Math.max(1, maxY - minY);
-    const padding = 16;
+    const padding = isMiniMap ? 16 : 28;
     const availW = Math.max(10, canvasWidth - 2 * padding);
     const availH = Math.max(10, canvasHeight - 2 * padding);
     const fitScale = Math.min(availW / worldW, availH / worldH);
@@ -79,16 +79,17 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     return { fitScale, fitOffset, minX, minY, maxX, maxY, worldW, worldH };
   };
 
-  useEffect(() => {
-    if (!isMiniMap) return;
+  const boundsKey = activeMap.bounds ? activeMap.bounds.join(',') : '';
 
+  useEffect(() => {
     const updateFit = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
+      const w = rect.width > 0 ? rect.width : (canvas.width || 800);
+      const h = rect.height > 0 ? rect.height : (canvas.height || 600);
 
-      const { fitScale, fitOffset } = getBoundsFit(rect.width, rect.height);
+      const { fitScale, fitOffset } = getBoundsFit(w, h);
       setScale(fitScale);
       setOffset(fitOffset);
     };
@@ -113,7 +114,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       }
       window.removeEventListener('resize', updateFit);
     };
-  }, [isMiniMap, activeMap]);
+  }, [boundsKey, isMiniMap]);
 
   // Handle follow robot or target coordinates (disabled in mini-map)
   useEffect(() => {
@@ -132,15 +133,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     }
 
     if (targetX !== undefined && targetY !== undefined) {
-      const worldHeight = (activeMap.bounds && activeMap.bounds[3]) || 200; // 200m
-      const canvasX = canvas.width / 2;
-      const canvasY = canvas.height / 2;
+      const minX = (activeMap.bounds && activeMap.bounds[0]) ?? 0;
+      const maxY = (activeMap.bounds && activeMap.bounds[3]) ?? 200;
+      const rect = canvas.getBoundingClientRect();
+      const canvasX = (rect.width > 0 ? rect.width : (canvas.width || 800)) / 2;
+      const canvasY = (rect.height > 0 ? rect.height : (canvas.height || 600)) / 2;
 
-      // screenX = targetX * scale + offsetX => offsetX = canvasX - targetX * scale
-      // screenY = (worldHeight - targetY) * scale + offsetY => offsetY = canvasY - (worldHeight - targetY) * scale
       setOffset({
-        x: canvasX - targetX * scale,
-        y: canvasY - (worldHeight - targetY) * scale
+        x: canvasX - (targetX - minX) * scale,
+        y: canvasY - (maxY - targetY) * scale
       });
     }
   }, [followRobot, currentTick?.x, currentTick?.y, targetCoords, isMiniMap, scale, activeMap]);
