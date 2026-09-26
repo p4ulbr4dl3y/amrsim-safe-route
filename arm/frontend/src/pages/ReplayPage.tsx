@@ -247,7 +247,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({
     st: 'waiting',
     pe: [51.5, 150.0, 0],
     nt: null,
-    m: 'm1',
+    m: null,
     drv: 1,
     fbd: 0,
     vmax: null,
@@ -604,17 +604,17 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({
                   (missions.length > 0 ? missions[0] : null);
                 const missionTimeLeft = activeMission
                   ? Math.max(0, activeMission.t_start + activeMission.deadline_s - currentTick.t)
-                  : Math.max(0, 200.7 - currentTick.t);
-                const fromLabel = activeMission ? activeMission.fromLabel : 'Склад';
-                const toLabel = activeMission ? activeMission.toLabel : 'Цех А';
-                const missionId = currentTick.m || activeMission?.id || 'm1';
+                  : null;
+                const fromLabel = activeMission ? activeMission.fromLabel : '—';
+                const toLabel = activeMission ? activeMission.toLabel : '—';
+                const missionId = currentTick.m || activeMission?.id || '—';
 
                 return (
                   <>
                     <div className="font-bold text-slate-900 text-sm">{missionId}</div>
                     <div className="text-slate-600 text-[11px] mt-1">
                       {fromLabel} → {toLabel} <span className="text-slate-400">·</span>{' '}
-                      {missionTimeLeft.toFixed(1)} с осталось
+                      {missionTimeLeft !== null ? `${missionTimeLeft.toFixed(1)} с осталось` : 'ожидание'}
                     </div>
                   </>
                 );
