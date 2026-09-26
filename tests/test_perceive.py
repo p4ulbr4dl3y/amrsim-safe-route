@@ -1150,6 +1150,40 @@ class TestPerceiveCoverage(unittest.TestCase):
         self.assertGreaterEqual(len(extras), 1)
         self.assertAlmostEqual(extras[0][0], 3.0, delta=0.5)
 
+    def test_tracking_zero_dt_guard(self):
+        from team_dreamteam_4_0.perceive.tracking import Track, associate_and_update_tracks
+
+        tracks = [Track(track_id=1, ox=1.0, oy=1.0)]
+        tracks[0].vx_odom = 0.5
+        tracks[0].vy_odom = 0.2
+
+        clusters = [
+            {
+                "ox": 1.1,
+                "oy": 1.0,
+                "pts": np.array([[1.1, 1.0]]),
+                "length": 0.5,
+                "thickness": 0.2,
+                "is_wall": False,
+                "is_wall_piece": False,
+            }
+        ]
+
+        # Call with dt = 0.0 and dt = 1e-7 - should not raise ZeroDivisionError
+        updated_tracks, next_id, used = associate_and_update_tracks(
+            tracks, clusters, next_track_id=2, dt=0.0, is_fog=False
+        )
+        self.assertEqual(len(updated_tracks), 1)
+        self.assertAlmostEqual(updated_tracks[0].vx_odom, 0.5)
+        self.assertAlmostEqual(updated_tracks[0].vy_odom, 0.2)
+
+        updated_tracks2, _, _ = associate_and_update_tracks(
+            tracks, clusters, next_track_id=2, dt=1e-7, is_fog=False
+        )
+        self.assertEqual(len(updated_tracks2), 1)
+        self.assertAlmostEqual(updated_tracks2[0].vx_odom, 0.5)
+        self.assertAlmostEqual(updated_tracks2[0].vy_odom, 0.2)
+
 
 if __name__ == "__main__":
     unittest.main()

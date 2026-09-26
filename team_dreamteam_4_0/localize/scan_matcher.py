@@ -142,8 +142,7 @@ def apply_landmark_correction(
     poles = pole_centers
     have_poles = poles is not None and len(poles) > 0
 
-    shifts: List[float] = []
-    tangents: List[Tuple[float, float]] = []
+    v_corrs: List[Tuple[float, float]] = []
     for k in np.flatnonzero(on_wall):
         si = int(seg_idx[k])
         if si < 0 or si >= len(segs):
@@ -172,24 +171,24 @@ def apply_landmark_correction(
         d_t = (best_xy[0] - wx[k]) * tx + (best_xy[1] - wy[k]) * ty
         if abs(d_t) < 0.3:
             continue
-        shifts.append(max(-0.5, min(0.5, d_t)))
-        tangents.append((tx, ty))
+        clamped_dt = max(-0.5, min(0.5, d_t))
+        v_corrs.append((clamped_dt * tx, clamped_dt * ty))
 
-    if len(shifts) < 2:
+    if len(v_corrs) < 2:
         return x, y, var_along, var_cross, False
 
-    shift = 0.5 * float(np.median(shifts))
-    mtx = float(np.mean([t[0] for t in tangents]))
-    mty = float(np.mean([t[1] for t in tangents]))
-    mag = math.hypot(mtx, mty)
+    mean_vx = float(np.mean([v[0] for v in v_corrs]))
+    mean_vy = float(np.mean([v[1] for v in v_corrs]))
+    mag = math.hypot(mean_vx, mean_vy)
     if mag < 1e-6:
         return x, y, var_along, var_cross, False
-    mtx /= mag
-    mty /= mag
-    new_x = x + shift * mtx
-    new_y = y + shift * mty
 
-    beta = math.atan2(mty, mtx)
+    corr_x = 0.5 * mean_vx
+    corr_y = 0.5 * mean_vy
+    new_x = x + corr_x
+    new_y = y + corr_y
+
+    beta = math.atan2(mean_vy, mean_vx)
     d_angle = wrap_angle(beta - th)
     cos_d2 = math.cos(d_angle) ** 2
     sin_d2 = math.sin(d_angle) ** 2

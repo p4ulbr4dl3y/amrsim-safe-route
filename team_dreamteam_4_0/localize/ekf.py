@@ -176,6 +176,17 @@ class EKFFilter:
         weights: np.ndarray,
     ) -> Tuple[float, float, float, bool]:
         """Обновить дисперсии по нормалям и касательным наблюдаемых стен."""
+        if (
+            normals is None
+            or len(normals) == 0
+            or normals.size == 0
+            or weights is None
+            or len(weights) == 0
+            or weights.size == 0
+            or float(np.sum(weights)) <= 1e-9
+        ):
+            return var_along, var_cross, var_th, False
+
         n_x = float(np.average(normals[:, 0], weights=weights))
         n_y = float(np.average(normals[:, 1], weights=weights))
         norm_mag = math.hypot(n_x, n_y)

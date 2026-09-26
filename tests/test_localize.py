@@ -1052,6 +1052,108 @@ class TestLocalizeCoverage(unittest.TestCase):
         self.assertAlmostEqual(ry, 2.5, delta=0.005)
         self.assertAlmostEqual(rth, 0.0, delta=0.005)
 
+    def test_landmark_correction_opposing_walls_and_perpendicular(self):
+        from team_dreamteam_4_0.localize.scan_matcher import apply_landmark_correction
+
+        # 1. Opposing wall segments with consistent physical shift
+        # Wall 1: (0, 1) -> (10, 1), tangent (1, 0)
+        # Wall 2: (10, -1) -> (0, -1), tangent (-1, 0)
+        segs = np.array([
+            [0.0, 1.0, 10.0, 1.0],
+            [10.0, -1.0, 0.0, -1.0],
+        ])
+        poles = np.array([
+            [5.0, 1.0],
+            [5.0, -1.0],
+        ])
+        # Robot is at (4.6, 0.0), th = 0.0
+        # True landmark is at x=5.0. Observed wx = 4.6.
+        # Wall 1: dt = (5.0 - 4.6)*1 = 0.4.
+        # Wall 2: dt = (5.0 - 4.6)*(-1) = -0.4.
+        # Physical shift for both is +0.4 along X.
+        r_all = np.array([1.0, 1.0])
+        rel_all = np.array([math.pi / 2, -math.pi / 2])
+        d_prev = np.array([2.0, 2.0])
+        d_next = np.array([2.0, 2.0])
+        finite_all = np.array([True, True])
+
+        nx, ny, nva, nvc, applied = apply_landmark_correction(
+            x=4.6,
+            y=0.0,
+            th=0.0,
+            var_along=0.1,
+            var_cross=0.1,
+            r_all=r_all,
+            rel_all=rel_all,
+            d_prev=d_prev,
+            d_next=d_next,
+            finite_all=finite_all,
+            segs=segs,
+            pole_centers=poles,
+        )
+        self.assertTrue(applied)
+        # 0.5 * 0.4 = 0.2 correction along X
+        self.assertAlmostEqual(nx, 4.6 + 0.2, delta=1e-4)
+        self.assertAlmostEqual(ny, 0.0, delta=1e-4)
+
+        # 2. Perpendicular segments: horizontal wall only has shift along X, no diagonal drift along Y
+        segs_perp = np.array([
+            [0.0, 1.0, 10.0, 1.0],
+            [0.0, 1.0, 10.0, 1.0],
+        ])
+        poles_perp = np.array([
+            [5.0, 1.0],
+        ])
+        r_all_h = np.array([1.0, 1.0])
+        rel_all_h = np.array([math.pi / 2, math.pi / 2])
+        nx2, ny2, _, _, applied2 = apply_landmark_correction(
+            x=4.6,
+            y=0.0,
+            th=0.0,
+            var_along=0.1,
+            var_cross=0.1,
+            r_all=r_all_h,
+            rel_all=rel_all_h,
+            d_prev=d_prev,
+            d_next=d_next,
+            finite_all=finite_all,
+            segs=segs_perp,
+            pole_centers=poles_perp,
+        )
+        self.assertTrue(applied2)
+        self.assertAlmostEqual(nx2, 4.8, delta=1e-4)
+        self.assertAlmostEqual(ny2, 0.0, delta=1e-4)
+
+    def test_ekf_update_variances_from_walls_guards(self):
+        va, vc, vth = 0.05, 0.05, 0.01
+
+        # 1. Empty normals
+        res = EKFFilter.update_variances_from_walls(
+            th=0.0, var_along=va, var_cross=vc, var_th=vth,
+            normals=np.empty((0, 2)), weights=np.empty(0)
+        )
+        self.assertEqual(res, (va, vc, vth, False))
+
+        # 2. None normals / weights
+        res = EKFFilter.update_variances_from_walls(
+            th=0.0, var_along=va, var_cross=vc, var_th=vth,
+            normals=None, weights=np.array([1.0])
+        )
+        self.assertEqual(res, (va, vc, vth, False))
+
+        res = EKFFilter.update_variances_from_walls(
+            th=0.0, var_along=va, var_cross=vc, var_th=vth,
+            normals=np.array([[1.0, 0.0]]), weights=None
+        )
+        self.assertEqual(res, (va, vc, vth, False))
+
+        # 3. Zero sum weights
+        res = EKFFilter.update_variances_from_walls(
+            th=0.0, var_along=va, var_cross=vc, var_th=vth,
+            normals=np.array([[1.0, 0.0], [0.0, 1.0]]),
+            weights=np.array([0.0, 0.0])
+        )
+        self.assertEqual(res, (va, vc, vth, False))
 
     def test_import_fallback(self):
         import sys
