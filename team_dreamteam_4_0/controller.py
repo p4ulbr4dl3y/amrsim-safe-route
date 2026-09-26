@@ -226,7 +226,15 @@ class Controller:
 
             # Проверка близости к точке погрузки (фильтр в пределах 1.5 м во время миссии)
             from_key = mission.get("from")
-            if isinstance(from_key, str) and "points" in self.map:
+            if from_key is None:
+                self.visited_from = True
+            elif isinstance(from_key, dict):
+                fx = float(from_key.get("x", 0.0))
+                fy = float(from_key.get("y", 0.0))
+                d_from = math.hypot(pose[0] - fx, pose[1] - fy)
+                if d_from < 1.5:
+                    self.visited_from = True
+            elif isinstance(from_key, str) and "points" in self.map:
                 pt_info = self.map["points"].get(from_key, {})
                 fx, fy = float(pt_info.get("x", 0.0)), float(pt_info.get("y", 0.0))
                 d_from = math.hypot(pose[0] - fx, pose[1] - fy)

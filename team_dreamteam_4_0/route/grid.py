@@ -30,11 +30,15 @@ def is_drivable(
 
     if y is None:
         pts = np.atleast_2d(np.asarray(x, dtype=float))
+        if pts.shape == (1, 0) or len(pts) == 0 or pts.shape[1] == 0:
+            return np.zeros(0, dtype=bool)
         is_single = np.ndim(x) == 1
     else:
         is_single = np.ndim(x) == 0 and np.ndim(y) == 0
         px = np.atleast_1d(np.asarray(x, dtype=float))
         py = np.atleast_1d(np.asarray(y, dtype=float))
+        if len(px) == 0 or len(py) == 0:
+            return np.zeros(0, dtype=bool)
         pts = np.column_stack([px, py])
 
     def _check(p: np.ndarray) -> np.ndarray:
@@ -62,6 +66,8 @@ def is_drivable(
         for dx, dy in offsets:
             valid &= _check(pts + np.array([dx, dy]))
 
+    if len(valid) == 0:
+        return np.zeros(0, dtype=bool)
     return bool(valid[0]) if is_single else valid
 
 

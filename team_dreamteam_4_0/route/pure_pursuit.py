@@ -209,6 +209,10 @@ def compute_pure_pursuit_cmd(
     target_hd = math.atan2(dy, dx)
     alpha = wrap_angle(target_hd - th)
 
+    effective_rem = max(0.0, min(rem_dist, dist_to_goal + 0.05) - 0.02)
+    if dist_to_goal < 0.03 or effective_rem < 0.03:
+        return 0.0, 0.0, target_pt, curr_s, 0.0
+
     if abs(alpha) > 0.85:
         v = 0.0
         w = float(np.clip(2.0 * alpha, -0.8, 0.8))
@@ -216,11 +220,7 @@ def compute_pure_pursuit_cmd(
 
     v_dock = 0.25 if is_dock_zone else 1.39
     v_curve = compute_curvature_speed_limit(alpha, ld, a_lat_max=a_lat_max, v_nominal=1.39)
-    effective_rem = max(0.0, min(rem_dist, dist_to_goal + 0.05) - 0.02)
     v_brake = math.sqrt(2.0 * 0.4 * effective_rem) + 0.03
-
-    if dist_to_goal < 0.03 or effective_rem < 0.03:
-        return 0.0, 0.0, target_pt, curr_s, 0.0
 
     v = min(v_max, v_dock, v_curve, v_brake)
     v = max(0.0, v)
@@ -272,6 +272,10 @@ def compute_stanley_cmd(
     target_hd = math.atan2(dy, dx)
     alpha = wrap_angle(target_hd - th)
 
+    effective_rem = max(0.0, min(rem_dist, dist_to_goal + 0.05) - 0.02)
+    if dist_to_goal < 0.03 or effective_rem < 0.03:
+        return 0.0, 0.0, target_pt, curr_s, 0.0
+
     if abs(alpha) > 0.85:
         v = 0.0
         w = float(np.clip(2.0 * alpha, -0.8, 0.8))
@@ -279,11 +283,7 @@ def compute_stanley_cmd(
 
     v_dock = 0.25 if is_dock_zone else 1.39
     v_curve = compute_curvature_speed_limit(alpha, ld, a_lat_max=a_lat_max, v_nominal=1.39)
-    effective_rem = max(0.0, min(rem_dist, dist_to_goal + 0.05) - 0.02)
     v_brake = math.sqrt(2.0 * 0.4 * effective_rem) + 0.03
-
-    if dist_to_goal < 0.03 or effective_rem < 0.03:
-        return 0.0, 0.0, target_pt, curr_s, 0.0
 
     v = min(v_max, v_dock, v_curve, v_brake)
     v = max(0.0, v)
