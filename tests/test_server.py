@@ -266,6 +266,18 @@ def http_server():
     """Start local test server on a free port."""
     from http.server import ThreadingHTTPServer
 
+    dist_created = False
+    index_created = False
+    index_file = server.FRONTEND_DIST / "index.html"
+    if not server.FRONTEND_DIST.exists():
+        server.FRONTEND_DIST.mkdir(parents=True, exist_ok=True)
+        dist_created = True
+    if not index_file.exists():
+        index_file.write_text(
+            "<!DOCTYPE html><html><body>ARM Safe Route</body></html>", encoding="utf-8"
+        )
+        index_created = True
+
     srv = ThreadingHTTPServer(("127.0.0.1", 0), AMRServerHandler)
     port = srv.server_address[1]
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -273,6 +285,14 @@ def http_server():
     yield f"http://127.0.0.1:{port}"
     srv.shutdown()
     srv.server_close()
+
+    if index_created and index_file.exists():
+        index_file.unlink()
+    if dist_created and server.FRONTEND_DIST.exists():
+        try:
+            server.FRONTEND_DIST.rmdir()
+        except OSError:
+            pass
 
 
 def test_api_scenarios_endpoint(http_server):

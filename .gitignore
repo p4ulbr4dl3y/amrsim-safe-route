@@ -49,7 +49,8 @@ out/
 # сценарии и таблица batch входят в сдачу (plan/05:15).
 
 # тиковые логи batch (31 МБ, воспроизводятся командой из README) в git не кладём
-results/table_runs/logs/
+results/table_runs/logs/*
+!results/table_runs/logs/team_dreamteam_4_0__*__s7.jsonl
 
 # Frontend
 frontend/node_modules/

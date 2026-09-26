@@ -232,7 +232,19 @@ def get_scenario_log_path(scenario_id: str) -> Path | None:
             return p
     if norm_id in ("01e_clear_easy", "02e_gnss_shadow_easy"):
         base_id = "01_clear" if "01" in norm_id else "02_gnss_shadow"
-        return get_scenario_log_path(base_id)
+        res = get_scenario_log_path(base_id)
+        if res:
+            return res
+
+    # Неизвестный сценарий: лог не подставляется
+    if get_scenario_file(norm_id) is None:
+        return None
+
+    # Использование образцов логов для известных сценариев, если лог еще не сформирован
+    for sample_name in ("01_clear.jsonl", "04_busy_yard.jsonl"):
+        sample_path = ROOT_DIR / "amrsim-participants" / "samples" / sample_name
+        if sample_path.exists():
+            return sample_path
     return None
 
 
