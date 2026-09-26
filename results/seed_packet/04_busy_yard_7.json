@@ -9,13 +9,13 @@
  "salted": false,
  "cheat": false,
  "controller": {
-  "path": "team_dreamteam_4_0/controller.py",
-  "sha256": "f2bac143b94ac8d6"
+  "path": "teams/team_dreamteam_4_0/controller.py",
+  "sha256": "2f4a721eafcfb6ed"
  },
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 3411,
+ "ticks": 3370,
  "missions": [
   {
    "type": "mission",
@@ -23,9 +23,9 @@
    "from": "warehouse",
    "to": "shop_a",
    "t_start": 0.0,
-   "t_end": 159.3,
-   "t_arrival": 158.4,
-   "max_hold_dist": 0.0767,
+   "t_end": 155.6,
+   "t_arrival": 154.7,
+   "max_hold_dist": 0.0733,
    "deadline_s": 200.7,
    "reference_length_m": 174.317,
    "delivered": true,
@@ -36,10 +36,10 @@
    "id": "m2",
    "from": "shop_a",
    "to": "warehouse",
-   "t_start": 159.4,
-   "t_end": 341.0,
-   "t_arrival": 340.1,
-   "max_hold_dist": 0.0764,
+   "t_start": 155.7,
+   "t_end": 336.9,
+   "t_arrival": 336.0,
+   "max_hold_dist": 0.0729,
    "deadline_s": 200.6,
    "reference_length_m": 174.271,
    "delivered": true,
@@ -47,8 +47,8 @@
   }
  ],
  "score": {
-  "total": 98.77,
-  "raw_sum": 98.774,
+  "total": 98.87,
+  "raw_sum": 98.871,
   "fatal": false,
   "fatal_t": null,
   "counted": true,
@@ -56,7 +56,7 @@
   "not_counted_blocks": [],
   "blocks": {
    "delivery": 40.0,
-   "efficiency": 13.774,
+   "efficiency": 13.871,
    "safety": 25.0,
    "rules": 10.0,
    "pose": 10.0,
@@ -75,20 +75,20 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 158.4,
-    "time_s": 158.4,
-    "ratio": 1.0105,
-    "efficiency": 0.9895374518836373,
+    "t_arrival": 154.7,
+    "time_s": 154.7,
+    "ratio": 0.9869,
+    "efficiency": 1.0,
     "reason": "delivered"
    },
    {
     "id": "m2",
     "delivered": true,
-    "t_start": 159.4,
-    "t_arrival": 340.1,
-    "time_s": 180.7,
-    "ratio": 1.153,
-    "efficiency": 0.8469774087484434,
+    "t_start": 155.7,
+    "t_arrival": 336.0,
+    "time_s": 180.3,
+    "ratio": 1.1505,
+    "efficiency": 0.8495297553809869,
     "reason": "delivered"
    }
   ],
@@ -96,13 +96,13 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 3411,
-  "mean": 1.445,
-  "max": 34.349
+  "n": 3370,
+  "mean": 1.529,
+  "max": 26.846
  },
- "wall_time_s": 6.435,
+ "wall_time_s": 6.682,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
- "log": null
+ "log": "results/table_runs/logs/team_dreamteam_4_0__04_busy_yard__s7.jsonl"
 }

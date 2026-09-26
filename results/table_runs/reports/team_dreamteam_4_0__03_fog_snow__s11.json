@@ -10,12 +10,12 @@
  "cheat": false,
  "controller": {
   "path": "teams/team_dreamteam_4_0/controller.py",
-  "sha256": "f2bac143b94ac8d6"
+  "sha256": "2f4a721eafcfb6ed"
  },
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 3510,
+ "ticks": 3462,
  "missions": [
   {
    "type": "mission",
@@ -23,9 +23,9 @@
    "from": "shop_a",
    "to": "warehouse",
    "t_start": 0.0,
-   "t_end": 176.1,
-   "t_arrival": 175.2,
-   "max_hold_dist": 0.0733,
+   "t_end": 172.4,
+   "t_arrival": 171.5,
+   "max_hold_dist": 0.0663,
    "deadline_s": 200.6,
    "reference_length_m": 174.271,
    "delivered": true,
@@ -36,10 +36,10 @@
    "id": "m2",
    "from": "warehouse",
    "to": "shop_a",
-   "t_start": 176.2,
-   "t_end": 350.9,
-   "t_arrival": 350.0,
-   "max_hold_dist": 0.0768,
+   "t_start": 172.5,
+   "t_end": 346.1,
+   "t_arrival": 345.2,
+   "max_hold_dist": 0.0708,
    "deadline_s": 200.7,
    "reference_length_m": 174.317,
    "delivered": true,
@@ -47,8 +47,8 @@
   }
  ],
  "score": {
-  "total": 98.3,
-  "raw_sum": 98.3,
+  "total": 98.53,
+  "raw_sum": 98.53,
   "fatal": false,
   "fatal_t": null,
   "counted": true,
@@ -56,7 +56,7 @@
   "not_counted_blocks": [],
   "blocks": {
    "delivery": 40.0,
-   "efficiency": 13.3,
+   "efficiency": 13.53,
    "safety": 25.0,
    "rules": 10.0,
    "pose": 10.0,
@@ -75,20 +75,20 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 175.2,
-    "time_s": 175.2,
-    "ratio": 1.1179,
-    "efficiency": 0.8820721749459175,
+    "t_arrival": 171.5,
+    "time_s": 171.5,
+    "ratio": 1.0943,
+    "efficiency": 0.9056813812969455,
     "reason": "delivered"
    },
    {
     "id": "m2",
     "delivered": true,
-    "t_start": 176.2,
-    "t_arrival": 350.0,
-    "time_s": 173.8,
-    "ratio": 1.1087,
-    "efficiency": 0.8912980374834354,
+    "t_start": 172.5,
+    "t_arrival": 345.2,
+    "time_s": 172.7,
+    "ratio": 1.1017,
+    "efficiency": 0.8983151385120214,
     "reason": "delivered"
    }
   ],
@@ -96,11 +96,11 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 3510,
-  "mean": 1.061,
-  "max": 25.937
+  "n": 3462,
+  "mean": 1.144,
+  "max": 26.58
  },
- "wall_time_s": 5.081,
+ "wall_time_s": 5.386,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",

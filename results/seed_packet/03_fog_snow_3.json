@@ -9,13 +9,13 @@
  "salted": false,
  "cheat": false,
  "controller": {
-  "path": "team_dreamteam_4_0/controller.py",
-  "sha256": "f2bac143b94ac8d6"
+  "path": "teams/team_dreamteam_4_0/controller.py",
+  "sha256": "2f4a721eafcfb6ed"
  },
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 3538,
+ "ticks": 3414,
  "missions": [
   {
    "type": "mission",
@@ -23,9 +23,9 @@
    "from": "shop_a",
    "to": "warehouse",
    "t_start": 0.0,
-   "t_end": 178.7,
-   "t_arrival": 177.8,
-   "max_hold_dist": 0.0758,
+   "t_end": 175.1,
+   "t_arrival": 174.2,
+   "max_hold_dist": 0.0617,
    "deadline_s": 200.6,
    "reference_length_m": 174.271,
    "delivered": true,
@@ -36,10 +36,10 @@
    "id": "m2",
    "from": "warehouse",
    "to": "shop_a",
-   "t_start": 178.8,
-   "t_end": 353.7,
-   "t_arrival": 352.8,
-   "max_hold_dist": 0.0833,
+   "t_start": 175.2,
+   "t_end": 341.3,
+   "t_arrival": 340.4,
+   "max_hold_dist": 0.0461,
    "deadline_s": 200.7,
    "reference_length_m": 174.317,
    "delivered": true,
@@ -47,8 +47,8 @@
   }
  ],
  "score": {
-  "total": 98.17,
-  "raw_sum": 98.166,
+  "total": 98.76,
+  "raw_sum": 98.76,
   "fatal": false,
   "fatal_t": null,
   "counted": true,
@@ -56,7 +56,7 @@
   "not_counted_blocks": [],
   "blocks": {
    "delivery": 40.0,
-   "efficiency": 13.166,
+   "efficiency": 13.76,
    "safety": 25.0,
    "rules": 10.0,
    "pose": 10.0,
@@ -75,20 +75,20 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 177.8,
-    "time_s": 177.8,
-    "ratio": 1.1345,
-    "efficiency": 0.8654819218343841,
+    "t_arrival": 174.2,
+    "time_s": 174.2,
+    "ratio": 1.1115,
+    "efficiency": 0.8884530415272764,
     "reason": "delivered"
    },
    {
     "id": "m2",
     "delivered": true,
-    "t_start": 178.8,
-    "t_arrival": 352.8,
-    "time_s": 174.0,
-    "ratio": 1.11,
-    "efficiency": 0.8900222009327834,
+    "t_start": 175.2,
+    "t_arrival": 340.4,
+    "time_s": 165.2,
+    "ratio": 1.0538,
+    "efficiency": 0.9461590091614704,
     "reason": "delivered"
    }
   ],
@@ -96,13 +96,13 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 3538,
-  "mean": 1.127,
-  "max": 25.498
+  "n": 3414,
+  "mean": 1.201,
+  "max": 26.315
  },
- "wall_time_s": 5.356,
+ "wall_time_s": 5.496,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
- "log": null
+ "log": "results/table_runs/logs/team_dreamteam_4_0__03_fog_snow__s3.jsonl"
 }

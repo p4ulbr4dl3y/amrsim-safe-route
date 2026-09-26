@@ -1,7 +1,7 @@
 # Результаты и приёмка (сдача)
 
 Все отчёты в этой папке пересняты на финальном дереве финальным контроллером
-`team_dreamteam_4_0/controller.py`, sha256 `f2bac143b94ac8d6` (первые 16 hex-символов,
+`team_dreamteam_4_0/controller.py`, sha256 `2f4a721eafcfb6ed` (первые 16 hex-символов,
 как их пишет amrsim). Команда прогона одного сценария:
 
 ```bash
@@ -31,14 +31,14 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 
 | Сценарий | total min | mean | max | safety min | pose min | доставлено | fatal | collisions | эпизоды |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 01_clear | 99.59 | 99.85 | 99.92 | 25.0 | 10 | 7/7 прогонов | нет | 0 | 0 |
+| 01_clear | 99.99 | 100.00 | 100.00 | 25.0 | 10 | 7/7 прогонов | нет | 0 | 0 |
 | 02_gnss_shadow | 100.00 | 100.00 | 100.00 | 25.0 | 10 | 7/7 | нет | 0 | 0 |
-| 03_fog_snow | 97.46 | 98.04 | 98.40 | 25.0 | 10 | 7/7 | нет | 0 | 0 |
-| 04_busy_yard | 98.57 | 98.72 | 98.78 | 25.0 | 10 | 7/7 | нет | 0 | 0 |
+| 03_fog_snow | 97.69 | 98.34 | 98.76 | 25.0 | 10 | 7/7 | нет | 0 | 0 |
+| 04_busy_yard | 97.96 | 98.55 | 98.90 | 25.0 | 10 | 7/7 | нет | 0 | 0 |
 
 В каждом из 28 отчётов `counted = true`, `fatal = false`, `collisions = 0`, `sandbox_violations`
 пустой, `end_reason = missions_done`. `results/table_summary.csv` даёт
-`team_dreamteam_4_0, OK, 28, 99.15, , 99.15`.
+`team_dreamteam_4_0, OK, 28, 99.22, , 99.22`.
 
 ### Пороги plan/05:84-92
 

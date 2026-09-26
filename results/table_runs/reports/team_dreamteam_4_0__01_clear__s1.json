@@ -10,12 +10,12 @@
  "cheat": false,
  "controller": {
   "path": "teams/team_dreamteam_4_0/controller.py",
-  "sha256": "f2bac143b94ac8d6"
+  "sha256": "2f4a721eafcfb6ed"
  },
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 3187,
+ "ticks": 3126,
  "missions": [
   {
    "type": "mission",
@@ -23,9 +23,9 @@
    "from": "warehouse",
    "to": "shop_a",
    "t_start": 0.0,
-   "t_end": 159.8,
-   "t_arrival": 158.9,
-   "max_hold_dist": 0.0669,
+   "t_end": 155.9,
+   "t_arrival": 155.0,
+   "max_hold_dist": 0.0554,
    "deadline_s": 200.7,
    "reference_length_m": 174.317,
    "delivered": true,
@@ -36,10 +36,10 @@
    "id": "m2",
    "from": "shop_a",
    "to": "warehouse",
-   "t_start": 159.9,
-   "t_end": 318.6,
-   "t_arrival": 317.7,
-   "max_hold_dist": 0.0812,
+   "t_start": 156.0,
+   "t_end": 312.5,
+   "t_arrival": 311.6,
+   "max_hold_dist": 0.0584,
    "deadline_s": 200.6,
    "reference_length_m": 174.271,
    "delivered": true,
@@ -47,8 +47,8 @@
   }
  ],
  "score": {
-  "total": 99.85,
-  "raw_sum": 99.846,
+  "total": 100.0,
+  "raw_sum": 100.0,
   "fatal": false,
   "fatal_t": null,
   "counted": true,
@@ -56,7 +56,7 @@
   "not_counted_blocks": [],
   "blocks": {
    "delivery": 40.0,
-   "efficiency": 14.846,
+   "efficiency": 15.0,
    "safety": 25.0,
    "rules": 10.0,
    "pose": 10.0,
@@ -75,20 +75,20 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 158.9,
-    "time_s": 158.9,
-    "ratio": 1.0137,
-    "efficiency": 0.9863478605070075,
+    "t_arrival": 155.0,
+    "time_s": 155.0,
+    "ratio": 0.9888,
+    "efficiency": 1.0,
     "reason": "delivered"
    },
    {
     "id": "m2",
     "delivered": true,
-    "t_start": 159.9,
-    "t_arrival": 317.7,
-    "time_s": 157.8,
-    "ratio": 1.0069,
-    "efficiency": 0.9930992534615628,
+    "t_start": 156.0,
+    "t_arrival": 311.6,
+    "time_s": 155.6,
+    "ratio": 0.9929,
+    "efficiency": 1.0,
     "reason": "delivered"
    }
   ],
@@ -96,11 +96,11 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 3187,
-  "mean": 1.2,
-  "max": 26.201
+  "n": 3126,
+  "mean": 1.341,
+  "max": 32.537
  },
- "wall_time_s": 5.074,
+ "wall_time_s": 5.54,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
