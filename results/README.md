@@ -23,6 +23,7 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 | `own_scenarios/logs/*.jsonl` | покадровые логи своих сценариев (seed 7) и s4b seed 1 |
 | `own_scenarios/moments.json`, `own_scenarios/moments.md` | моменты для критериев О2 и О4: сценарий, seed, t, статус, note, файл лога |
 | `oracle_<сценарий>.json` | потолок: baseline с истиной (`--cheat`), seed 7 |
+| `results/ALTERNATIVES.md` | инженерное обоснование подхода, анализ альтернатив и компромиссов (критерий О1) |
 | `baseline_*.json` | исходные числа baseline из постановки (не перезаписывались) |
 
 ## Пакет seed x 01-04 (28 прогонов)
