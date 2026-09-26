@@ -54,9 +54,22 @@ out/
 results/table_runs/logs/*
 !results/table_runs/logs/team_dreamteam_4_0__*__s7.jsonl
 
-# Frontend
-frontend/node_modules/
-frontend/.vite/
+# Legacy & local
+backend/
+frontend/
+team/
+!arm/frontend/
+
+# Node & Vite
+node_modules/
+*/node_modules/
+**/.vite/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
 .johnston/config.local.json
 # arm/frontend/dist намеренно НЕ игнорируется: предсобранный SPA входит в сдачу,
 # чтобы чистый клон отдавал интерфейс сразу после `python3 arm/server.py` (см. arm/README.md)
+
