@@ -23,9 +23,14 @@ pip install -r requirements-dev.txt
 PYTHONPATH=amrsim-participants python -m amrsim check team_dreamteam_4_0
 pytest -v
 
-# Способ 3: через менеджер uv:
+# Способ 3: через менеджер uv (macOS / Linux):
 uv sync
 PYTHONPATH=amrsim-participants uv run python -m amrsim check team_dreamteam_4_0
+uv run pytest -v
+
+# Способ 4: через uv на Windows (PowerShell):
+uv sync
+$env:PYTHONPATH="amrsim-participants"; uv run python -m amrsim check team_dreamteam_4_0
 uv run pytest -v
 ```
 
