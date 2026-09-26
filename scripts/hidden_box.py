@@ -26,6 +26,13 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PARTICIPANTS_PATH = REPO_ROOT / "amrsim-participants"
 if PARTICIPANTS_PATH.is_dir() and str(PARTICIPANTS_PATH) not in sys.path:

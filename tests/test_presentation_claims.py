@@ -213,6 +213,7 @@ def test_s4b_lost_sequence_and_recovery():
 
 def test_readme_claims_no_batch_teams_and_valid_eval():
     """README не содержит несуществующий вызов batch teams, не заявляет 99.7 по 03 и команда eval валидна."""
+    import os
     import re
     import shlex
     import subprocess
@@ -237,10 +238,13 @@ def test_readme_claims_no_batch_teams_and_valid_eval():
     assert parsed_args.seeds is not None
     assert "1,2,3,7,11,21,42" in parsed_args.seeds
 
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     res = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "eval.py"), "--help"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        env=env,
         check=True,
     )
     assert "--seeds" in res.stdout

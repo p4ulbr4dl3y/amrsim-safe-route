@@ -1676,7 +1676,9 @@ def test_arm_readme_and_openapi_status_contract(http_server):
 def test_saved_arm_api_response_matches_current_controller_sha():
     """Сохраненный ответ POST /api/run и CSV экспорта соответствуют текущему controller.py."""
     root_dir = Path(__file__).resolve().parent.parent
-    controller_bytes = (root_dir / "team_dreamteam_4_0" / "controller.py").read_bytes()
+    controller_bytes = (
+        (root_dir / "team_dreamteam_4_0" / "controller.py").read_bytes().replace(b"\r\n", b"\n")
+    )
     expected_sha = hashlib.sha256(controller_bytes).hexdigest()[:16]
 
     api_resp_file = root_dir / "results" / "arm" / "arm_run_01_clear_seed7_api_response.json"

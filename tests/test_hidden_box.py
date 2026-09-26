@@ -7,11 +7,16 @@ from pathlib import Path
 
 def test_hidden_box_cli_help():
     """Проверка, что скрипт hidden_box.py вызывается напрямую через CLI без ModuleNotFoundError."""
+    import os
+
     script_path = Path(__file__).resolve().parent.parent / "scripts" / "hidden_box.py"
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     res = subprocess.run(
         [sys.executable, str(script_path), "--help"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        env=env,
         check=False,
     )
     assert res.returncode == 0
