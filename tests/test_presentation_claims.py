@@ -27,7 +27,7 @@ from presentation_claims import (  # noqa: E402
     parse_distance,
 )
 
-CURRENT = hashlib.sha256((ROOT / "team_dreamteam_4_0" / "controller.py").read_bytes()).hexdigest()[:16]
+CURRENT = hashlib.sha256((ROOT / "team_dreamteam_4_0" / "controller.py").read_bytes().replace(b"\r\n", b"\n")).hexdigest()[:16]
 PACKET = "2f4a721eafcfb6ed"  # исторический хеш первого пакета, упоминаемый в PITCH и README
 
 

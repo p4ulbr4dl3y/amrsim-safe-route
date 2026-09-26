@@ -3,6 +3,11 @@ import { RouteName, EpisodeData, ScenarioItem, EpisodesViewModel } from '../type
 import { apiClient } from '../api/client';
 import { Search, ChevronDown, RefreshCw, AlertTriangle, ShieldCheck, MapPin, Gauge, Download } from 'lucide-react';
 import { Latex } from '../components/Latex';
+import {
+  getSelectedScenario,
+  setSelectedScenario,
+  AMR_SCENARIO_CHANGE_EVENT,
+} from '../utils/scenarioStorage';
 
 const EPISODE_FORMULAS: Record<string, { formula: string; condition: string }> = {
   person_near_fast: {
@@ -71,38 +76,55 @@ const EPISODE_FORMULAS: Record<string, { formula: string; condition: string }> =
   },
 };
 
-const SOURCE_LABELS: Record<string, { label: string; badgeClass: string }> = {
-  report: { label: 'Отчет', badgeClass: 'bg-red-50 text-red-700 border-red-200' },
-  mission: { label: 'Миссия', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  telemetry: { label: 'Телеметрия', badgeClass: 'bg-blue-50 text-blue-700 border-blue-200' },
-  checkpoint: { label: 'Чекпоинт', badgeClass: 'bg-slate-100 text-slate-700 border-slate-200' },
-};
-
-const getSourceMeta = (source?: string) => {
-  const s = source || 'report';
-  return SOURCE_LABELS[s] || { label: s, badgeClass: 'bg-slate-50 text-slate-600 border-slate-200' };
-};
-
 interface EpisodesPageProps {
   onNavigate: (route: RouteName, params?: Record<string, any>) => void;
   queryParams?: {
     scenario?: string;
     type?: string;
   };
+  activeScenario?: string;
+  onScenarioChange?: (scenario: string) => void;
 }
 
-export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryParams }) => {
-  const [scenario, setScenario] = useState(queryParams?.scenario || '04_busy_yard');
+export const EpisodesPage: React.FC<EpisodesPageProps> = ({
+  onNavigate,
+  queryParams,
+  activeScenario,
+  onScenarioChange,
+}) => {
+  const [scenario, setScenario] = useState(
+    activeScenario || queryParams?.scenario || getSelectedScenario()
+  );
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [episodesData, setEpisodesData] = useState<EpisodesViewModel | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<EpisodeData | null>(null);
-  const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>(queryParams?.type || 'all');
   const [costFilter, setCostFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
-  // Загрузка списка сценариев
+  // Sync with activeScenario prop
+  useEffect(() => {
+    if (activeScenario && activeScenario !== scenario) {
+      setScenario(activeScenario);
+    }
+  }, [activeScenario]);
+
+  // Sync with global scenario change event
+  useEffect(() => {
+    const handleStorageChange = (e: any) => {
+      const sc = e.detail;
+      if (sc && sc !== scenario) {
+        setScenario(sc);
+      }
+    };
+    window.addEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    return () => {
+      window.removeEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    };
+  }, [scenario]);
+
+  // Fetch scenarios list
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -113,14 +135,14 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     };
   }, []);
 
-  // Обновление сценария из параметров URL при изменении
+  // Update scenario from queryParams if changed
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
     }
   }, [queryParams?.scenario]);
 
-  // Загрузка эпизодов при смене сценария
+  // Fetch episodes when scenario changes
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -139,8 +161,29 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     };
   }, [scenario]);
 
-  // Экспорт в формате CSV через Server-Driven эндпоинт
+  // CSV Export handler
   const handleExportCSV = () => {
+    if (episodesData && episodesData.episodes && episodesData.episodes.length > 0) {
+      const headers = "Episode ID,Type,Category,Severity,Start (s),End (s),X,Y,Speed (m/s),Hum Dist (m),Obj Dist (m),PE Error (m),Cost (pts),Explanation";
+      const rows = episodesData.episodes.map((ep) => {
+        const snap = ep.telemetrySnapshot || {};
+        const v = typeof snap.v === 'number' ? snap.v.toFixed(2) : '';
+        const hum = typeof snap.hum === 'number' ? snap.hum.toFixed(2) : '';
+        const obj = typeof snap.obj === 'number' ? snap.obj.toFixed(2) : '';
+        const pe = typeof snap.pe_error === 'number' ? snap.pe_error.toFixed(4) : '';
+        const cost = (ep.cost || 0).toFixed(2);
+        const expl = (ep.ruleExplanation || '').replace(/"/g, '""');
+        return `${ep.id},${ep.type},${ep.category},${ep.severity || 'info'},${ep.t_start},${ep.t_end},${ep.x},${ep.y},${v},${hum},${obj},${pe},${cost},"${expl}"`;
+      });
+      const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent([headers, ...rows].join('\n'));
+      const link = document.createElement('a');
+      link.setAttribute('href', csvContent);
+      link.setAttribute('download', `amrsim_episodes_${scenario}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
     const url = apiClient.getExportCsvUrl(scenario);
     const link = document.createElement('a');
     link.href = url;
@@ -150,7 +193,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     document.body.removeChild(link);
   };
 
-  // Экспорт в формате JSON
+  // JSON Export handler
   const handleExportJSON = () => {
     if (!episodesData) return;
     const jsonStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(episodesData, null, 2));
@@ -170,24 +213,19 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     ruleViolationsCount: 0,
   };
 
-  // Типы эпизодов для фильтрации
+  // Dynamic episode types for filter dropdown
   const uniqueTypes = Array.from(new Set(episodes.map((e) => e.type)));
 
-  // Фильтрация
+  // Filtering
   const filteredEpisodes = episodes.filter((ep) => {
-    const epSource = ep.source || 'report';
-    if (sourceFilter !== 'all' && epSource !== sourceFilter) return false;
     if (typeFilter !== 'all' && ep.type !== typeFilter) return false;
-    if (costFilter === 'high' && (epSource !== 'report' || ep.cost > -0.5)) return false;
-    if (costFilter === 'low' && epSource === 'report' && ep.cost <= -0.5) return false;
+    if (costFilter === 'high' && ep.cost > -0.5) return false;
+    if (costFilter === 'low' && ep.cost <= -0.5) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      const srcMeta = getSourceMeta(ep.source);
       return (
         ep.type.toLowerCase().includes(q) ||
         ep.category.toLowerCase().includes(q) ||
-        epSource.toLowerCase().includes(q) ||
-        srcMeta.label.toLowerCase().includes(q) ||
         ep.x.toString().includes(q) ||
         ep.y.toString().includes(q) ||
         (ep.ruleExplanation && ep.ruleExplanation.toLowerCase().includes(q))
@@ -195,6 +233,19 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
     }
     return true;
   });
+
+  const handleScenarioChange = (newSc: string) => {
+    setScenario(newSc);
+    setSelectedScenario(newSc);
+    onScenarioChange?.(newSc);
+    if (typeof window !== 'undefined') {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const [route, queryStr] = rawHash.split('?');
+      const sp = new URLSearchParams(queryStr || '');
+      sp.set('scenario', newSc);
+      window.location.hash = `#/${route || 'episodes'}?${sp.toString()}`;
+    }
+  };
 
   const handleInspect = (ep: EpisodeData) => {
     setSelectedEpisode(ep);
@@ -207,21 +258,15 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
   };
 
   return (
-    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full gap-5">
+    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full min-w-[1240px] gap-5">
       {/* Top Scenario Selector & Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-3.5 px-5 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="font-bold text-slate-800 text-sm tracking-tight">Эпизоды безопасности</span>
-          <span className="text-slate-400 text-xs">//</span>
-          <span className="text-slate-600 text-xs font-medium">Штрафы и события симуляции</span>
-        </div>
-
         <div className="flex items-center gap-3">
           <label className="text-xs text-slate-500 font-medium">Сценарий:</label>
           <div className="relative min-w-[200px]">
             <select
               value={scenario}
-              onChange={(e) => setScenario(e.target.value)}
+              onChange={(e) => handleScenarioChange(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg px-3 py-1.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             >
               {scenarios.map((sc) => (
@@ -265,7 +310,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
             <div className="text-xs text-slate-500 font-medium">Штрафные баллы</div>
             <div className="text-xl font-bold text-slate-900 font-mono mt-0.5">
               {summary.totalCost.toFixed(2)}{' '}
-              <span className="text-xs font-normal text-slate-400">pts</span>
+              <span className="text-xs font-normal text-slate-400">баллов</span>
             </div>
           </div>
         </div>
@@ -306,25 +351,6 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
 
       {/* Filters Bar */}
       <div className="bg-white p-3.5 px-5 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4">
-        {/* Source filter */}
-        <div className="flex flex-col gap-1 min-w-[150px]">
-          <span className="text-[11px] text-slate-500 font-medium">Источник</span>
-          <div className="relative">
-            <select
-              value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-2 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
-            >
-              <option value="all">Все источники</option>
-              <option value="report">Отчет</option>
-              <option value="mission">Миссия</option>
-              <option value="telemetry">Телеметрия</option>
-              <option value="checkpoint">Чекпоинт</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
-          </div>
-        </div>
-
         {/* Type filter */}
         <div className="flex flex-col gap-1 min-w-[180px]">
           <span className="text-[11px] text-slate-500 font-medium">Тип события</span>
@@ -355,8 +381,8 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
               className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-2 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             >
               <option value="all">Все значения</option>
-              <option value="high">Высокий штраф (&gt; 0.5 pt)</option>
-              <option value="low">Низкий / штатный (≤ 0.5 pt)</option>
+              <option value="high">Высокий штраф (&gt; 0.5 балла)</option>
+              <option value="low">Низкий / штатный (≤ 0.5 балла)</option>
             </select>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
           </div>
@@ -387,7 +413,6 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
                 <tr>
                   <th className="py-3 px-4 w-12 text-center">Статус</th>
-                  <th className="py-3 px-4">Источник</th>
                   <th className="py-3 px-4">Тип эпизода</th>
                   <th className="py-3 px-4">Категория</th>
                   <th className="py-3 px-4">Время (с)</th>
@@ -399,7 +424,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
               <tbody className="divide-y divide-slate-100">
                 {filteredEpisodes.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       В данном сценарии нет зафиксированных инцидентов по заданным фильтрам
                     </td>
                   </tr>
@@ -414,9 +439,6 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                         : ep.severity === 'info'
                         ? 'bg-blue-500'
                         : 'bg-emerald-500';
-                    const epSource = ep.source || 'report';
-                    const srcMeta = getSourceMeta(ep.source);
-                    const isReport = epSource === 'report';
 
                     return (
                       <tr
@@ -429,33 +451,22 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                         <td className="py-3 px-4 text-center">
                           <span className={`w-2.5 h-2.5 rounded-full inline-block ${dotColor}`}></span>
                         </td>
-                        <td className="py-3 px-4">
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${srcMeta.badgeClass}`}
-                          >
-                            {srcMeta.label}
-                          </span>
-                        </td>
                         <td className="py-3 px-4 font-mono font-medium text-slate-900">
                           {ep.type}
                         </td>
                         <td className="py-3 px-4 text-slate-600">{ep.category}</td>
                         <td className="py-3 px-4 font-mono text-slate-600">
-                          {ep.t_start.toFixed(1)} s – {ep.t_end.toFixed(1)} s
+                          {ep.t_start.toFixed(1)} с – {ep.t_end.toFixed(1)} с
                         </td>
                         <td className="py-3 px-4 font-mono text-slate-500">
                           ({ep.x.toFixed(1)}, {ep.y.toFixed(1)})
                         </td>
                         <td
-                          className={`py-3 px-4 font-mono text-right ${
-                            isReport
-                              ? ep.cost < 0
-                                ? 'font-semibold text-red-600'
-                                : 'font-semibold text-slate-500'
-                              : 'font-normal text-slate-400'
+                          className={`py-3 px-4 font-mono text-right font-semibold ${
+                            ep.cost < 0 ? 'text-red-600' : 'text-slate-500'
                           }`}
                         >
-                          {isReport ? ep.cost.toFixed(2) : '—'}
+                          {ep.cost.toFixed(2)}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <button
@@ -465,7 +476,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                             }}
                             className="text-blue-600 hover:text-blue-800 font-medium text-xs hover:underline"
                           >
-                            Inspect
+                            Просмотр
                           </button>
                         </td>
                       </tr>
@@ -485,7 +496,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
 
           {selectedEpisode ? (
             <div className="flex flex-col gap-4">
-              {/* Header: Type, Source and Cost */}
+              {/* Header: Type and Cost */}
               <div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -503,26 +514,13 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                     <span className="font-mono font-bold text-sm text-slate-900">
                       {selectedEpisode.type}
                     </span>
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
-                        getSourceMeta(selectedEpisode.source).badgeClass
-                      }`}
-                    >
-                      {getSourceMeta(selectedEpisode.source).label}
-                    </span>
                   </div>
                   <span
                     className={`font-mono font-bold text-sm ${
-                      (selectedEpisode.source || 'report') !== 'report'
-                        ? 'text-slate-400 font-normal'
-                        : selectedEpisode.cost < 0
-                        ? 'text-red-600'
-                        : 'text-emerald-600'
+                      selectedEpisode.cost < 0 ? 'text-red-600' : 'text-emerald-600'
                     }`}
                   >
-                    {(selectedEpisode.source || 'report') === 'report'
-                      ? `${selectedEpisode.cost.toFixed(2)} pts`
-                      : '—'}
+                    {selectedEpisode.cost.toFixed(2)} баллов
                   </span>
                 </div>
                 <div className="text-xs text-slate-500 mt-1">{selectedEpisode.category}</div>
@@ -533,7 +531,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                 <div>
                   <div className="text-[11px] text-slate-400 font-sans">Временной интервал</div>
                   <div className="font-semibold text-slate-800 mt-0.5">
-                    {selectedEpisode.t_start.toFixed(1)} s – {selectedEpisode.t_end.toFixed(1)} s
+                    {selectedEpisode.t_start.toFixed(1)} с – {selectedEpisode.t_end.toFixed(1)} с
                   </div>
                 </div>
                 <div>
@@ -562,7 +560,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                 <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col gap-1.5 text-xs">
                   <div className="text-[11px] font-semibold text-slate-700 flex items-center justify-between">
                     <span>Формула штрафа (AMR-1.0):</span>
-                    <span className="font-mono text-slate-400 text-[10px]">rule math</span>
+                    <span className="font-mono text-slate-400 text-[10px]">правило</span>
                   </div>
                   <div className="bg-white p-2 rounded border border-slate-200 text-center font-serif text-xs">
                     <Latex math={EPISODE_FORMULAS[selectedEpisode.type].formula} displayMode />
@@ -580,7 +578,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
               {selectedEpisode.telemetrySnapshot && (
                 <div>
                   <div className="text-xs font-semibold text-slate-700 mb-1.5">
-                    Снимок телеметрии (t = {selectedEpisode.t_start.toFixed(1)}s)
+                    Снимок телеметрии (t = {selectedEpisode.t_start.toFixed(1)} с)
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs font-mono bg-slate-50 p-3 rounded-lg border border-slate-100">
                     <div>
@@ -642,7 +640,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({ onNavigate, queryPar
                 onClick={() => handleInspect(selectedEpisode)}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-colors mt-2"
               >
-                <span>Перейти к моменту в Replay</span>
+                <span>Смотреть момент в Replay</span>
               </button>
             </div>
           ) : (

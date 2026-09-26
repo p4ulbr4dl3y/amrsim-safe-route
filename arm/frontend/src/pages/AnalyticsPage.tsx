@@ -3,6 +3,11 @@ import { RouteName, AnalyticsViewModel, ScenarioItem } from '../types';
 import { apiClient } from '../api/client';
 import { Download, CheckCircle2, AlertOctagon, ChevronDown, RefreshCw } from 'lucide-react';
 import { Latex } from '../components/Latex';
+import {
+  getSelectedScenario,
+  setSelectedScenario,
+  AMR_SCENARIO_CHANGE_EVENT,
+} from '../utils/scenarioStorage';
 
 const BLOCK_FORMULAS: Record<string, string> = {
   delivery: 'S_{\\text{del}}',
@@ -18,17 +23,47 @@ interface AnalyticsPageProps {
   queryParams?: {
     scenario?: string;
   };
+  activeScenario?: string;
+  onScenarioChange?: (scenario: string) => void;
 }
 
-export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryParams }) => {
-  const [scenario, setScenario] = useState(queryParams?.scenario || '04_busy_yard');
+export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
+  onNavigate,
+  queryParams,
+  activeScenario,
+  onScenarioChange,
+}) => {
+  const [scenario, setScenario] = useState(
+    activeScenario || queryParams?.scenario || getSelectedScenario()
+  );
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [data, setData] = useState<AnalyticsViewModel | null>(null);
   const [stderrOpen, setStderrOpen] = useState(true);
   const [showFormulas, setShowFormulas] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Загрузка сценариев при монтировании
+  // Sync with activeScenario prop
+  useEffect(() => {
+    if (activeScenario && activeScenario !== scenario) {
+      setScenario(activeScenario);
+    }
+  }, [activeScenario]);
+
+  // Sync with global scenario change event
+  useEffect(() => {
+    const handleStorageChange = (e: any) => {
+      const sc = e.detail;
+      if (sc && sc !== scenario) {
+        setScenario(sc);
+      }
+    };
+    window.addEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    return () => {
+      window.removeEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    };
+  }, [scenario]);
+
+  // Load scenarios on mount
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -39,14 +74,27 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     };
   }, []);
 
-  // Обновление сценария из параметров URL при изменении
+  // Update scenario from queryParams if changed
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
     }
   }, [queryParams?.scenario]);
 
-  // Загрузка аналитики при смене сценария
+  const handleScenarioChange = (newSc: string) => {
+    setScenario(newSc);
+    setSelectedScenario(newSc);
+    onScenarioChange?.(newSc);
+    if (typeof window !== 'undefined') {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const [route, queryStr] = rawHash.split('?');
+      const sp = new URLSearchParams(queryStr || '');
+      sp.set('scenario', newSc);
+      window.location.hash = `#/${route || 'analytics'}?${sp.toString()}`;
+    }
+  };
+
+  // Load analytics when scenario changes
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -61,7 +109,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     };
   }, [scenario]);
 
-  // Экспорт в формате CSV
+  // CSV Export handler
   const handleExportCSV = () => {
     const url = apiClient.getExportCsvUrl(scenario);
     const link = document.createElement('a');
@@ -72,7 +120,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     document.body.removeChild(link);
   };
 
-  // Экспорт в формате JSON
+  // JSON Export handler
   const handleExportJSON = () => {
     if (!data) return;
     const jsonStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(data, null, 2));
@@ -84,14 +132,14 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     document.body.removeChild(link);
   };
 
-  const totalScore = data?.totalScore ?? 98.18;
+  const totalScore = data?.totalScore ?? 0;
   const blocks = data?.blocks || [];
-  const radarValues = data?.radar?.values || [1.0, 0.92, 0.98, 1.0, 1.0, 1.0];
+  const radarValues = data?.radar?.values || (blocks.length > 0 ? blocks.map((b) => b.percentage / 100) : [0, 0, 0, 0, 0, 0]);
   const compute = data?.computeBudget || {
     limit_s: 600,
-    fact_s: 14.27,
-    mean_step_ms: 2.71,
-    max_step_ms: 48.57,
+    fact_s: 0,
+    mean_step_ms: 0,
+    max_step_ms: 0,
     step_distribution: [],
   };
   const sandbox = data?.sandbox || {
@@ -99,36 +147,31 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
     stderr_tail: [],
   };
 
-  // Расчет точек лепестковой диаграммы (6-осевой шестиугольник)
+  // Radar points computation (6-axis hexagon)
   const radarPoints = radarValues.map((val, i) => {
     const angle = (Math.PI / 3) * i - Math.PI / 2;
     const r = 85 * Math.max(0.1, Math.min(1.0, val));
     return `${(120 + r * Math.cos(angle)).toFixed(1)},${(120 + r * Math.sin(angle)).toFixed(1)}`;
   }).join(' ');
 
-  // Расчет максимального значения гистограммы для масштабирования
-  const maxBinCount = Math.max(1, ...compute.step_distribution.map((d) => d.count));
+  // Compute max count in histogram for scaling
+  const maxBinCount = Math.max(1, ...(compute.step_distribution || []).map((d) => d.count));
 
   return (
-    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full gap-5">
+    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full min-w-[1240px] gap-5">
       {/* Top Banner matching analytics.png */}
       <div className="bg-white p-5 px-8 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
-        {/* Score & Counted badge */}
+        {/* Score & Scenario Selector */}
         <div className="flex items-center gap-4">
           <div className="text-3xl font-extrabold text-slate-900 font-mono">
             {totalScore.toFixed(2)} <span className="text-xl font-normal text-slate-400">/ 100</span>
-          </div>
-
-          <div className="bg-emerald-50 text-emerald-700 text-xs font-semibold px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1.5 font-mono">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-            {data?.counted ? 'COUNTED' : 'NOT COUNTED'}
           </div>
 
           {/* Scenario Selector */}
           <div className="relative min-w-[200px] ml-2">
             <select
               value={scenario}
-              onChange={(e) => setScenario(e.target.value)}
+              onChange={(e) => handleScenarioChange(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg px-3 py-1.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             >
               {scenarios.map((sc) => (
@@ -277,43 +320,51 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {blocks.map((block) => (
-                  <tr key={block.key}>
-                    <td className="py-2.5 font-medium text-slate-800 font-sans">
-                      <div className="flex items-center gap-2">
-                        <span>{block.name}</span>
-                        {BLOCK_FORMULAS[block.key] && (
-                          <span className="text-[11px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-serif">
-                            <Latex math={BLOCK_FORMULAS[block.key]} />
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-2.5 text-right text-slate-500">{block.max.toFixed(2)}</td>
-                    <td className="py-2.5 text-right text-slate-800 font-semibold">
-                      {block.achieved.toFixed(2)}
-                    </td>
-                    <td className="py-2.5 pl-8">
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 bg-slate-100 h-2 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              block.percentage >= 95
-                                ? 'bg-blue-600'
-                                : block.percentage >= 80
-                                ? 'bg-emerald-500'
-                                : 'bg-amber-500'
-                            }`}
-                            style={{ width: `${block.percentage}%` }}
-                          ></div>
-                        </div>
-                        <span className="w-12 text-right text-[11px] text-slate-600">
-                          {block.percentage.toFixed(1)}%
-                        </span>
-                      </div>
+                {blocks.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-slate-400 font-sans text-xs">
+                      Отчет скоринга не найден. Запустите симуляцию сценария в разделе «Запуск».
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  blocks.map((block) => (
+                    <tr key={block.key}>
+                      <td className="py-2.5 font-medium text-slate-800 font-sans">
+                        <div className="flex items-center gap-2">
+                          <span>{block.name}</span>
+                          {BLOCK_FORMULAS[block.key] && (
+                            <span className="text-[11px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-serif">
+                              <Latex math={BLOCK_FORMULAS[block.key]} />
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-right text-slate-500">{(block.max ?? 0).toFixed(2)}</td>
+                      <td className="py-2.5 text-right text-slate-800 font-semibold">
+                        {(block.achieved ?? 0).toFixed(2)}
+                      </td>
+                      <td className="py-2.5 pl-8">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 bg-slate-100 h-2 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                (block.percentage ?? 0) >= 95
+                                  ? 'bg-blue-600'
+                                  : (block.percentage ?? 0) >= 80
+                                  ? 'bg-emerald-500'
+                                  : 'bg-amber-500'
+                              }`}
+                              style={{ width: `${block.percentage ?? 0}%` }}
+                            ></div>
+                          </div>
+                          <span className="w-12 text-right text-[11px] text-slate-600">
+                            {(block.percentage ?? 0).toFixed(1)}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -519,31 +570,31 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Compute Budget (7 cols) */}
         <div className="lg:col-span-7 bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-4">
-          <h2 className="text-sm font-semibold text-slate-800">Compute Budget</h2>
+          <h2 className="text-sm font-semibold text-slate-800">Вычислительный бюджет (Compute Budget)</h2>
 
           {/* 4 Metrics Row */}
           <div className="grid grid-cols-4 gap-4 text-xs font-mono pb-3 border-b border-slate-100">
             <div>
               <div className="text-[11px] text-slate-500 font-sans">Лимит времени</div>
-              <div className="text-base font-bold text-slate-900 mt-0.5">{compute.limit_s} s</div>
+              <div className="text-base font-bold text-slate-900 mt-0.5">{compute.limit_s} с</div>
             </div>
             <div>
               <div className="text-[11px] text-slate-500 font-sans">Факт (wall-time)</div>
-              <div className="text-base font-bold text-slate-900 mt-0.5">{compute.fact_s.toFixed(2)} s</div>
+              <div className="text-base font-bold text-slate-900 mt-0.5">{compute.fact_s.toFixed(2)} с</div>
             </div>
             <div>
               <div className="text-[11px] text-slate-500 font-sans">Средний шаг</div>
-              <div className="text-base font-bold text-slate-900 mt-0.5">{compute.mean_step_ms.toFixed(2)} ms</div>
+              <div className="text-base font-bold text-slate-900 mt-0.5">{compute.mean_step_ms.toFixed(2)} мс</div>
             </div>
             <div>
               <div className="text-[11px] text-slate-500 font-sans">Макс. шаг</div>
-              <div className="text-base font-bold text-slate-900 mt-0.5">{compute.max_step_ms.toFixed(1)} ms</div>
+              <div className="text-base font-bold text-slate-900 mt-0.5">{compute.max_step_ms.toFixed(1)} мс</div>
             </div>
           </div>
 
           {/* Histogram: Step latency distribution */}
           <div>
-            <div className="text-xs text-slate-500 mb-2">Распределение времени шага (ms)</div>
+            <div className="text-xs text-slate-500 mb-2">Распределение времени шага (мс)</div>
             <div className="w-full h-28 relative">
               <svg
                 className="w-full h-full overflow-visible"
@@ -556,7 +607,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
                 <line x1="0" y1="80" x2="500" y2="80" stroke="#F8FAFC" strokeWidth="1" />
 
                 {/* Bars */}
-                {compute.step_distribution.map((item, idx) => {
+                {(compute.step_distribution || []).map((item, idx) => {
                   const x = (item.bin / 25) * 480 + 10;
                   const barH = (item.count / maxBinCount) * 75;
                   return (
@@ -575,7 +626,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
                 {/* 5ms Threshold vertical line */}
                 <line x1="106" y1="5" x2="106" y2="95" stroke="#3B82F6" strokeWidth="1.5" />
                 <text x="112" y="15" className="text-[9px] fill-blue-600 font-mono">
-                  Порог 5 ms (О1 норма)
+                  Порог 5 мс (О1 норма)
                 </text>
               </svg>
 
@@ -589,7 +640,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
                 <span>25</span>
               </div>
               <div className="text-right text-[10px] text-slate-400 font-mono mt-0.5">
-                Время шага, ms
+                Время шага, мс
               </div>
             </div>
           </div>
@@ -635,7 +686,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onNavigate, queryP
 
             {stderrOpen && (
               <div className="p-3 bg-white space-y-1 text-slate-700 text-[11px] leading-relaxed max-h-48 overflow-y-auto">
-                {sandbox.stderr_tail.map((line, idx) => (
+                {(sandbox.stderr_tail || []).map((line, idx) => (
                   <div key={idx} className="flex gap-3">
                     <span className="text-slate-400 select-none w-3 text-right">{idx + 1}</span>
                     <span className="text-slate-600 font-mono">{line}</span>
