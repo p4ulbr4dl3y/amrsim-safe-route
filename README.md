@@ -8,11 +8,13 @@
 
 Контроллер собран из модулей строго на стандартной библиотеке и numpy:
 `localize/` (скан-матч LM, ГНСС-гейт, калибровка масштаба, CSM lost recovery, dock-snap),
-`perceive/` (кластеры, IMM-трекинг, map_missing и map_extra),
-`route/` (pure pursuit, Stanley, квинтовые сплайны, кривизно-оптимальный профиль, A*),
-`safety/` (Control Barrier Functions Нагумо, зазоры, коридор, estop, статусы), `geom.py` (геометрия),
+`perceive/` (кластеры, трекинг Калмана с эвристиками Stop, map_missing и map_extra),
+`route/` (pure pursuit, кривизно-оптимальный профиль, боковой сдвиг и локальный A*),
+`safety/` (зазоры, коридор, estop, статусы, тиры lost_speed_limit), `geom.py` (геометрия),
 `controller.py` (сборка и порядок вызовов). Описание подхода, анализ альтернатив и обоснование решений -
 в [`APPROACH.md`](APPROACH.md) и [`results/ALTERNATIVES.md`](results/ALTERNATIVES.md).
+Модули `compute_stanley_cmd`, `smooth_yaw_rate_quintic` и `cbf_velocity_limit` реализованы и покрыты тестами,
+но в боевой пайплайн не подключены; их статус отмечен в `APPROACH.md` и `results/ALTERNATIVES.md`.
 
 ## Требования
 
@@ -115,10 +117,10 @@ team_dreamteam_4_0/    # Модули алгоритма контроллера 
   controller.py        # Точка входа: порядок predict -> scan-match -> GNSS -> perception -> route -> safety
   geom.py              # Геометрия: отрезки, raycast, AABB, нормализация углов
   localize/            # Локализация: LM скан-матч, ГНСС, калибровка, 2-уровневый CSM lost recovery
-  perceive/            # Восприятие: кластеризация, IMM-трекинг, map_missing и map_extra
-  route/               # Маршрут: pure pursuit, Stanley, квинтовые сплайны, профилирование кривизны, A*
-  safety/              # Безопасность: Control Barrier Functions (CBF), зазоры, коридор, estop
-  APPROACH.md          # 20 строк о локализации, маршруте, безопасности и ограничениях (Т3)
+  perceive/            # Восприятие: кластеризация, трекинг Калмана с эвристиками Stop, map_missing и map_extra
+  route/               # Маршрут: pure pursuit, кривизно-оптимальный профиль, боковой сдвиг, локальный A*
+  safety/              # Безопасность: зазоры, коридор, estop, статусы, тиры lost_speed_limit
+  APPROACH.md          # Локализация, маршрут, безопасность и ограничения с метками внедрения (Т3)
   requirements.txt     # Одна строка: numpy
   scenarios/           # Свои проверки О4 (s1..s5)
 arm/                   # Рабочее место оператора (критерий О3)

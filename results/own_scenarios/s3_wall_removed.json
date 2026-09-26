@@ -10,12 +10,12 @@
  "cheat": false,
  "controller": {
   "path": "team_dreamteam_4_0/controller.py",
-  "sha256": "f2bac143b94ac8d6"
+  "sha256": "b63ab91caa9194b0"
  },
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 1825,
+ "ticks": 1767,
  "missions": [
   {
    "type": "mission",
@@ -23,9 +23,9 @@
    "from": "warehouse",
    "to": "shop_b",
    "t_start": 0.0,
-   "t_end": 182.4,
-   "t_arrival": 181.5,
-   "max_hold_dist": 0.0741,
+   "t_end": 176.6,
+   "t_arrival": 175.7,
+   "max_hold_dist": 0.0789,
    "deadline_s": 252.0,
    "reference_length_m": 218.918,
    "delivered": true,
@@ -61,9 +61,9 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 181.5,
-    "time_s": 181.5,
-    "ratio": 0.9219,
+    "t_arrival": 175.7,
+    "time_s": 175.7,
+    "ratio": 0.8925,
     "efficiency": 1.0,
     "reason": "delivered"
    }
@@ -72,11 +72,11 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 1825,
-  "mean": 2.026,
-  "max": 45.114
+  "n": 1767,
+  "mean": 2.039,
+  "max": 41.948
  },
- "wall_time_s": 4.571,
+ "wall_time_s": 4.344,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",

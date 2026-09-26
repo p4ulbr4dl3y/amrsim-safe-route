@@ -1,11 +1,11 @@
 {
   "controller_path": "team_dreamteam_4_0/controller.py",
-  "controller_sha256": "f2bac143b94ac8d6",
+  "controller_sha256": "b63ab91caa9194b0",
   "scenarios": [
     {
       "scenario": "s1_pallet_2m",
       "seed": 7,
-      "total": 98.84,
+      "total": 99.97,
       "report": "results/own_scenarios/s1_pallet_2m.json",
       "log": "results/own_scenarios/logs/s1_pallet_2m.jsonl",
       "moments": [
@@ -15,9 +15,7 @@
           "t": 111.9,
           "status": "moving",
           "note": "offset dy=-0.4",
-          "v": 0.22,
-          "expected_t": 111.9,
-          "match": true
+          "v": 0.22
         }
       ]
     },
@@ -31,12 +29,10 @@
         {
           "key": "replan",
           "found": true,
-          "t": 148.2,
+          "t": 147.0,
           "status": "moving",
           "note": "replan",
-          "v": 1.39,
-          "expected_t": 148.2,
-          "match": true
+          "v": 1.39
         }
       ]
     },
@@ -53,9 +49,7 @@
           "t": 9.8,
           "status": "moving",
           "note": "map_missing",
-          "v": 1.39,
-          "expected_t": 9.8,
-          "match": true
+          "v": 1.39
         }
       ]
     },
@@ -69,7 +63,7 @@
         {
           "key": "arrival_charger",
           "found": true,
-          "t": 48.8,
+          "t": 43.0,
           "status": "arrived",
           "note": "последний такт лога: dock",
           "v": 0.0
@@ -78,57 +72,11 @@
     },
     {
       "scenario": "s4b_shadow_lane_lost",
-      "seed": 7,
-      "total": 100.0,
-      "report": "results/own_scenarios/s4b_shadow_lane_lost.json",
-      "log": "results/own_scenarios/logs/s4b_shadow_lane_lost.jsonl",
-      "moments": [
-        {
-          "key": "lane_lost_status",
-          "found": false,
-          "t": null,
-          "status": null,
-          "note": "на seed 7 потеря ориентации не возникала: нет ни одного такта со st=lost и ни одного note с подстрокой lost",
-          "v": null
-        }
-      ],
-      "note": "на seed 7 сценарий пройден без потери ориентации; контрольный прогон с потерей - seed 1"
-    },
-    {
-      "scenario": "s5_fog_inattentive",
-      "seed": 7,
-      "total": 99.27,
-      "report": "results/own_scenarios/s5_fog_inattentive.json",
-      "log": "results/own_scenarios/logs/s5_fog_inattentive.jsonl",
-      "moments": [
-        {
-          "key": "fog_clear",
-          "found": true,
-          "t": 40.0,
-          "status": "moving",
-          "note": "fog_clear zone v=0.95",
-          "v": 0.95,
-          "expected_t": 40.0,
-          "match": true
-        },
-        {
-          "key": "stop_person",
-          "found": true,
-          "t": 87.0,
-          "status": "moving",
-          "note": "stop_person d=0.7 fog_clear zone v=0.95",
-          "v": 0.78,
-          "expected_t": 87.0,
-          "match": true
-        }
-      ]
-    },
-    {
-      "scenario": "s4b_shadow_lane_lost",
       "seed": 1,
-      "total": 99.3,
+      "total": 100.0,
       "report": "results/own_scenarios/s4b_shadow_lane_lost_seed1.json",
       "log": "results/own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl",
+      "note": "основной прогон для момента потери ориентации - seed 1: только на нем локализация срывается и появляется st=lost",
       "moments": [
         {
           "key": "pre_loss",
@@ -144,9 +92,7 @@
           "t": 26.0,
           "status": "moving",
           "note": "lost s_lat=0.0 map_extra",
-          "v": 1.39,
-          "expected_t": 26.0,
-          "match": true
+          "v": 1.39
         },
         {
           "key": "lane_lost_status",
@@ -154,9 +100,7 @@
           "t": 27.2,
           "status": "lost",
           "note": "lost s_lat=0.0 map_extra",
-          "v": 0.0,
-          "expected_t": 27.2,
-          "match": true
+          "v": 0.0
         },
         {
           "key": "motion_resume",
@@ -165,6 +109,49 @@
           "status": "waiting",
           "note": "первый такт после выхода из st=lost (map_extra)",
           "v": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "s4b_shadow_lane_lost",
+      "seed": 7,
+      "total": 100.0,
+      "report": "results/own_scenarios/s4b_shadow_lane_lost.json",
+      "log": "results/own_scenarios/logs/s4b_shadow_lane_lost.jsonl",
+      "note": "контрольный прогон для s4b: на seed 7 потеря ориентации не возникает",
+      "moments": [
+        {
+          "key": "lane_lost_status",
+          "found": false,
+          "t": null,
+          "status": null,
+          "note": "на seed 7 потеря ориентации не возникала: нет ни одного такта со st=lost и ни одного note с подстрокой lost",
+          "v": null
+        }
+      ]
+    },
+    {
+      "scenario": "s5_fog_inattentive",
+      "seed": 7,
+      "total": 99.44,
+      "report": "results/own_scenarios/s5_fog_inattentive.json",
+      "log": "results/own_scenarios/logs/s5_fog_inattentive.jsonl",
+      "moments": [
+        {
+          "key": "fog_clear",
+          "found": true,
+          "t": 40.0,
+          "status": "moving",
+          "note": "fog_clear zone v=0.95",
+          "v": 0.95
+        },
+        {
+          "key": "stop_person",
+          "found": true,
+          "t": 87.0,
+          "status": "moving",
+          "note": "stop_person d=0.7 fog_clear zone v=0.95",
+          "v": 0.78
         }
       ]
     }

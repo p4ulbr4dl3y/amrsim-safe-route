@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import re
@@ -226,12 +227,26 @@ def parse_criteria():
 
 
 def module_rows():
-    """Состав пакета контроллера: имя файла и число строк."""
+    """Состав пакета контроллера: модуль (файл или подпакет) и число строк.
+
+    Пакет разложен на подпакеты localize/, perceive/, route/, safety/; для
+    каждого подпакета строки суммируются по его файлам, чтобы колода не
+    ссылалась на несуществующие монолитные localize.py, route.py и прочие.
+    """
     rows = []
     package = ROOT / "team_dreamteam_4_0"
     for path in sorted(package.glob("*.py")):
         lines = len(path.read_text(encoding="utf-8").splitlines())
         rows.append((path.name, lines))
+    for directory in sorted(p for p in package.iterdir() if p.is_dir() and p.name != "scenarios"):
+        if directory.name == "__pycache__":
+            continue
+        lines = sum(
+            len(item.read_text(encoding="utf-8").splitlines())
+            for item in directory.glob("*.py")
+        )
+        if lines:
+            rows.append((directory.name + "/", lines))
     return rows
 
 
@@ -241,6 +256,25 @@ def count_pytest_tests():
     for path in sorted((ROOT / "tests").glob("**/*.py")):
         total += len(re.findall(r"(?m)^\s*def test_", path.read_text(encoding="utf-8")))
     return total
+
+
+def controller_sha256():
+    """Первые 16 hex-символов sha256 контроллера - как их пишет amrsim."""
+    path = ROOT / "team_dreamteam_4_0" / "controller.py"
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def packet_controller_sha(ctx):
+    """sha256 контроллера, которым сняты отчеты seed_packet, по самим отчетам."""
+    shas = {
+        report.get("controller", {}).get("sha256")
+        for reports in ctx["packet"].values()
+        for report in reports
+    }
+    shas.discard(None)
+    if not shas:
+        return "н/д"
+    return ", ".join(sorted(shas))
 
 
 def count_vitest_tests():
@@ -649,7 +683,7 @@ def build_context():
 
     ctx["own"] = load_own_reports()
     ctx["moments"] = load_moments()
-    ctx["controller_sha"] = "2f4a721eafcfb6ed"
+    ctx["controller_sha"] = controller_sha256()
     ctx["controller_path"] = ctx["moments"]["controller_path"]
 
     ctx["approach"] = read_text(ROOT / "APPROACH.md")
@@ -715,7 +749,8 @@ def slide_1_title(c, ctx):
     )
     lines = [
         ("Контроллер: ", ctx["controller_path"]),
-        ("sha256 контроллера: ", ctx["controller_sha"]),
+        ("sha256 текущего контроллера: ", ctx["controller_sha"]),
+        ("sha256 контроллера в отчетах 28 прогонов: ", packet_controller_sha(ctx)),
         ("Открытые сценарии: ", "%s, %d seed, %d прогонов"
          % (", ".join(ctx["scenario_names"]), len(ctx["agg"][ctx["scenario_names"][0]]["seeds"]),
             ctx["total_open_runs"])),
@@ -794,10 +829,10 @@ def slide_3_architecture(c, ctx):
     left_w = 372.0
     items = [
         ("controller.py: ", "порядок вызовов predict - scan-match - GNSS-гейт - perceive - route - safety, вывод по amr-1.0 (v, w, status, pose_est, note)."),
-        ("localize.py: ", "фильтр позы, скан-матч стен, гейт ГНСС, калибровка масштаба одометрии, dock-snap, статус lost."),
-        ("perceive.py: ", "кластеры лидара и треки препятствий в чистой одометрии, классы, map_missing и map_extra."),
-        ("route.py: ", "pure pursuit, боковой сдвиг, локальный A*, зоны скорости, возврат на эталон."),
-        ("safety.py: ", "зазоры, коридор, estop, тиры lost_speed_limit, тексты note."),
+        ("localize/: ", "фильтр позы (EKF), скан-матч стен Левенберга-Марквардта, гейт ГНСС, калибровка масштаба одометрии, dock-snap, статус lost."),
+        ("perceive/: ", "кластеры лидара и треки препятствий в чистой одометрии, классы, map_missing и map_extra."),
+        ("route/: ", "pure pursuit, боковой сдвиг трубкой, локальный A*, зоны скорости, возврат на эталон по прямой видимости."),
+        ("safety/: ", "зазоры, коридор, estop, тиры lost_speed_limit, статусы и тексты note."),
         ("geom.py: ", "отрезки, raycast, AABB, полигоны, 2D-векторная математика."),
     ]
     draw_bullets(c, MARGIN, top - 4.0, items, size=9.5, leading=12.0, max_width=left_w)
@@ -810,10 +845,10 @@ def slide_3_architecture(c, ctx):
     roles = {
         "controller.py": "оркестратор тика",
         "geom.py": "геометрия",
-        "localize.py": "локализация",
-        "perceive.py": "восприятие",
-        "route.py": "маршрут",
-        "safety.py": "безопасность",
+        "localize/": "локализация",
+        "perceive/": "восприятие",
+        "route/": "маршрут",
+        "safety/": "безопасность",
     }
     rows = [["Файл", "Строк", "Роль"]]
     total_lines = 0
@@ -849,7 +884,7 @@ def slide_4_localization(c, ctx):
 
     rays = extract_approach(ctx["approach"], r"лучи через (\d+)°")[0]
     inlier = extract_approach(ctx["approach"], r"остаток точки до отрезка < ([\d.]+) м")[0]
-    iters = extract_approach(ctx["approach"], r"(\d+) итерации Гаусса-Ньютона")[0]
+    iters = extract_approach(ctx["approach"], r"(\d+) итераций Левенберга-Марквардта")[0]
     min_inl = extract_approach(ctx["approach"], r"приём при ≥ (\d+) инлайнерах")[0]
     sigma = extract_approach(ctx["approach"], r"СКО остатка < ([\d.]+) м")[0]
     gate = extract_approach(ctx["approach"], r"гейт инновации ([\d.]+) м")[0]
@@ -859,7 +894,7 @@ def slide_4_localization(c, ctx):
     col_w = (CONTENT_W - 28.0) / 2.0
     left_items = [
         ("Фильтр позы: ", "предикт по одометрии и imu.heading, сторож скачка курса больше 0.05 рад заменяет его интегралом yaw_rate."),
-        ("Скан-матч стен: ", "лучи через %s°, остаток точки до отрезка меньше %s м, %s итерации Гаусса-Ньютона с весом Хубера, приём при не менее %s инлайнеров и СКО меньше %s м." % (rays, inlier, iters, min_inl, sigma)),
+        ("Скан-матч стен: ", "лучи через %s°, остаток точки до отрезка меньше %s м, %s итераций Левенберга-Марквардта с весом Хубера, приём при не менее %s инлайнеров и СКО меньше %s м." % (rays, inlier, iters, min_inl, sigma)),
         ("ГНСС - измерение, не поза: ", "гейт инновации %s м и подмешивание с коэффициентом k не выше %s; сырой приёмник в pose_est не попадает." % (gate, k_gain)),
         ("Масштаб одометрии: ", "отношение пути одометрии к пути лидара; после %s м согласованного пути масштаб замораживается до конца прогона." % freeze),
     ]
@@ -1154,10 +1189,12 @@ def slide_9_features(c, ctx):
 
     def code_refs(needle):
         refs = []
-        for path in sorted((ROOT / "team_dreamteam_4_0").glob("*.py")):
+        package = ROOT / "team_dreamteam_4_0"
+        for path in sorted(package.rglob("*.py")):
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if needle in line:
-                    refs.append("%s:%d" % (path.name, number))
+                    rel = path.relative_to(package)
+                    refs.append("%s:%d" % (rel, number))
         return refs
 
     cases = [
@@ -1166,21 +1203,21 @@ def slide_9_features(c, ctx):
             "scenario": "s1_pallet_2m",
             "key": "offset",
             "needle": "offset dy=",
-            "role": "боковой сдвиг эталонной трубки в route.py",
+            "role": "боковой сдвиг эталонной трубки в route/follower.py",
         },
         {
             "title": "Перепланирование маршрута",
             "scenario": "s2_container_block",
             "key": "replan",
             "needle": 'self.note = "replan"',
-            "role": "локальный A* и интервал переплана 2 с в route.py",
+            "role": "локальный A* и интервал переплана 2 с в route/follower.py",
         },
         {
             "title": "Расхождение карты",
             "scenario": "s3_wall_removed",
             "key": "map_missing",
             "needle": 'detected_note = "map_missing"',
-            "role": "детектор снесенной стены в perceive.py",
+            "role": "детектор снесенной стены в perceive/filtering.py",
         },
     ]
 
@@ -1286,7 +1323,7 @@ def slide_11_limits(c, ctx):
     agg_03 = ctx["agg"]["03_fog_snow"]
 
     items = [
-        ("Сетка поиска позы при потере: ", "шаг сетки %s м согласован с допуском инлайнера %s м (дефект устранен: при стоянии гипотезы набирают соответствия). Поиск работает только стоя." % (grid_step, grid_inlier)),
+        ("Сетка поиска позы при потере: ", "шаг сетки %s м против допуска инлайнера %s м: если смещение попало между узлами, пик не набирает инлайнеров и платформа остается стоять. Поиск работает только стоя." % (grid_step, grid_inlier)),
         ("Потеря ориентации на seed 7: ", "в s4b seed 7 потери нет (момент найден: %s, note «%s»). Поэтому потеря показана на контрольном прогоне seed 1, где note lost есть на t = %s, status=lost на t = %s..%s, восстановление на t = %s." % (
             lost_seed7["found"], lost_seed7["note"], moment_by_key(lost_seed1_section, "lane_lost_nt")["t"],
             moment_by_key(lost_seed1_section, "lane_lost_status")["t"],

@@ -10,12 +10,12 @@
  "cheat": false,
  "controller": {
   "path": "team_dreamteam_4_0/controller.py",
-  "sha256": "f2bac143b94ac8d6"
+  "sha256": "b63ab91caa9194b0"
  },
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 489,
+ "ticks": 431,
  "missions": [
   {
    "type": "mission",
@@ -23,9 +23,9 @@
    "from": "yard_s",
    "to": "charger",
    "t_start": 0.0,
-   "t_end": 48.8,
-   "t_arrival": 47.9,
-   "max_hold_dist": 0.0848,
+   "t_end": 43.0,
+   "t_arrival": 42.1,
+   "max_hold_dist": 0.0461,
    "deadline_s": 200.0,
    "reference_length_m": 54.0,
    "delivered": true,
@@ -61,9 +61,9 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 47.9,
-    "time_s": 47.9,
-    "ratio": 0.9864,
+    "t_arrival": 42.1,
+    "time_s": 42.1,
+    "ratio": 0.8669,
     "efficiency": 1.0,
     "reason": "delivered"
    }
@@ -72,11 +72,11 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 489,
-  "mean": 1.304,
-  "max": 27.35
+  "n": 431,
+  "mean": 1.446,
+  "max": 24.879
  },
- "wall_time_s": 0.994,
+ "wall_time_s": 0.928,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
