@@ -27,7 +27,7 @@ from presentation_claims import (  # noqa: E402
     parse_distance,
 )
 
-CURRENT = hashlib.sha256((ROOT / "team_dreamteam_4_0" / "controller.py").read_bytes()).hexdigest()[:16]
+CURRENT = hashlib.sha256((ROOT / "team_dreamteam_4_0" / "controller.py").read_bytes().replace(b"\r\n", b"\n")).hexdigest()[:16]
 PACKET = "2f4a721eafcfb6ed"  # исторический хеш первого пакета, упоминаемый в PITCH и README
 
 
@@ -334,10 +334,10 @@ def test_readme_scenario_and_seed_claims():
 
     results_readme = (ROOT / "results" / "README.md").read_text(encoding="utf-8")
     assert "355 тестов" in results_readme
-    assert "90 тестов Vitest" in results_readme
+    assert "69 тестов Vitest" in results_readme
 
     arm_readme = (ROOT / "arm" / "README.md").read_text(encoding="utf-8")
-    assert "90 автоматических тестов Vitest" in arm_readme
+    assert "69 автоматических тестов Vitest" in arm_readme
 
 
 def test_s5_fog_moment_stop_person():

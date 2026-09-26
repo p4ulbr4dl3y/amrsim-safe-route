@@ -13,14 +13,16 @@ export const Header: React.FC<HeaderProps> = ({ currentRoute, onNavigate }) => {
     { route: 'episodes', label: 'Инциденты' },
     { route: 'missions', label: 'Миссии' },
     { route: 'analytics', label: 'Аналитика' },
+    { route: 'runner', label: 'Запуск' },
   ];
 
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-6 py-2.5 flex items-center justify-between shadow-sm">
+    <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-6 py-2.5 flex items-center justify-between shadow-sm min-w-[1280px] w-full select-none">
       {/* Left: Brand Logo & Title */}
       <div 
         onClick={() => onNavigate('dashboard')}
         className="flex items-center gap-3 cursor-pointer group select-none"
+        title="Перейти на главную панель"
       >
         {/* Slanted 3 bars logo matching mockup */}
         <div className="flex gap-1 items-center h-6">
@@ -30,12 +32,15 @@ export const Header: React.FC<HeaderProps> = ({ currentRoute, onNavigate }) => {
         </div>
         <div className="flex items-center gap-2.5">
           <span className="font-bold text-slate-900 tracking-tight text-lg">
-            AMR <span className="text-blue-600">SafeRoute</span>
+            АТЛАНТ-250 <span className="text-blue-600">SafeRoute</span>
+          </span>
+          <span className="text-[11px] text-slate-400 font-medium px-2 py-0.5 bg-slate-100 rounded-full border border-slate-200">
+            АРМ Оператора
           </span>
         </div>
       </div>
 
-      {/* Center: Main Navigation (5 items) */}
+      {/* Center: Main Navigation (6 items) */}
       <nav className="flex items-center gap-8">
         {navItems.map((item) => {
           const isActive = currentRoute === item.route;

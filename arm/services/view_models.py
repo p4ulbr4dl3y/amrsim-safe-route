@@ -55,6 +55,27 @@ def extract_map_data(scen_def: dict[str, Any] | None, header: dict[str, Any] | N
                     if clean_path:
                         reference_paths.append(clean_path)
 
+    map_patches = []
+    if scen_def and isinstance(scen_def, dict) and "map_patches" in scen_def:
+        map_patches = scen_def["map_patches"]
+    elif header and isinstance(header, dict) and "map_patches" in header:
+        map_patches = header["map_patches"]
+    elif source_map and isinstance(source_map, dict) and "map_patches" in source_map:
+        map_patches = source_map["map_patches"]
+
+    events = []
+    if scen_def and isinstance(scen_def, dict) and "events" in scen_def:
+        events = scen_def["events"]
+    elif header and isinstance(header, dict) and "events" in header:
+        events = header["events"]
+    elif source_map and isinstance(source_map, dict) and "events" in source_map:
+        events = source_map["events"]
+
+    if not isinstance(map_patches, list):
+        map_patches = []
+    if not isinstance(events, list):
+        events = []
+
     if not source_map or not isinstance(source_map, dict):
         return {
             "bounds": [0, 0, 250, 200],
@@ -65,6 +86,8 @@ def extract_map_data(scen_def: dict[str, Any] | None, header: dict[str, Any] | N
             "crossing": [],
             "points": {},
             "referencePaths": reference_paths,
+            "map_patches": map_patches,
+            "events": events,
         }
 
     points_raw = source_map.get("points") or {}
@@ -95,6 +118,8 @@ def extract_map_data(scen_def: dict[str, Any] | None, header: dict[str, Any] | N
         "crossing": source_map.get("crossing") or [],
         "points": points_formatted,
         "referencePaths": reference_paths,
+        "map_patches": map_patches,
+        "events": events,
     }
 
 

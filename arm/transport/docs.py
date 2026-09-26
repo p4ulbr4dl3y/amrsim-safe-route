@@ -37,7 +37,37 @@ OPENAPI_SPEC: dict[str, Any] = {
                         },
                     }
                 },
-            }
+            },
+            "post": {
+                "summary": "Сохранить сценарий",
+                "description": "Сохраняет пользовательский сценарий на диск в scenarios/<id>.json.",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"type": "object"}
+                        }
+                    },
+                },
+                "responses": {
+                    "201": {
+                        "description": "Сценарий успешно сохранен",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": {"type": "boolean"},
+                                        "id": {"type": "string"},
+                                        "file": {"type": "string"},
+                                        "message": {"type": "string"},
+                                    },
+                                }
+                            }
+                        },
+                    }
+                },
+            },
         },
         "/api/ui/dashboard": {
             "get": {

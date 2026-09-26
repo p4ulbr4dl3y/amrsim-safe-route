@@ -71,6 +71,63 @@ def is_drivable(
     return bool(valid[0]) if is_single else valid
 
 
+def heal_drivable_microgaps(
+    drivable_polys: List[np.ndarray], max_gap: float = 0.35
+) -> List[np.ndarray]:
+    """Устранить микрозазоры (< 0.35 м) между смежными прямоугольными полигонами дорог."""
+    if not drivable_polys or len(drivable_polys) < 2:
+        return drivable_polys
+    res = [np.asarray(p, dtype=float).copy() for p in drivable_polys]
+    n = len(res)
+    for i in range(n):
+        p1 = res[i]
+        if p1.shape != (4, 2):
+            continue
+        minx1, miny1 = float(p1[:, 0].min()), float(p1[:, 1].min())
+        maxx1, maxy1 = float(p1[:, 0].max()), float(p1[:, 1].max())
+        for j in range(i + 1, n):
+            p2 = res[j]
+            if p2.shape != (4, 2):
+                continue
+            minx2, miny2 = float(p2[:, 0].min()), float(p2[:, 1].min())
+            maxx2, maxy2 = float(p2[:, 0].max()), float(p2[:, 1].max())
+
+            x_ov = min(maxx1, maxx2) - max(minx1, minx2)
+            if x_ov > 0.5:
+                if 0.0 < miny2 - maxy1 <= max_gap:
+                    mid = (maxy1 + miny2) / 2.0
+                    for k in range(4):
+                        if abs(p1[k, 1] - maxy1) < 1e-4:
+                            p1[k, 1] = mid
+                        if abs(p2[k, 1] - miny2) < 1e-4:
+                            p2[k, 1] = mid
+                elif 0.0 < miny1 - maxy2 <= max_gap:
+                    mid = (maxy2 + miny1) / 2.0
+                    for k in range(4):
+                        if abs(p2[k, 1] - maxy2) < 1e-4:
+                            p2[k, 1] = mid
+                        if abs(p1[k, 1] - miny1) < 1e-4:
+                            p1[k, 1] = mid
+
+            y_ov = min(maxy1, maxy2) - max(miny1, miny2)
+            if y_ov > 0.5:
+                if 0.0 < minx2 - maxx1 <= max_gap:
+                    mid = (maxx1 + minx2) / 2.0
+                    for k in range(4):
+                        if abs(p1[k, 0] - maxx1) < 1e-4:
+                            p1[k, 0] = mid
+                        if abs(p2[k, 0] - minx2) < 1e-4:
+                            p2[k, 0] = mid
+                elif 0.0 < minx1 - maxx2 <= max_gap:
+                    mid = (maxx2 + minx1) / 2.0
+                    for k in range(4):
+                        if abs(p2[k, 0] - maxx2) < 1e-4:
+                            p2[k, 0] = mid
+                        if abs(p1[k, 0] - minx1) < 1e-4:
+                            p1[k, 0] = mid
+    return res
+
+
 def build_static_free_grid(
     drivable_polys: List[np.ndarray],
     forbidden_polys: List[np.ndarray],
@@ -78,10 +135,11 @@ def build_static_free_grid(
     grid_margin: float = 0.2,
 ) -> Tuple[np.ndarray, float, float, float, float, int, int]:
     """Построить статическую двумерную сетку свободных ячеек с учетом запаса margin."""
-    valid_drivable = [
+    raw_drivable = [
         arr for p in (drivable_polys or [])
         if (arr := np.asarray(p, dtype=float)).ndim == 2 and arr.shape[0] > 0 and arr.shape[1] == 2
     ]
+    valid_drivable = heal_drivable_microgaps(raw_drivable)
     if valid_drivable:
         all_pts = np.vstack(valid_drivable)
         x_min = float(all_pts[:, 0].min()) - 3.0

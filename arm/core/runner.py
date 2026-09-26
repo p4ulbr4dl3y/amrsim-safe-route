@@ -78,10 +78,15 @@ def run_simulation(
     controller_path: str = "team_dreamteam_4_0/controller.py",
     seed: int = 7,
     cheat: bool = False,
+    scenario_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     with _SIM_LOCK:
+        if scenario_data and isinstance(scenario_data, dict):
+            saved_id, _ = storage.save_scenario(scenario_data, scenario_id=scenario_id)
+            scenario_id = saved_id
+
         norm_id = normalize_scenario_id(scenario_id)
-        scen_file = storage.get_scenario_file(norm_id)
+        scen_file = storage.get_scenario_file(norm_id) or storage.get_scenario_file(scenario_id)
         if not scen_file:
             raise FileNotFoundError(f"Scenario not found: {scenario_id}")
 

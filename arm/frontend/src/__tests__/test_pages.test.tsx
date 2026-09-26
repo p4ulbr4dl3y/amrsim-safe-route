@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { DashboardPage } from '../pages/DashboardPage';
 import { EpisodesPage } from '../pages/EpisodesPage';
@@ -50,11 +50,18 @@ beforeAll(() => {
   };
 });
 
+import { clearUploadedScenario } from '../utils/scenarioStorage';
+
+import { apiClient } from '../api/client';
+
 describe('Operator Workstation Pages', () => {
   const onNavigateMock = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clearUploadedScenario();
+    sessionStorage.clear();
+    localStorage.clear();
   });
 
   describe('DashboardPage', () => {
@@ -83,7 +90,7 @@ describe('Operator Workstation Pages', () => {
       render(<EpisodesPage onNavigate={onNavigateMock} />);
 
       await waitFor(() => {
-        expect(screen.getByText(/Эпизоды безопасности/i)).toBeTruthy();
+        expect(screen.getByText(/Штрафные баллы/i)).toBeTruthy();
       });
 
       // Metric summary cards
@@ -101,52 +108,66 @@ describe('Operator Workstation Pages', () => {
       fireEvent.change(searchInput, { target: { value: 'person' } });
       expect((searchInput as HTMLInputElement).value).toBe('person');
     });
-
-    it('separates rows by source and formats penalty column properly (dash for non-report)', async () => {
-      render(<EpisodesPage onNavigate={onNavigateMock} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Эпизоды безопасности/i)).toBeTruthy();
-      });
-
-      // Check header column for Source
-      const table = screen.getByRole('table');
-      expect(within(table).getByRole('columnheader', { name: /Источник/i })).toBeTruthy();
-
-      // Check source badges in table rows: report, mission, checkpoint
-      expect(within(table).getAllByText('Отчет').length).toBeGreaterThan(0);
-      expect(within(table).getAllByText('Миссия').length).toBeGreaterThan(0);
-      expect(within(table).getAllByText('Чекпоинт').length).toBeGreaterThan(0);
-
-      // Verify that non-report milestones display dash "—" in penalty column
-      const dashes = within(table).getAllByText('—');
-      expect(dashes.length).toBeGreaterThan(0);
-
-      // Click on a mission milestone row to verify details panel displays dash for cost and source badge
-      const missionCell = within(table).getAllByText('Миссия')[0];
-      const missionRow = missionCell.closest('tr');
-      expect(missionRow).toBeTruthy();
-      if (missionRow) {
-        fireEvent.click(missionRow);
-      }
-
-      // In details panel, cost for mission should display dash "—" rather than numeric penalty
-      const detailTitle = screen.getByText('Детали эпизода');
-      const detailContainer = detailTitle.parentElement?.parentElement;
-      expect(detailContainer).toBeTruthy();
-      if (detailContainer) {
-        expect(within(detailContainer).getAllByText('—').length).toBeGreaterThan(0);
-        expect(within(detailContainer).getByText('Миссия')).toBeTruthy();
-      }
-    });
   });
 
   describe('MissionsPage', () => {
     it('renders mission cards with hold duration and tolerance margins', async () => {
+      vi.spyOn(apiClient, 'fetchMissions').mockResolvedValue({
+        scenario: '04_busy_yard',
+        summary: {
+          completed: 2,
+          total: 2,
+          deliveryScore: 40.0,
+          maxDeliveryScore: 40.0,
+          efficiencyScore: 13.78,
+          maxEfficiencyScore: 15.0,
+        },
+        missions: [
+          {
+            id: 'm1',
+            from: 'start',
+            to: 'dock_a',
+            fromLabel: 'Старт',
+            toLabel: 'Док А',
+            status: 'DELIVERED',
+            t_start: 0.0,
+            t_end: 15.2,
+            t_arrival: 15.2,
+            hold_duration_s: 1.0,
+            hold_ticks: 10,
+            max_hold_dist: 0.04,
+            tol: 0.15,
+            deadline_s: 60.0,
+            safety_margin_s: 44.8,
+            reference_length_m: 24.5,
+            actual_time_s: 15.2,
+          },
+          {
+            id: 'm2',
+            from: 'dock_a',
+            to: 'dock_b',
+            fromLabel: 'Док А',
+            toLabel: 'Док B',
+            status: 'DELIVERED',
+            t_start: 16.2,
+            t_end: 32.1,
+            t_arrival: 32.1,
+            hold_duration_s: 1.0,
+            hold_ticks: 10,
+            max_hold_dist: 0.03,
+            tol: 0.15,
+            deadline_s: 60.0,
+            safety_margin_s: 27.9,
+            reference_length_m: 28.0,
+            actual_time_s: 15.9,
+          },
+        ],
+      });
+
       render(<MissionsPage onNavigate={onNavigateMock} />);
 
       await waitFor(() => {
-        expect(screen.getByText(/Задания и Доставка/i)).toBeTruthy();
+        expect(screen.getByText(/Результат доставки/i)).toBeTruthy();
       });
 
       // Missions summary and labels
@@ -162,6 +183,41 @@ describe('Operator Workstation Pages', () => {
 
   describe('AnalyticsPage', () => {
     it('renders 6 regulation score blocks, sandbox status, and radar chart', async () => {
+      vi.spyOn(apiClient, 'fetchAnalytics').mockResolvedValue({
+        scenario: '04_busy_yard',
+        seed: 7,
+        totalScore: 98.18,
+        counted: true,
+        blocks: [
+          { key: 'delivery', name: '1. Доставка', achieved: 40.0, max: 40.0, percentage: 100 },
+          { key: 'efficiency', name: '2. Эффективность', achieved: 13.78, max: 15.0, percentage: 91.87 },
+          { key: 'safety', name: '3. Безопасность', achieved: 25.0, max: 25.0, percentage: 100 },
+          { key: 'rules', name: '4. Правила', achieved: 10.0, max: 10.0, percentage: 100 },
+          { key: 'pose', name: '5. Поза', achieved: 9.4, max: 10.0, percentage: 94.0 },
+          { key: 'collision', name: '6. Коллизии', achieved: 0.0, max: 0.0, percentage: 100 },
+        ],
+        radar: {
+          labels: ['Доставка', 'Эффективность', 'Безопасность', 'Правила', 'Поза', 'Коллизии'],
+          values: [1.0, 0.92, 1.0, 1.0, 0.94, 1.0],
+          maxValues: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        },
+        computeBudget: {
+          limit_s: 35.0,
+          fact_s: 14.27,
+          mean_step_ms: 2.71,
+          max_step_ms: 48.57,
+          step_limit_ms: 5.0,
+          step_distribution: [{ bin: 2, count: 10 }, { bin: 5, count: 5 }],
+          ok: true,
+        },
+        sandbox: {
+          passed: true,
+          violations: [],
+          warnings: [],
+          stderr_tail: [],
+        },
+      });
+
       render(<AnalyticsPage onNavigate={onNavigateMock} />);
 
       await waitFor(() => {

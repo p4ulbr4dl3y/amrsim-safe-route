@@ -2,31 +2,82 @@ import React, { useState, useEffect } from 'react';
 import { RouteName, ScenarioItem } from '../types';
 import { apiClient } from '../api/client';
 import { Play, Terminal as TerminalIcon, ExternalLink, ChevronDown, RefreshCw, BarChart2 } from 'lucide-react';
+import {
+  getSelectedScenario,
+  setSelectedScenario,
+  hasUploadedScenario,
+  clearUploadedScenario,
+  getUploadedScenario,
+  AMR_SCENARIO_CHANGE_EVENT,
+} from '../utils/scenarioStorage';
 
 interface RunnerPageProps {
   onNavigate: (route: RouteName, params?: Record<string, any>) => void;
   queryParams?: {
     scenario?: string;
   };
+  activeScenario?: string;
+  onScenarioChange?: (scenario: string) => void;
 }
 
-export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams }) => {
-  const [scenario, setScenario] = useState(queryParams?.scenario || '04_busy_yard');
+export const RunnerPage: React.FC<RunnerPageProps> = ({
+  onNavigate,
+  queryParams,
+  activeScenario,
+  onScenarioChange,
+}) => {
+  const [scenario, setScenario] = useState<string>(
+    activeScenario || queryParams?.scenario || getSelectedScenario()
+  );
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
-  const [controller, setController] = useState('team_dreamteam_4_0/controller.py');
+  const [controller, setController] = useState('backend/controller.py');
   const [seed, setSeed] = useState(7);
   const [genReport, setGenReport] = useState(true);
   const [detailedLog, setDetailedLog] = useState(true);
   const [cheatPose, setCheatPose] = useState(false);
 
-  // Состояние выполнения
+  // Execution state
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
   const [finalScore, setFinalScore] = useState<number | null>(null);
   const [outputLogs, setOutputLogs] = useState<string[]>([]);
 
-  // Загрузка сценариев при монтировании
+  // Sync with activeScenario prop
+  useEffect(() => {
+    if (activeScenario && activeScenario !== scenario) {
+      setScenario(activeScenario);
+    }
+  }, [activeScenario]);
+
+  // Sync with global scenario change event
+  useEffect(() => {
+    const handleStorageChange = (e: any) => {
+      const sc = e.detail;
+      if (sc && sc !== scenario) {
+        setScenario(sc);
+      }
+    };
+    window.addEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    return () => {
+      window.removeEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    };
+  }, [scenario]);
+
+  const handleScenarioChange = (newSc: string) => {
+    setScenario(newSc);
+    setSelectedScenario(newSc);
+    onScenarioChange?.(newSc);
+    if (typeof window !== 'undefined') {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const [route, queryStr] = rawHash.split('?');
+      const sp = new URLSearchParams(queryStr || '');
+      sp.set('scenario', newSc);
+      window.location.hash = `#/${route || 'runner'}?${sp.toString()}`;
+    }
+  };
+
+  // Load scenarios on mount
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -37,7 +88,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
     };
   }, []);
 
-  // Обновление сценария из параметров URL при изменении
+  // Update scenario from queryParams if changed
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
@@ -57,26 +108,37 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
     setOutputLogs([
       initialCommand,
       '',
-      `[INFO] Starting simulation runner on backend...`,
-      `[INFO] Scenario: ${scenario}`,
-      `[INFO] Controller: ${controller}`,
-      `[INFO] Seed: ${seed}`,
-      `[INFO] Report: out/${scenario}.json`,
-      `[INFO] Log: out/${scenario}.jsonl`,
-      `[INFO] Executing controller with Python sandbox isolation...`,
+      `[ИНФО] Запуск симуляции на сервере...`,
+      `[ИНФО] Сценарий: ${scenario}`,
+      `[ИНФО] Контроллер: ${controller}`,
+      `[ИНФО] Случайное зерно (Seed): ${seed}`,
+      `[ИНФО] Отчёт: out/${scenario}.json`,
+      `[ИНФО] Телеметрия: out/${scenario}.jsonl`,
+      `[ИНФО] Выполнение контроллера в изолированной песочнице (numpy + stdlib)...`,
     ]);
 
-    // Симуляция прироста прогресса во время ожидания ответа
+    // Simulated progress increment while waiting for response
     const progressTimer = setInterval(() => {
       setProgress((p) => (p < 85 ? p + 15 : p));
     }, 400);
 
     try {
+      const uploaded = getUploadedScenario();
+      const scenarioData =
+        uploaded &&
+        (uploaded.id === scenario ||
+          uploaded.name === scenario ||
+          uploaded.fileName === `${scenario}.json` ||
+          uploaded.scenarioJson?.name === scenario)
+          ? uploaded.scenarioJson
+          : undefined;
+
       const res = await apiClient.runSimulation({
         scenario,
         controller,
         seed,
         cheatPose,
+        scenarioData,
       });
 
       clearInterval(progressTimer);
@@ -99,6 +161,11 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
       }
 
       setOutputLogs(logs);
+
+      if (res.exitCode === 0 && hasUploadedScenario()) {
+        clearUploadedScenario();
+        setSelectedScenario(scenario);
+      }
     } catch (err: any) {
       clearInterval(progressTimer);
       setProgress(100);
@@ -107,14 +174,14 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
       setOutputLogs((prev) => [
         ...prev,
         '',
-        `[ERROR] Execution failed: ${err.message || String(err)}`,
-        '[HINT] Make sure the SDUI server is running: python scripts/server.py',
+        `[ОШИБКА] Сбой выполнения: ${err.message || String(err)}`,
+        '[ПОДСКАЗКА] Убедитесь, что сервер запущен: python scripts/server.py',
       ]);
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full gap-5">
+    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full min-w-[1240px] gap-5">
       {/* Top Main Grid: Configuration (4 cols) & Terminal (8 cols) matching runner.png */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1">
         {/* Form Panel (4 cols) */}
@@ -128,9 +195,14 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
               <div className="relative">
                 <select
                   value={scenario}
-                  onChange={(e) => setScenario(e.target.value)}
+                  onChange={(e) => handleScenarioChange(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-2.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                 >
+                  {scenario && !scenarios.some((sc) => sc.id === scenario) && (
+                    <option key={scenario} value={scenario}>
+                      {scenario} (Пользовательский)
+                    </option>
+                  )}
                   {scenarios.length > 0 ? (
                     scenarios.map((sc) => (
                       <option key={sc.id} value={sc.id}>
@@ -166,10 +238,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
                   onChange={(e) => setController(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-2.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                 >
-                  <option value="team_dreamteam_4_0/controller.py">
-                    team_dreamteam_4_0/controller.py (Командный)
-                  </option>
-                  <option value="backend/controller.py">backend/controller.py (Алиас)</option>
+                  <option value="backend/controller.py">backend/controller.py (Командный)</option>
                   <option value="team/controller.py">team/controller.py (Алиас)</option>
                   <option value="amrsim-participants/baseline/controller.py">
                     amrsim-participants/baseline/controller.py (Базовый)
@@ -244,7 +313,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
           <div className="flex items-center justify-between pb-2 border-b border-slate-100">
             <div className="flex items-center gap-2 text-xs font-mono font-medium text-slate-600">
               <TerminalIcon className="w-4 h-4 text-slate-500" />
-              <span>Терминал симулятора amrsim</span>
+              <span>Терминал симулятора АТЛАНТ-250</span>
             </div>
             {isRunning && (
               <span className="text-[11px] font-mono text-blue-600 flex items-center gap-1.5">
@@ -256,35 +325,43 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
 
           <div className="flex-1 bg-slate-900 border border-slate-800 rounded-lg p-4 font-mono text-xs text-slate-200 overflow-y-auto max-h-[420px] space-y-1">
             {outputLogs.length === 0 ? (
-              <div className="text-slate-500 italic select-none py-2">
-                Терминал ожидает запуска симуляции...
+              <div className="text-slate-500 italic select-none py-8 text-center">
+                Терминал готов к запуску. Выберите сценарий и нажмите «Запустить симуляцию».
               </div>
             ) : (
               outputLogs.map((line, idx) => {
-              const isCommand = line.startsWith('$');
-              const isSuccess = line.startsWith('[SUCCESS]') || line.startsWith('[SCORE]');
-              const isError = line.startsWith('[ERROR]');
-              const isStep = line.startsWith('[STEP') || line.startsWith('[INFO]');
+                const isCommand = line.startsWith('$');
+                const isSuccess =
+                  line.startsWith('[SUCCESS]') ||
+                  line.startsWith('[SCORE]') ||
+                  line.startsWith('[УСПЕХ]') ||
+                  line.startsWith('[СКОРИНГ]');
+                const isError = line.startsWith('[ERROR]') || line.startsWith('[ОШИБКА]');
+                const isStep =
+                  line.startsWith('[STEP') ||
+                  line.startsWith('[INFO]') ||
+                  line.startsWith('[ИНФО]');
 
-              return (
-                <div
-                  key={idx}
-                  className={`${
-                    isCommand
-                      ? 'text-white font-bold'
-                      : isSuccess
-                      ? 'text-emerald-400 font-bold'
-                      : isError
-                      ? 'text-red-400 font-bold'
-                      : isStep
-                      ? 'text-cyan-300'
-                      : 'text-slate-400'
-                  }`}
-                >
-                  {line}
-                </div>
-              );
-            }))}
+                return (
+                  <div
+                    key={idx}
+                    className={`${
+                      isCommand
+                        ? 'text-white font-bold'
+                        : isSuccess
+                        ? 'text-emerald-400 font-bold'
+                        : isError
+                        ? 'text-red-400 font-bold'
+                        : isStep
+                        ? 'text-cyan-300'
+                        : 'text-slate-400'
+                    }`}
+                  >
+                    {line}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
@@ -322,7 +399,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-600 bg-white hover:bg-blue-50 text-blue-600 text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              <span>Открыть в Replay</span>
+              <span>Просмотр в Replay</span>
             </button>
             <button
               onClick={() => onNavigate('analytics', { scenario })}

@@ -306,7 +306,8 @@ def test_api_scenarios_endpoint(http_server):
         for expected in ALL_SCENARIO_IDS:
             assert expected in ids, f"Missing scenario in /api/scenarios: {expected}"
         for s in data:
-            assert s["hasReport"] is True, f"Report should exist for: {s['id']}"
+            if s["id"] in ALL_SCENARIO_IDS:
+                assert s["hasReport"] is True, f"Report should exist for: {s['id']}"
 
 
 def test_api_export_csv_endpoint(http_server):
@@ -576,6 +577,20 @@ def test_extract_map_data_variations():
     assert header_map["bounds"] == [0, 0, 100, 100]
     assert "ptA" in header_map["points"]
     assert header_map["referencePaths"] == [[[10.0, 20.0], [30.0, 40.0]]]
+    assert header_map["map_patches"] == []
+    assert header_map["events"] == []
+
+    # Scenario with map_patches and events
+    scen = {
+        "map": {"bounds": [0, 0, 120, 100], "points": {}},
+        "map_patches": [{"id": "CONTAINER_1", "op": "add", "polygon": [[10, 10], [15, 10], [15, 12], [10, 12]]}],
+        "events": [{"type": "object_dropped", "t": 60.0, "x": 50.0, "y": 50.0, "r": 0.4}],
+    }
+    scen_map = extract_map_data(scen, None)
+    assert len(scen_map["map_patches"]) == 1
+    assert scen_map["map_patches"][0]["id"] == "CONTAINER_1"
+    assert len(scen_map["events"]) == 1
+    assert scen_map["events"][0]["type"] == "object_dropped"
 
 
 def test_parse_ticks_log_edge_cases(tmp_path, monkeypatch):
@@ -1686,6 +1701,203 @@ def test_saved_arm_api_response_matches_current_controller_sha():
         assert "155.0" in content, "CSV should reflect fresh run with 155.0s arrival"
 
 
+def test_storage_save_scenario(tmp_path, monkeypatch):
+    """Проверить сохранение сценария на диск через storage.save_scenario."""
+    from arm.services import storage
+
+    monkeypatch.setattr(server, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(storage, "ROOT_DIR", tmp_path)
+
+    sc_data = {
+        "schema": "amr-1.0",
+        "name": "custom_test_1",
+        "map": {"bounds": [0, 0, 100, 100]},
+    }
+    safe_id, file_path = server.save_scenario(sc_data)
+    assert safe_id == "custom_test_1"
+    assert file_path.exists()
+    assert file_path.name == "custom_test_1.json"
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["name"] == "custom_test_1"
+
+    # Поиск сохраненного сценария через get_scenario_file
+    monkeypatch.setattr(storage, "BACKEND_SCENARIOS_DIR", tmp_path / "scenarios")
+    found = storage.get_scenario_file("custom_test_1")
+    assert found is not None and found.exists()
 
 
+def test_api_post_scenarios_endpoint(http_server, tmp_path, monkeypatch):
+    """Проверить сохранение сценария через POST /api/scenarios."""
+    from arm.core import config
+    from arm.services import storage
 
+    monkeypatch.setattr(server, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(storage, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(config, "ROOT_DIR", tmp_path)
+
+    sc_payload = {
+        "id": "my_new_scenario",
+        "data": {
+            "schema": "amr-1.0",
+            "name": "my_new_scenario",
+            "map": {"bounds": [0, 0, 50, 50]},
+        },
+    }
+    url = f"{http_server}/api/scenarios"
+    req = Request(
+        url,
+        data=json.dumps(sc_payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(req) as resp:
+        assert resp.status == 201
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["success"] is True
+        assert data["id"] == "my_new_scenario"
+        assert "file" in data
+
+
+def test_api_post_run_with_scenario_data(http_server, monkeypatch):
+    """Проверить, что POST /api/run принимает scenarioData и исключает ошибку Scenario not found."""
+    from unittest.mock import MagicMock
+
+    from arm.transport import handler
+
+    mock_run = MagicMock(return_value={
+        "exitCode": 0,
+        "stdout": "Simulation OK",
+        "stderr": "",
+        "reportPath": "out/test.json",
+        "logPath": "out/test.jsonl",
+        "report": {"score": {"total": 95.0}},
+        "score": 95.0,
+    })
+    monkeypatch.setattr(handler, "run_simulation", mock_run)
+
+    payload = {
+        "scenario": "custom_autosave_scen",
+        "controller": "team_dreamteam_4_0/controller.py",
+        "seed": 7,
+        "scenarioData": {
+            "schema": "amr-1.0",
+            "name": "custom_autosave_scen",
+            "map": {"bounds": [0, 0, 100, 100]},
+        },
+    }
+    url = f"{http_server}/api/run"
+    req = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(req) as resp:
+        assert resp.status == 200
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["exitCode"] == 0
+        assert mock_run.called
+        kwargs = mock_run.call_args[1]
+        assert kwargs.get("scenario_data") is not None
+
+
+def test_get_scenario_file_custom_map_generation(tmp_path, monkeypatch):
+    """Проверить, что get_scenario_file для custom_map_120x100 генерирует файл на лету."""
+    sc_file = get_scenario_file("custom_map_120x100")
+    assert sc_file is not None
+    assert sc_file.exists()
+    with open(sc_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["schema"] == "amr-1.0"
+    assert data["name"] == "custom_map_120x100"
+    assert data["map"]["bounds"] == [0, 0, 120, 100]
+
+    # Проверка с расширением .json
+    sc_file_json = get_scenario_file("custom_map_120x100.json")
+    assert sc_file_json is not None
+    assert sc_file_json.exists()
+
+    # Проверка фоллбэка для неизвестного custom_*
+    sc_fallback = get_scenario_file("custom_empty_unknown")
+    assert sc_fallback is not None
+    assert sc_fallback.exists()
+
+
+def test_api_post_run_custom_map_without_data(http_server, monkeypatch):
+    """Проверить, что POST /api/run для custom_map_120x100 без явных данных сценария завершается успешно."""
+    from unittest.mock import MagicMock
+
+    from arm.transport import handler
+
+    mock_run = MagicMock(return_value={"exitCode": 0, "stdout": "ok", "stderr": "", "score": 95.0})
+    monkeypatch.setattr(handler, "run_simulation", mock_run)
+
+    payload = {
+        "scenario": "custom_map_120x100",
+        "controller": "backend/controller.py",
+        "seed": 7,
+    }
+    req = Request(
+        f"{http_server}/api/run",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(req) as resp:
+        assert resp.status == 200
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["exitCode"] == 0
+        assert mock_run.called
+
+
+def test_save_scenario_heals_gaps_and_syncs_missions(tmp_path, monkeypatch):
+    """save_scenario сшивает микроразрывы дорог и синхронизирует опорный маршрут с целевым доком."""
+    from arm.services import storage
+
+    monkeypatch.setattr(storage, "ROOT_DIR", tmp_path)
+    sc_data = {
+        "schema": "amr-1.0",
+        "name": "test_heal_sync",
+        "map": {
+            "bounds": [0, 0, 100, 100],
+            "drivable": [
+                [[10.0, 50.0], [30.0, 50.0], [30.0, 70.0], [10.0, 70.0]],
+                [[10.0, 70.2], [30.0, 70.2], [30.0, 85.0], [10.0, 85.0]],
+            ],
+            "points": {
+                "dock_start": {"x": 15.0, "y": 55.0},
+                "dock_end": {"x": 20.0, "y": 80.0},
+            },
+        },
+        "missions": [
+            {
+                "id": "m1",
+                "from": "dock_start",
+                "to": "dock_end",
+                "reference_path": [[15.0, 55.0], [15.0, 60.0]],
+            }
+        ],
+    }
+    safe_name, target_path = storage.save_scenario(sc_data)
+    assert safe_name == "test_heal_sync"
+    assert target_path.exists()
+
+    with open(target_path, "r", encoding="utf-8") as f:
+        saved = json.load(f)
+
+    # Проверка сшивки микрозазора
+    drivable = saved["map"]["drivable"]
+    assert len(drivable) == 2
+    y_top_first = max(p[1] for p in drivable[0])
+    y_bot_second = min(p[1] for p in drivable[1])
+    assert abs(y_top_first - 70.1) < 1e-3
+    assert abs(y_bot_second - 70.1) < 1e-3
+
+    # Проверка синхронизации миссии
+    mission = saved["missions"][0]
+    ref_path = mission["reference_path"]
+    assert ref_path[-1] == [20.0, 80.0]
+    assert ref_path[0] == [15.0, 55.0]
+    assert mission["reference_length_m"] > 0

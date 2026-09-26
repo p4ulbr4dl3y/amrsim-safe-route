@@ -60,6 +60,7 @@ from arm.services.storage import (  # noqa: E402
     get_scenario_report,
     load_scenario_json,
     parse_ticks_log,
+    save_scenario,
 )
 from arm.services.view_models import (  # noqa: E402
     build_analytics_view_model,
@@ -124,6 +125,7 @@ __all__ = [
     "parse_ticks_log",
     "resolve_python_command",
     "run_simulation",
+    "save_scenario",
     "shutil",
     "subprocess",
     "sys",

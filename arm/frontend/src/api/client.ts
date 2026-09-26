@@ -9,19 +9,12 @@ import {
   SimulationRunResult,
   MapData,
 } from '../types';
-import {
-  mockDashboardData,
-  getMockTicks,
-  mockMapData,
-  mockEpisodes,
-  mockMissions,
-  mockReport,
-} from '../mock/mockData';
+import { getUploadedScenario } from '../utils/scenarioStorage';
 
 const API_BASE = '/api';
 
 /**
- * Fallback generator in case the Python SDUI backend is not currently running.
+ * Honest empty fallbacks when the Python SDUI backend is not currently running.
  */
 const fallbackData = {
   getScenarios(): ScenarioItem[] {
@@ -32,8 +25,8 @@ const fallbackData = {
         description: 'Базовые условия, ясная погода, штатная доставка между складом и цехом А.',
         type: 'standard',
         file: 'amrsim-participants/scenarios/01_clear.json',
-        hasReport: true,
-        score: 99.72,
+        hasReport: false,
+        score: null,
       },
       {
         id: '01e_clear_easy',
@@ -41,8 +34,8 @@ const fallbackData = {
         description: 'Упрощенная навигация без динамических препятствий.',
         type: 'standard',
         file: 'amrsim-participants/scenarios/01e_clear_easy.json',
-        hasReport: true,
-        score: 100.0,
+        hasReport: false,
+        score: null,
       },
       {
         id: '02_gnss_shadow',
@@ -50,8 +43,8 @@ const fallbackData = {
         description: 'Потеря спутникового сигнала в каньоне между корпусами T и S, лидарная одометрия.',
         type: 'standard',
         file: 'amrsim-participants/scenarios/02_gnss_shadow.json',
-        hasReport: true,
-        score: 100.0,
+        hasReport: false,
+        score: null,
       },
       {
         id: '02e_gnss_shadow_easy',
@@ -59,8 +52,8 @@ const fallbackData = {
         description: 'Упрощенная тень спутникового сигнала.',
         type: 'standard',
         file: 'amrsim-participants/scenarios/02e_gnss_shadow_easy.json',
-        hasReport: true,
-        score: 100.0,
+        hasReport: false,
+        score: null,
       },
       {
         id: '03_fog_snow',
@@ -68,8 +61,8 @@ const fallbackData = {
         description: 'Экстремальные погодные условия, зашумление облака точек лидара, фильтрация шума.',
         type: 'standard',
         file: 'amrsim-participants/scenarios/03_fog_snow.json',
-        hasReport: true,
-        score: 98.6,
+        hasReport: false,
+        score: null,
       },
       {
         id: '04_busy_yard',
@@ -77,8 +70,8 @@ const fallbackData = {
         description: 'Динамические пешеходы, упавший поддон, объезд препятствий и соблюдение дистанции.',
         type: 'standard',
         file: 'amrsim-participants/scenarios/04_busy_yard.json',
-        hasReport: true,
-        score: 98.18,
+        hasReport: false,
+        score: null,
       },
       {
         id: 's1_pallet_2m',
@@ -86,8 +79,8 @@ const fallbackData = {
         description: 'Собственный сценарий команды: проверка классификации статичного поддона вне коридора.',
         type: 'custom',
         file: 'backend/scenarios/s1_pallet_2m.json',
-        hasReport: true,
-        score: 99.04,
+        hasReport: false,
+        score: null,
       },
       {
         id: 's2_container_block',
@@ -95,8 +88,8 @@ const fallbackData = {
         description: 'Собственный сценарий команды: динамический объезд перекрытого проезда по A*.',
         type: 'custom',
         file: 'backend/scenarios/s2_container_block.json',
-        hasReport: true,
-        score: 98.7,
+        hasReport: false,
+        score: null,
       },
       {
         id: 's3_wall_removed',
@@ -104,8 +97,8 @@ const fallbackData = {
         description: 'Собственный сценарий команды: навигация при изменении конфигурации стен склада.',
         type: 'custom',
         file: 'backend/scenarios/s3_wall_removed.json',
-        hasReport: true,
-        score: 97.0,
+        hasReport: false,
+        score: null,
       },
       {
         id: 's4_shadow_start_charger',
@@ -113,8 +106,8 @@ const fallbackData = {
         description: 'Собственный сценарий команды: движение от дока зарядки в зоне тени GNSS.',
         type: 'custom',
         file: 'backend/scenarios/s4_shadow_start_charger.json',
-        hasReport: true,
-        score: 97.0,
+        hasReport: false,
+        score: null,
       },
       {
         id: 's5_fog_inattentive',
@@ -122,62 +115,56 @@ const fallbackData = {
         description: 'Собственный сценарий команды: плотный туман и внезапный пешеход поперек курса.',
         type: 'custom',
         file: 'backend/scenarios/s5_fog_inattentive.json',
-        hasReport: true,
-        score: 99.27,
+        hasReport: false,
+        score: null,
+      },
+      {
+        id: 'c1_logistics_hub',
+        name: 'custom_scenarios/c1_logistics_hub.json (Логистический хаб)',
+        description: 'Логистический хаб 160x140м: Т-образный кросс-докинг, зоны ограничения скорости, пешеходные переходы.',
+        type: 'custom',
+        file: 'custom_scenarios/c1_logistics_hub.json',
+        hasReport: false,
+        score: null,
       },
     ];
   },
 
-  async getDashboard(scenarioId: string): Promise<DashboardViewModel> {
-    const mockTicks = await getMockTicks();
+  getDashboard(scenarioId: string): DashboardViewModel {
     return {
       scenario: scenarioId,
-      totalScore: mockDashboardData.totalScore,
-      totalMax: mockDashboardData.totalMax,
-      deliveriesCount: mockDashboardData.deliveriesCount,
-      deliveriesTotal: mockDashboardData.deliveriesTotal,
-      safetyFatal: mockDashboardData.safetyFatal,
-      safetyWarnings: mockDashboardData.safetyWarnings,
-      localizationError: mockDashboardData.localizationError,
-      recentEvents: mockDashboardData.recentEvents.map(e => ({
-        ...e,
-        status: e.status as 'success' | 'warning' | 'info' | 'critical',
-      })),
-      controllerState: mockDashboardData.controllerState,
-      speedHistory: mockDashboardData.speedHistory,
-      speedTimestamps: [
-        '00:00', '00:30', '01:00', '01:30', '02:00', '02:30', '03:00', '03:30',
-        '04:00', '04:30', '05:00', '05:30', '06:00', '06:30', '07:00', '07:30',
-        '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
-        '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30',
-        '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30'
-      ],
-      previewTick: mockTicks[150] || mockTicks[0] || null,
-      historyTicks: mockTicks.slice(0, 150),
-      mapData: mockMapData as unknown as MapData,
+      totalScore: 0,
+      totalMax: 100,
+      deliveriesCount: 0,
+      deliveriesTotal: 0,
+      safetyFatal: 0,
+      safetyWarnings: 0,
+      localizationError: null,
+      recentEvents: [],
+      controllerState: {
+        online: false,
+        meanDelayMs: 0,
+        maxDelayMs: 0,
+        nSteps: 0,
+      },
+      speedHistory: [],
+      speedTimestamps: [],
+      previewTick: null,
+      historyTicks: [],
+      mapData: null as unknown as MapData,
     };
   },
 
-  async getReplay(scenarioId: string, seed = 7): Promise<ReplayViewModel> {
-    const mockTicks = await getMockTicks();
+  getReplay(scenarioId: string, seed = 7): ReplayViewModel {
     return {
       scenario: scenarioId,
       seed,
       header: { scenario: scenarioId, seed, dt: 0.1 },
-      mapData: mockMapData as unknown as MapData,
-      ticks: mockTicks,
-      totalTicks: mockTicks.length,
-      duration: mockTicks[mockTicks.length - 1]?.t || 341.0,
-      episodes: mockEpisodes.map(ep => ({
-        id: ep.id,
-        t_start: ep.t_start,
-        t_end: ep.t_end,
-        type: ep.type,
-        category: ep.category,
-        cost: ep.cost,
-        x: ep.x,
-        y: ep.y,
-      })),
+      mapData: null as unknown as MapData,
+      ticks: [],
+      totalTicks: 0,
+      duration: 0,
+      episodes: [],
     };
   },
 
@@ -185,12 +172,12 @@ const fallbackData = {
     return {
       scenario: scenarioId,
       summary: {
-        totalCost: -0.6,
+        totalCost: 0,
         fatalCount: 0,
-        warningsCount: mockEpisodes.filter(e => (e.source || 'report') === 'report').length,
-        ruleViolationsCount: 1,
+        warningsCount: 0,
+        ruleViolationsCount: 0,
       },
-      episodes: mockEpisodes,
+      episodes: [],
     };
   },
 
@@ -198,14 +185,14 @@ const fallbackData = {
     return {
       scenario: scenarioId,
       summary: {
-        completed: 2,
-        total: 2,
-        deliveryScore: 40.0,
+        completed: 0,
+        total: 0,
+        deliveryScore: 0,
         maxDeliveryScore: 40.0,
-        efficiencyScore: 13.78,
+        efficiencyScore: 0,
         maxEfficiencyScore: 15.0,
       },
-      missions: mockMissions,
+      missions: [],
     };
   },
 
@@ -213,16 +200,29 @@ const fallbackData = {
     return {
       scenario: scenarioId,
       seed: 7,
-      totalScore: mockReport.totalScore,
-      counted: mockReport.counted,
-      blocks: mockReport.blocks,
+      totalScore: 0,
+      counted: false,
+      blocks: [],
       radar: {
-        labels: mockReport.blocks.map(b => b.name),
-        values: mockReport.blocks.map(b => b.percentage / 100),
-        maxValues: mockReport.blocks.map(() => 1.0),
+        labels: [],
+        values: [],
+        maxValues: [],
       },
-      computeBudget: mockReport.computeBudget,
-      sandbox: mockReport.sandbox,
+      computeBudget: {
+        fact_s: 0,
+        limit_s: 35.0,
+        mean_step_ms: 0,
+        max_step_ms: 0,
+        step_limit_ms: 5.0,
+        step_distribution: [],
+        ok: true,
+      },
+      sandbox: {
+        passed: true,
+        violations: [],
+        warnings: [],
+        stderr_tail: [],
+      },
     };
   },
 };
@@ -232,17 +232,41 @@ const fallbackData = {
  */
 export const apiClient = {
   /**
-   * Fetch list of available scenarios (standard + team).
+   * Fetch list of available scenarios (standard + team + uploaded).
    */
   async fetchScenarios(): Promise<ScenarioItem[]> {
+    let list: ScenarioItem[];
     try {
       const res = await fetch(`${API_BASE}/scenarios`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      list = await res.json();
     } catch (err) {
       console.warn('[API] Failed to fetch scenarios, using fallback:', err);
-      return fallbackData.getScenarios();
+      list = fallbackData.getScenarios();
     }
+
+    const uploaded = getUploadedScenario();
+    if (uploaded) {
+      const filtered = list.filter((s) => s.id !== uploaded.id);
+      const uploadedItem: ScenarioItem = {
+        id: uploaded.id,
+        name: `${uploaded.name} (Загружен)`,
+        description: `Загруженный ${
+          uploaded.fileType === 'scenario'
+            ? 'сценарий'
+            : uploaded.fileType === 'report'
+            ? 'отчет'
+            : 'лог'
+        }: ${uploaded.fileName}`,
+        type: 'custom',
+        file: uploaded.fileName,
+        hasReport: !!uploaded.reportJson || uploaded.fileType === 'report',
+        score: uploaded.dashboardViewModel?.totalScore ?? null,
+      };
+      return [uploadedItem, ...filtered];
+    }
+
+    return list;
   },
 
   /**
@@ -251,26 +275,56 @@ export const apiClient = {
   async fetchDashboard(scenarioId = '04_busy_yard'): Promise<DashboardViewModel> {
     try {
       const res = await fetch(`${API_BASE}/ui/dashboard?scenario=${encodeURIComponent(scenarioId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && serverVm.scenario) {
+          return serverVm;
+        }
+      }
     } catch (err) {
-      console.warn(`[API] Failed to fetch dashboard for ${scenarioId}, using fallback:`, err);
-      return await fallbackData.getDashboard(scenarioId);
+      console.warn(`[API] Failed to fetch dashboard for ${scenarioId} from server:`, err);
     }
+
+    const uploaded = getUploadedScenario();
+    if (uploaded && uploaded.id === scenarioId && uploaded.dashboardViewModel) {
+      return uploaded.dashboardViewModel;
+    }
+
+    return fallbackData.getDashboard(scenarioId);
   },
 
   /**
    * Fetch Replay telemetry ticks, map geometry, and episode markers.
    */
   async fetchReplay(scenarioId = '04_busy_yard', seed = 7): Promise<ReplayViewModel> {
+    const uploaded = getUploadedScenario();
+    if (
+      uploaded &&
+      uploaded.id === scenarioId &&
+      uploaded.fileType === 'log' &&
+      uploaded.replayViewModel?.ticks &&
+      uploaded.replayViewModel.ticks.length > 1
+    ) {
+      return uploaded.replayViewModel;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/ui/replay?scenario=${encodeURIComponent(scenarioId)}&seed=${seed}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && (serverVm.scenario || serverVm.ticks)) {
+          return serverVm;
+        }
+      }
     } catch (err) {
-      console.warn(`[API] Failed to fetch replay for ${scenarioId}, using fallback:`, err);
-      return await fallbackData.getReplay(scenarioId, seed);
+      console.warn(`[API] Failed to fetch replay for ${scenarioId} from server:`, err);
     }
+
+    if (uploaded && uploaded.id === scenarioId && uploaded.replayViewModel) {
+      return uploaded.replayViewModel;
+    }
+
+    return fallbackData.getReplay(scenarioId, seed);
   },
 
   /**
@@ -279,12 +333,32 @@ export const apiClient = {
   async fetchEpisodes(scenarioId = '04_busy_yard'): Promise<EpisodesViewModel> {
     try {
       const res = await fetch(`${API_BASE}/ui/episodes?scenario=${encodeURIComponent(scenarioId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && Array.isArray(serverVm.episodes)) {
+          return serverVm;
+        }
+      }
     } catch (err) {
-      console.warn(`[API] Failed to fetch episodes for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getEpisodes(scenarioId);
+      console.warn(`[API] Failed to fetch episodes for ${scenarioId} from server:`, err);
     }
+
+    const uploaded = getUploadedScenario();
+    if (uploaded && uploaded.id === scenarioId) {
+      const eps = uploaded.reportJson?.episodes || uploaded.replayViewModel?.episodes || [];
+      return {
+        scenario: scenarioId,
+        summary: {
+          totalCost: eps.reduce((sum: number, ep: any) => sum + (ep.cost || 0), 0),
+          fatalCount: uploaded.dashboardViewModel?.safetyFatal || 0,
+          warningsCount: uploaded.dashboardViewModel?.safetyWarnings || eps.length,
+          ruleViolationsCount: eps.length,
+        },
+        episodes: eps,
+      };
+    }
+
+    return fallbackData.getEpisodes(scenarioId);
   },
 
   /**
@@ -293,12 +367,22 @@ export const apiClient = {
   async fetchMissions(scenarioId = '04_busy_yard'): Promise<MissionsViewModel> {
     try {
       const res = await fetch(`${API_BASE}/ui/missions?scenario=${encodeURIComponent(scenarioId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && Array.isArray(serverVm.missions)) {
+          return serverVm;
+        }
+      }
     } catch (err) {
-      console.warn(`[API] Failed to fetch missions for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getMissions(scenarioId);
+      console.warn(`[API] Failed to fetch missions for ${scenarioId} from server:`, err);
     }
+
+    const uploaded = getUploadedScenario();
+    if (uploaded && uploaded.id === scenarioId && uploaded.missionsViewModel) {
+      return uploaded.missionsViewModel;
+    }
+
+    return fallbackData.getMissions(scenarioId);
   },
 
   /**
@@ -307,24 +391,91 @@ export const apiClient = {
   async fetchAnalytics(scenarioId = '04_busy_yard'): Promise<AnalyticsViewModel> {
     try {
       const res = await fetch(`${API_BASE}/ui/analytics?scenario=${encodeURIComponent(scenarioId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && serverVm.blocks) {
+          return serverVm;
+        }
+      }
     } catch (err) {
-      console.warn(`[API] Failed to fetch analytics for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getAnalytics(scenarioId);
+      console.warn(`[API] Failed to fetch analytics for ${scenarioId} from server:`, err);
     }
+
+    const uploaded = getUploadedScenario();
+    if (uploaded && uploaded.id === scenarioId && uploaded.reportJson) {
+      const rep = uploaded.reportJson;
+      const totalScore = uploaded.dashboardViewModel?.totalScore ?? (rep?.score?.total || 100);
+      const blocks = rep?.blocks || rep?.score?.blocks || fallbackData.getAnalytics(scenarioId).blocks;
+      return {
+        scenario: scenarioId,
+        seed: rep?.seed || 7,
+        totalScore,
+        counted: true,
+        blocks,
+        radar: {
+          labels: blocks.map((b: any) => b.name),
+          values: blocks.map((b: any) => (b.percentage ?? 100) / 100),
+          maxValues: blocks.map(() => 1.0),
+        },
+        computeBudget: rep?.computeBudget || fallbackData.getAnalytics(scenarioId).computeBudget,
+        sandbox: rep?.sandbox || { violations: [], stderr_tail: [] },
+      };
+    }
+
+    return fallbackData.getAnalytics(scenarioId);
+  },
+
+  /**
+   * Save scenario definition to server (and fallback to local storage).
+   */
+  async saveScenario(id: string, scenarioData: any): Promise<{ ok: boolean; success?: boolean; id?: string; file?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/scenarios/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id, scenario: scenarioData }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.warn('[API] Failed to save scenario to server:', err);
+    }
+    return { ok: true, success: true };
   },
 
   /**
    * Run real simulation via POST /api/run.
    */
   async runSimulation(params: SimulationRunParams): Promise<SimulationRunResult> {
+    const uploaded = getUploadedScenario();
+    const scenarioData =
+      params.scenarioData ||
+      (uploaded && (uploaded.id === params.scenario || uploaded.name === params.scenario)
+        ? uploaded.scenarioJson
+        : undefined);
+
+    if (scenarioData) {
+      try {
+        await this.saveScenario(params.scenario, scenarioData);
+      } catch (err) {
+        console.warn('[API] Auto-saving scenario before simulation run failed:', err);
+      }
+    }
+
+    const payload = {
+      ...params,
+      scenarioData,
+    };
+
     const res = await fetch(`${API_BASE}/run`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(params),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const errorText = await res.text();

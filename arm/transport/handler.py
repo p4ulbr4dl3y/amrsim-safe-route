@@ -17,6 +17,7 @@ ROOT_DIR: Path = config.ROOT_DIR
 FRONTEND_DIST: Path = config.FRONTEND_DIST
 SCENARIOS_DIR: Path = config.SCENARIOS_DIR
 TEAM_SCENARIOS_DIR: Path = config.TEAM_SCENARIOS_DIR
+BACKEND_SCENARIOS_DIR: Path = config.BACKEND_SCENARIOS_DIR
 SCENARIO_META: dict[str, dict[str, str]] = config.SCENARIO_META
 
 build_dashboard_view_model = view_models.build_dashboard_view_model
@@ -176,6 +177,30 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                                 }
                             )
 
+                # Кастомные сценарии из каталога scenarios/
+                if BACKEND_SCENARIOS_DIR.exists():
+                    for f in sorted(BACKEND_SCENARIOS_DIR.glob("*.json")):
+                        sc_id = f.stem
+                        if sc_id not in seen:
+                            seen.add(sc_id)
+                            meta = SCENARIO_META.get(sc_id, {})
+                            rep = get_scenario_report(sc_id)
+                            rep_score = rep.get("score") if isinstance(rep, dict) else None
+                            score = rep_score.get("total") if isinstance(rep_score, dict) else None
+                            scenarios.append(
+                                {
+                                    "id": sc_id,
+                                    "name": meta.get("title", f"scenarios/{sc_id}.json"),
+                                    "description": meta.get(
+                                        "description", "Пользовательский сценарий"
+                                    ),
+                                    "type": "custom",
+                                    "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
+                                    "hasReport": isinstance(rep, dict),
+                                    "score": score,
+                                }
+                            )
+
                 return self.send_json(scenarios)
             except Exception as e:
                 return self.send_json({"error": str(e)}, status=500)
@@ -307,6 +332,42 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
         path = parsed.path
 
         # ----------------------------------------------------------------------
+        # API: сохранение сценария
+        # ----------------------------------------------------------------------
+        if path in ("/api/scenarios/save", "/api/scenario/save", "/api/scenarios"):
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                return self.send_json(
+                    {"error": "Bad Request: invalid JSON payload"}, status=400
+                )
+
+            if not isinstance(payload, dict):
+                return self.send_json(
+                    {"error": "Bad Request: payload must be a JSON object"}, status=400
+                )
+
+            sc_id = payload.get("id") or payload.get("name")
+            sc_data = payload.get("scenario") or payload.get("data") or payload
+            try:
+                safe_id, target_file = storage.save_scenario(sc_data, scenario_id=sc_id)
+                rel_file = str(target_file.relative_to(config.ROOT_DIR)).replace("\\", "/")
+                return self.send_json(
+                    {
+                        "ok": True,
+                        "success": True,
+                        "id": safe_id,
+                        "file": rel_file,
+                        "message": f"Сценарий успешно сохранен в {rel_file}",
+                    },
+                    status=201,
+                )
+            except Exception as e:
+                return self.send_json({"error": str(e)}, status=500)
+
+        # ----------------------------------------------------------------------
         # API: запуск симуляции
         # ----------------------------------------------------------------------
         if path == "/api/run":
@@ -328,6 +389,8 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                     return self.send_json(
                         {"error": "Bad Request: scenario must be a non-empty string"}, status=400
                     )
+
+                scenario_data = payload.get("scenarioData") or payload.get("scenario_data")
 
                 controller = payload.get("controller", "backend/controller.py")
                 if not isinstance(controller, str) or not (
@@ -359,12 +422,26 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": f"Bad Request: {e}"}, status=400)
 
             try:
-                res = run_simulation(
-                    scenario_id=scenario,
-                    controller_path=controller,
-                    seed=seed,
-                    cheat=cheat,
-                )
+                import inspect
+
+                sig = inspect.signature(run_simulation)
+                if "scenario_data" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                ):
+                    res = run_simulation(
+                        scenario_id=scenario,
+                        controller_path=controller,
+                        seed=seed,
+                        cheat=cheat,
+                        scenario_data=scenario_data,
+                    )
+                else:
+                    res = run_simulation(
+                        scenario_id=scenario,
+                        controller_path=controller,
+                        seed=seed,
+                        cheat=cheat,
+                    )
                 # Формирование массива логов для терминала страницы запуска
                 res["logs"] = runner.format_simulation_logs(scenario, controller, seed, res)
                 return self.send_json(res)

@@ -3,6 +3,11 @@ import { RouteName, MissionData, ScenarioItem, MissionsViewModel } from '../type
 import { apiClient } from '../api/client';
 import { ArrowRight, CheckCircle2, ChevronDown, RefreshCw } from 'lucide-react';
 import { Latex } from '../components/Latex';
+import {
+  getSelectedScenario,
+  setSelectedScenario,
+  AMR_SCENARIO_CHANGE_EVENT,
+} from '../utils/scenarioStorage';
 
 interface MissionsPageProps {
   onNavigate: (route: RouteName, params?: Record<string, any>) => void;
@@ -10,15 +15,45 @@ interface MissionsPageProps {
     scenario?: string;
     id?: string;
   };
+  activeScenario?: string;
+  onScenarioChange?: (scenario: string) => void;
 }
 
-export const MissionsPage: React.FC<MissionsPageProps> = ({ onNavigate, queryParams }) => {
-  const [scenario, setScenario] = useState(queryParams?.scenario || '04_busy_yard');
+export const MissionsPage: React.FC<MissionsPageProps> = ({
+  onNavigate,
+  queryParams,
+  activeScenario,
+  onScenarioChange,
+}) => {
+  const [scenario, setScenario] = useState(
+    activeScenario || queryParams?.scenario || getSelectedScenario()
+  );
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [data, setData] = useState<MissionsViewModel | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Загрузка списка сценариев
+  // Sync with activeScenario prop
+  useEffect(() => {
+    if (activeScenario && activeScenario !== scenario) {
+      setScenario(activeScenario);
+    }
+  }, [activeScenario]);
+
+  // Sync with global scenario change event
+  useEffect(() => {
+    const handleStorageChange = (e: any) => {
+      const sc = e.detail;
+      if (sc && sc !== scenario) {
+        setScenario(sc);
+      }
+    };
+    window.addEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    return () => {
+      window.removeEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    };
+  }, [scenario]);
+
+  // Fetch scenarios list
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -29,14 +64,27 @@ export const MissionsPage: React.FC<MissionsPageProps> = ({ onNavigate, queryPar
     };
   }, []);
 
-  // Обновление сценария из параметров URL при изменении
+  // Update scenario from queryParams if changed
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
     }
   }, [queryParams?.scenario]);
 
-  // Загрузка миссий для сценария
+  const handleScenarioChange = (newSc: string) => {
+    setScenario(newSc);
+    setSelectedScenario(newSc);
+    onScenarioChange?.(newSc);
+    if (typeof window !== 'undefined') {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const [route, queryStr] = rawHash.split('?');
+      const sp = new URLSearchParams(queryStr || '');
+      sp.set('scenario', newSc);
+      window.location.hash = `#/${route || 'missions'}?${sp.toString()}`;
+    }
+  };
+
+  // Fetch missions for scenario
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -51,7 +99,7 @@ export const MissionsPage: React.FC<MissionsPageProps> = ({ onNavigate, queryPar
     };
   }, [scenario]);
 
-  // Прокрутка к карточке при передаче id в параметрах URL
+  // If id is provided in queryParams, scroll to that card
   useEffect(() => {
     if (queryParams?.id) {
       const el = document.getElementById(`mission-${queryParams.id}`);
@@ -63,30 +111,24 @@ export const MissionsPage: React.FC<MissionsPageProps> = ({ onNavigate, queryPar
 
   const missions = data?.missions || [];
   const summary = data?.summary || {
-    completed: 2,
-    total: 2,
-    deliveryScore: 40.0,
-    maxDeliveryScore: 40.0,
-    efficiencyScore: 13.78,
-    maxEfficiencyScore: 15.0,
+    completed: 0,
+    total: 0,
+    deliveryScore: 0.0,
+    maxDeliveryScore: 0.0,
+    efficiencyScore: 0.0,
+    maxEfficiencyScore: 0.0,
   };
 
   return (
-    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full gap-5">
+    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full min-w-[1240px] gap-5">
       {/* Top Scenario Selector & Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-3.5 px-5 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="font-bold text-slate-800 text-sm tracking-tight">Задания и Доставка</span>
-          <span className="text-slate-400 text-xs">//</span>
-          <span className="text-slate-600 text-xs font-medium">Маршрутные миссии платформы</span>
-        </div>
-
         <div className="flex items-center gap-3">
           <label className="text-xs text-slate-500 font-medium">Сценарий:</label>
           <div className="relative min-w-[200px]">
             <select
               value={scenario}
-              onChange={(e) => setScenario(e.target.value)}
+              onChange={(e) => handleScenarioChange(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg px-3 py-1.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             >
               {scenarios.map((sc) => (
@@ -172,9 +214,21 @@ export const MissionsPage: React.FC<MissionsPageProps> = ({ onNavigate, queryPar
                 </div>
 
                 {/* Status Badge */}
-                <div className="bg-emerald-50 text-emerald-700 text-xs font-semibold px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1.5 font-mono">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                  {m.status}
+                <div className={`text-xs font-semibold px-3 py-1 rounded-full border flex items-center gap-1.5 font-mono ${
+                  m.status === 'DELIVERED'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : m.status === 'TIMEOUT'
+                    ? 'bg-red-50 text-red-700 border-red-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    m.status === 'DELIVERED' ? 'bg-emerald-600' : m.status === 'TIMEOUT' ? 'bg-red-600' : 'bg-amber-600'
+                  }`}></span>
+                  {m.status === 'DELIVERED'
+                    ? 'ДОСТАВЛЕНО'
+                    : m.status === 'TIMEOUT'
+                    ? 'ТАЙМАУТ'
+                    : m.status || 'В ПУТИ'}
                 </div>
               </div>
 
@@ -182,36 +236,36 @@ export const MissionsPage: React.FC<MissionsPageProps> = ({ onNavigate, queryPar
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-3 text-xs font-mono">
                 <div className="flex justify-between py-1 border-b border-slate-50">
                   <span className="text-slate-500">Старт миссии</span>
-                  <span className="text-slate-900 font-semibold">{m.t_start.toFixed(1)} s</span>
+                  <span className="text-slate-900 font-semibold">{(m.t_start ?? 0).toFixed(1)} с</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-50">
                   <span className="text-slate-500">Макс. дистанция холда</span>
                   <span className="text-slate-900 font-semibold">
-                    {m.max_hold_dist.toFixed(4)} m / tol {m.tol.toFixed(2)} m
+                    {(m.max_hold_dist ?? 0).toFixed(4)} м / допуск {(m.tol ?? 0).toFixed(2)} м
                   </span>
                 </div>
 
                 <div className="flex justify-between py-1 border-b border-slate-50">
                   <span className="text-slate-500">Прибытие в док</span>
-                  <span className="text-slate-900 font-semibold">{m.actual_time_s.toFixed(1)} s</span>
+                  <span className="text-slate-900 font-semibold">{(m.actual_time_s ?? 0).toFixed(1)} с</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-50">
                   <span className="text-slate-500">Дедлайн доставки</span>
                   <span className="text-slate-900 font-semibold">
-                    {m.deadline_s.toFixed(1)} s (запас +{m.safety_margin_s.toFixed(1)} s)
+                    {(m.deadline_s ?? 0).toFixed(1)} с (запас +{(m.safety_margin_s ?? 0).toFixed(1)} с)
                   </span>
                 </div>
 
                 <div className="flex justify-between py-1">
                   <span className="text-slate-500">Удержание (холд)</span>
                   <span className="text-slate-900 font-semibold">
-                    {m.hold_duration_s.toFixed(1)} s ({m.hold_ticks} ticks)
+                    {(m.hold_duration_s ?? 0).toFixed(1)} с ({m.hold_ticks ?? 0} тиков)
                   </span>
                 </div>
                 <div className="flex justify-between py-1">
                   <span className="text-slate-500">Опорная длина пути</span>
                   <span className="text-slate-900 font-semibold">
-                    {m.reference_length_m.toFixed(1)} m
+                    {(m.reference_length_m ?? 0).toFixed(1)} м
                   </span>
                 </div>
               </div>

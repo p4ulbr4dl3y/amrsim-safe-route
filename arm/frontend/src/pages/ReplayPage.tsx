@@ -1,12 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiClient } from '../api/client';
 import { MapCanvas, MapLayersConfig } from '../components/MapCanvas';
-import { MapLegend } from '../components/map/MapLegend';
-import { ReplayToolbar } from '../components/replay/ReplayToolbar';
-import { ReplayTelemetry } from '../components/replay/ReplayTelemetry';
-import { ReplayControls } from '../components/replay/ReplayControls';
-import { useReplayEngine } from '../hooks/useReplayEngine';
-import { TickData, MapData, ScenarioItem, ReplayMissionData } from '../types';
+import { TickData, MapData, ScenarioItem } from '../types';
+import { 
+  Play, Pause, SkipBack, SkipForward, ChevronLeft, ChevronRight, 
+  ChevronDown, User, Layers, RefreshCw
+} from 'lucide-react';
+import {
+  getSelectedScenario,
+  setSelectedScenario,
+  AMR_SCENARIO_CHANGE_EVENT,
+} from '../utils/scenarioStorage';
 
 interface ReplayPageProps {
   queryParams?: {
@@ -17,20 +21,69 @@ interface ReplayPageProps {
     mission?: string;
     run?: string;
   };
+  activeScenario?: string;
+  onScenarioChange?: (scenario: string) => void;
 }
 
-export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
-  const [scenario, setScenario] = useState(queryParams?.scenario || '04_busy_yard');
+export const ReplayPage: React.FC<ReplayPageProps> = ({
+  queryParams,
+  activeScenario,
+  onScenarioChange,
+}) => {
+  const [scenario, setScenario] = useState<string>(
+    activeScenario || queryParams?.scenario || getSelectedScenario()
+  );
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
   const [ticks, setTicks] = useState<TickData[]>([]);
   const [mapData, setMapData] = useState<MapData | undefined>(undefined);
   const [episodes, setEpisodes] = useState<any[]>([]);
-  const [missions, setMissions] = useState<ReplayMissionData[]>([]);
-  const [totalTicks, setTotalTicks] = useState(3410);
+  const [totalTicks, setTotalTicks] = useState(0);
+  const [currentTickIndex, setCurrentTickIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playSpeed, setPlaySpeed] = useState<number>(1.0);
   const [followRobot, setFollowRobot] = useState(false);
+  const [layersMenuOpen, setLayersMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Конфигурация слоев
+  // Sync with activeScenario prop
+  useEffect(() => {
+    if (activeScenario && activeScenario !== scenario) {
+      setScenario(activeScenario);
+    }
+  }, [activeScenario]);
+
+  // Sync with global scenario change event
+  useEffect(() => {
+    const handleStorageChange = (e: any) => {
+      const sc = e.detail;
+      if (sc && sc !== scenario) {
+        setScenario(sc);
+      }
+    };
+    window.addEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    return () => {
+      window.removeEventListener(AMR_SCENARIO_CHANGE_EVENT as any, handleStorageChange);
+    };
+  }, [scenario]);
+
+  const handleScenarioChange = (newSc: string) => {
+    setScenario(newSc);
+    setSelectedScenario(newSc);
+    onScenarioChange?.(newSc);
+    if (typeof window !== 'undefined') {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const [route, queryStr] = rawHash.split('?');
+      const sp = new URLSearchParams(queryStr || '');
+      sp.set('scenario', newSc);
+      sp.delete('t');
+      sp.delete('x');
+      sp.delete('y');
+      sp.delete('mission');
+      window.location.hash = `#/${route || 'replay'}?${sp.toString()}`;
+    }
+  };
+
+  // Layers configuration
   const [layers, setLayers] = useState<MapLayersConfig>({
     robot: true,
     poseEst: true,
@@ -41,20 +94,10 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
     buildings: true,
     docks: true,
     pedestrians: true,
+    obstacles: true,
   });
 
-  const {
-    currentTickIndex,
-    isPlaying,
-    playSpeed,
-    setPlaySpeed,
-    seekTo,
-    step,
-    togglePlay,
-    reset,
-  } = useReplayEngine({ ticks });
-
-  // Загрузка сценариев при монтировании
+  // Load scenarios on mount
   useEffect(() => {
     let mounted = true;
     apiClient.fetchScenarios().then((list) => {
@@ -65,36 +108,49 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
     };
   }, []);
 
-  // Обновление сценария из параметров URL при изменении
+  // Update scenario from queryParams if changed
   useEffect(() => {
     if (queryParams?.scenario && queryParams.scenario !== scenario) {
       setScenario(queryParams.scenario);
     }
   }, [queryParams?.scenario]);
 
-  // Загрузка данных воспроизведения для выбранного сценария
+  const fractionalTickRef = useRef<number>(0);
+  const animFrameRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number | null>(null);
+
+  const seekTo = (idx: number) => {
+    const maxIdx = Math.max(0, ticks.length - 1);
+    const clamped = Math.max(0, Math.min(maxIdx, idx));
+    fractionalTickRef.current = clamped;
+    setCurrentTickIndex(clamped);
+  };
+
+  // Load replay data for selected scenario
   useEffect(() => {
     let mounted = true;
     setLoading(true);
+    setIsPlaying(false);
 
     apiClient.fetchReplay(scenario).then((vm) => {
       if (!mounted) return;
       setTicks(vm.ticks);
       setMapData(vm.mapData);
       setEpisodes(vm.episodes);
-      setMissions(vm.missions || []);
       setTotalTicks(vm.totalTicks);
 
-      // Поиск такта при передаче t в параметрах URL
+      // If queryParams has t, find matching tick
       if (queryParams?.t !== undefined) {
         const targetT = Number(queryParams.t);
         const idx = vm.ticks.findIndex((tk) => tk.t >= targetT);
         const initialIdx = idx !== -1 ? idx : 0;
-        reset(initialIdx, vm.ticks.length - 1);
+        setCurrentTickIndex(initialIdx);
+        fractionalTickRef.current = initialIdx;
       } else {
-        // Переход к началу или первому событию по умолчанию
+        // Default to beginning or interesting moment
         const defaultIdx = Math.min(100, Math.floor(vm.ticks.length * 0.1));
-        reset(defaultIdx, vm.ticks.length - 1);
+        setCurrentTickIndex(defaultIdx);
+        fractionalTickRef.current = defaultIdx;
       }
       setLoading(false);
     });
@@ -104,7 +160,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
     };
   }, [scenario]);
 
-  // Обработка обновления параметров URL при загруженных данных
+  // Handle incoming query params updates when already loaded
   useEffect(() => {
     if (queryParams?.t !== undefined && ticks.length > 0) {
       const targetTime = Number(queryParams.t);
@@ -114,6 +170,68 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
       }
     }
   }, [queryParams?.t, ticks]);
+
+  // High-precision animation playback loop
+  useEffect(() => {
+    if (!isPlaying || ticks.length === 0) {
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      lastTimeRef.current = null;
+      return;
+    }
+
+    // If starting at the end, restart from beginning
+    if (fractionalTickRef.current >= ticks.length - 1) {
+      fractionalTickRef.current = 0;
+      setCurrentTickIndex(0);
+    }
+
+    lastTimeRef.current = performance.now();
+
+    // Determine simulation tick rate (Hz): ticks per simulation second
+    const tickRate =
+      ticks.length > 1 && ticks[ticks.length - 1].t > ticks[0].t
+        ? (ticks.length - 1) / (ticks[ticks.length - 1].t - ticks[0].t)
+        : 10;
+
+    const loop = (now: number) => {
+      if (lastTimeRef.current === null) {
+        lastTimeRef.current = now;
+      }
+      const elapsedSeconds = (now - lastTimeRef.current) / 1000;
+      lastTimeRef.current = now;
+
+      // Cap delta time to 0.1s to prevent huge jumps on tab switch/lag spike
+      const clampedDt = Math.min(elapsedSeconds, 0.1);
+      const deltaTicks = clampedDt * playSpeed * tickRate;
+      const nextTick = fractionalTickRef.current + deltaTicks;
+
+      if (nextTick >= ticks.length - 1) {
+        fractionalTickRef.current = ticks.length - 1;
+        setCurrentTickIndex(ticks.length - 1);
+        setIsPlaying(false);
+        return;
+      }
+
+      fractionalTickRef.current = nextTick;
+      const nextInt = Math.floor(nextTick);
+      setCurrentTickIndex((prev) => (prev !== nextInt ? nextInt : prev));
+
+      animFrameRef.current = requestAnimationFrame(loop);
+    };
+
+    animFrameRef.current = requestAnimationFrame(loop);
+
+    return () => {
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      lastTimeRef.current = null;
+    };
+  }, [isPlaying, playSpeed, ticks]);
 
   const currentTick: TickData = ticks[currentTickIndex] || {
     t: 0,
@@ -138,38 +256,134 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
   };
 
   const historyTicks = ticks.slice(0, currentTickIndex + 1);
-  const activeMission = missions.find((m) => m.id === currentTick.m) || missions[0];
-  const totalTime = ticks[ticks.length - 1]?.t || 341.0;
+
+  // Format time mm:ss.d
+  const formatTime = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    const ms = Math.floor((secs % 1) * 10);
+    return `${String(mins).padStart(2, '0')}:${String(s).padStart(2, '0')}.${ms}`;
+  };
+
+  const totalTime = ticks.length > 0 ? (ticks[ticks.length - 1]?.t || 0) : 0;
   const currentActualTick = Math.min(totalTicks, Math.round(currentTick.t * 10));
 
-  // Определение примечания и статуса
+  // Determine note & status
   const isPersonNear = (currentTick.hum !== null && currentTick.hum < 3.0) || !!currentTick.nt;
-  const noteText =
-    currentTick.nt === 'person_near'
-      ? 'рядом человек · ограничение скорости'
-      : currentTick.nt || (isPersonNear ? 'рядом человек · ограничение скорости' : null);
+  const noteText = currentTick.nt === 'person_near'
+    ? 'рядом человек · ограничение скорости'
+    : currentTick.nt || (isPersonNear ? 'рядом человек · ограничение скорости' : null);
 
   const toggleLayer = (key: keyof MapLayersConfig) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   return (
-    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full gap-4">
+    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full min-w-[1240px] gap-4">
       {/* Top Replay Toolbar matching reply.png */}
-      <ReplayToolbar
-        scenario={scenario}
-        onScenarioChange={setScenario}
-        scenarios={scenarios}
-        currentTickTime={currentTick.t}
-        totalTime={totalTime}
-        currentActualTick={currentActualTick}
-        totalTicks={totalTicks}
-        loading={loading}
-        followRobot={followRobot}
-        onToggleFollowRobot={() => setFollowRobot(!followRobot)}
-        layers={layers}
-        onToggleLayer={toggleLayer}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-3 px-5 rounded-xl border border-slate-200 shadow-sm">
+        {/* Scenario selector */}
+        <div className="relative min-w-[200px]">
+          <select
+            value={scenario}
+            onChange={(e) => handleScenarioChange(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg px-3 py-2 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+          >
+            {scenarios.length > 0 ? (
+              scenarios.map((sc) => (
+                <option key={sc.id} value={sc.id}>
+                  {sc.name}
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="01_clear">01_clear.json</option>
+                <option value="01e_clear_easy">01e_clear_easy.json</option>
+                <option value="02_gnss_shadow">02_gnss_shadow.json</option>
+                <option value="02e_gnss_shadow_easy">02e_gnss_shadow_easy.json</option>
+                <option value="03_fog_snow">03_fog_snow.json</option>
+                <option value="04_busy_yard">04_busy_yard.json</option>
+                <option value="s1_pallet_2m">backend/s1_pallet_2m.json</option>
+                <option value="s2_container_block">backend/s2_container_block.json</option>
+                <option value="s3_wall_removed">backend/s3_wall_removed.json</option>
+                <option value="s4_shadow_start_charger">backend/s4_shadow_start_charger.json</option>
+                <option value="s5_fog_inattentive">backend/s5_fog_inattentive.json</option>
+              </>
+            )}
+          </select>
+          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+        </div>
+
+        {/* Center Clock / Tick Readout */}
+        <div className="bg-slate-50 border border-slate-200 px-6 py-1.5 rounded-lg text-xs font-mono font-medium text-slate-700 flex items-center gap-2">
+          <span>{formatTime(currentTick.t)}</span>
+          <span className="text-slate-400">/</span>
+          <span className="text-slate-500">{formatTime(totalTime)}</span>
+          <span className="text-slate-300">·</span>
+          <span>Tick {currentActualTick}</span>
+          <span className="text-slate-400">/</span>
+          <span className="text-slate-500">{totalTicks}</span>
+          {loading && <RefreshCw className="w-3 h-3 animate-spin text-blue-600 ml-1" />}
+        </div>
+
+        {/* Right Controls: Follow Robot & Layers */}
+        <div className="flex items-center gap-4">
+          {/* Follow Robot toggle */}
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer select-none">
+            <div
+              onClick={() => setFollowRobot(!followRobot)}
+              className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors ${
+                followRobot ? 'bg-blue-600 justify-end' : 'bg-slate-200 justify-start'
+              }`}
+            >
+              <div className="bg-white w-4 h-4 rounded-full shadow-sm"></div>
+            </div>
+            <span>Следовать за роботом</span>
+          </label>
+
+          {/* Layers dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setLayersMenuOpen(!layersMenuOpen)}
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-lg transition-colors select-none"
+            >
+              <Layers className="w-3.5 h-3.5 text-slate-500" />
+              <span>Слои</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+
+            {layersMenuOpen && (
+              <div className="absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-lg shadow-lg p-2 z-50 text-xs flex flex-col gap-1">
+                {[
+                  { key: 'robot', label: 'Робот' },
+                  { key: 'poseEst', label: 'Оценка позы' },
+                  { key: 'poseDiff', label: 'Разница поз' },
+                  { key: 'lidar', label: 'Лидар' },
+                  { key: 'referencePath', label: 'Опорный маршрут' },
+                  { key: 'drivable', label: 'Проезжая часть' },
+                  { key: 'buildings', label: 'Здания' },
+                  { key: 'docks', label: 'Доки' },
+                  { key: 'pedestrians', label: 'Пешеходы' },
+                  { key: 'obstacles', label: 'Препятствия (поддоны, контейнеры)' },
+                ].map(({ key, label }) => (
+                  <label
+                    key={key}
+                    className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={layers[key as keyof MapLayersConfig]}
+                      onChange={() => toggleLayer(key as keyof MapLayersConfig)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-slate-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Main View: Left Map Canvas / Right Telemetry */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-[500px]">
@@ -189,35 +403,309 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({ queryParams }) => {
               followRobot={followRobot}
               mapData={mapData}
             />
+
+            {ticks.length === 0 && !loading && (
+              <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[1px] flex flex-col items-center justify-center p-6 text-center z-20">
+                <div className="bg-white rounded-xl p-6 max-w-md shadow-lg border border-slate-200">
+                  <h3 className="text-sm font-bold text-slate-800 mb-1">
+                    Телеметрия не загружена
+                  </h3>
+                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                    Для выбранного сценария нет записанного лога (.jsonl). Запустите симуляцию сценария в разделе «Запуск» или загрузите файл на дашборде.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Legend below map matching reply.png */}
-          <MapLegend />
+          <div className="bg-white border-t border-slate-100 px-4 py-2.5 flex flex-wrap items-center justify-between gap-y-2 text-[11px] text-slate-600">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+              <span>Робот</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full border-2 border-purple-500 inline-block"></span>
+              <span>Оценка позы</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 border-b-2 border-dashed border-red-500 inline-block"></span>
+              <span>Разница поз</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-0.5 bg-blue-300 inline-block"></span>
+              <span>Лидар</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 border-b-2 border-dashed border-blue-400 inline-block"></span>
+              <span>Опорный маршрут</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2 bg-slate-200 rounded-sm inline-block"></span>
+              <span>Проезжая часть</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2 bg-slate-300 rounded-sm inline-block"></span>
+              <span>Здание</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full border-2 border-blue-600 inline-block"></span>
+              <span>Док</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block"></span>
+              <span>Пешеход (3 м)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2 bg-amber-400 border border-amber-600 rounded-sm inline-block"></span>
+              <span>Поддон</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2 bg-slate-500 border border-slate-800 rounded-sm inline-block"></span>
+              <span>Контейнер</span>
+            </div>
+          </div>
         </div>
 
         {/* Right Telemetry HUD (3 cols) matching reply.png */}
-        <ReplayTelemetry
-          currentTick={currentTick}
-          activeMission={activeMission}
-          noteText={noteText}
-        />
+        <div className="lg:col-span-3 flex flex-col gap-4">
+          {/* Status Badge */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3">
+            <div className="flex items-center justify-center py-2 px-4 rounded-full bg-emerald-50 border border-emerald-200">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="text-xs font-bold tracking-wider text-emerald-800 uppercase font-mono">
+                  {currentTick.st === 'waiting'
+                    ? 'ОЖИДАНИЕ'
+                    : currentTick.st === 'moving'
+                    ? 'ДВИЖЕНИЕ'
+                    : currentTick.st === 'estop'
+                    ? 'АВАР. СТОП'
+                    : currentTick.st === 'arrived'
+                    ? 'ПРИБЫЛ'
+                    : currentTick.st === 'docked'
+                    ? 'В ДОКЕ'
+                    : (currentTick.st || 'ДВИЖЕНИЕ').toUpperCase()}
+                </span>
+              </div>
+            </div>
+
+            {/* Note badge */}
+            {noteText && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex items-center gap-2 text-xs text-amber-800">
+                <User className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span className="font-medium text-[11px] leading-tight">{noteText}</span>
+              </div>
+            )}
+
+            {/* Speeds */}
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-500">v</span>
+              <span className="font-bold text-slate-800">{currentTick.v.toFixed(2)} м/с</span>
+              <span className="text-slate-300">·</span>
+              <span className="text-slate-500">cv</span>
+              <span className="font-semibold text-slate-700">{currentTick.cv.toFixed(2)} м/с</span>
+            </div>
+
+            {/* Distance to human with proximity gauge */}
+            <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5 text-xs font-mono">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">hum</span>
+                <span className="font-bold text-slate-800">
+                  {currentTick.hum !== null ? `${currentTick.hum.toFixed(2)} м` : '—'}
+                </span>
+              </div>
+              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    currentTick.hum && currentTick.hum < 1.0
+                      ? 'bg-red-500'
+                      : currentTick.hum && currentTick.hum < 3.0
+                      ? 'bg-amber-500'
+                      : 'bg-emerald-500'
+                  }`}
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(0, ((currentTick.hum || 5) / 5) * 100)
+                    )}%`,
+                  }}
+                ></div>
+              </div>
+            </div>
+
+            {/* Distance to obstacle */}
+            <div className="pt-1 flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-500">obj</span>
+              <span className="font-bold text-slate-800">
+                {currentTick.obj !== null ? `${currentTick.obj.toFixed(2)} м` : '—'}
+              </span>
+            </div>
+
+            {/* Pose estimation and error */}
+            <div className="pt-2 border-t border-slate-100 flex flex-col gap-1 text-xs font-mono">
+              <div className="flex justify-between text-slate-500">
+                <span>pose_est:</span>
+                <span className="text-slate-800">
+                  {currentTick.pe
+                    ? `${currentTick.pe[0].toFixed(1)}, ${currentTick.pe[1].toFixed(1)}`
+                    : 'нет'}
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-500">
+                <span>pe_error:</span>
+                <span
+                  className={`font-semibold ${
+                    (currentTick.pe_error || 0) > 0.5 ? 'text-amber-600' : 'text-slate-800'
+                  }`}
+                >
+                  {(currentTick.pe_error || 0).toFixed(3)} м
+                </span>
+              </div>
+            </div>
+
+            {/* Collisions */}
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-mono">
+              <div className="flex items-center gap-1 text-slate-600">
+                <span>коллизии</span>
+                <span
+                  className={`font-bold ${
+                    currentTick.coll ? 'text-red-600' : 'text-slate-800'
+                  }`}
+                >
+                  {currentTick.coll}
+                </span>
+              </div>
+              <span className="text-slate-300">·</span>
+              <div className="flex items-center gap-1 text-slate-600">
+                <span>контакты</span>
+                <span
+                  className={`font-bold ${
+                    currentTick.cont ? 'text-red-600' : 'text-slate-800'
+                  }`}
+                >
+                  {currentTick.cont}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Current Mission Card */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              ТЕКУЩЕЕ ЗАДАНИЕ
+            </span>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 font-mono text-xs">
+              <div className="font-bold text-slate-900 text-sm">{currentTick.m || 'm1'}</div>
+              <div className="text-slate-600 text-[11px] mt-1">
+                Склад → Цех А <span className="text-slate-400">·</span>{' '}
+                {Math.max(0, 200.7 - currentTick.t).toFixed(1)} с осталось
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Bottom Playback Dock & Timeline matching reply.png */}
-      <ReplayControls
-        currentTickIndex={currentTickIndex}
-        maxTickIndex={Math.max(0, ticks.length - 1)}
-        isPlaying={isPlaying}
-        playSpeed={playSpeed}
-        episodes={episodes}
-        totalTime={totalTime}
-        onSeekTo={seekTo}
-        onStep={step}
-        onTogglePlay={togglePlay}
-        onSpeedChange={setPlaySpeed}
-      />
+      <div className="bg-white p-3.5 px-6 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+        {/* Playback Controls */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => seekTo(0)}
+            className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50 flex items-center justify-center text-slate-600 transition-colors"
+            title="В начало"
+          >
+            <SkipBack className="w-3.5 h-3.5 fill-current" />
+          </button>
+          <button
+            onClick={() => seekTo(currentTickIndex - 10)}
+            className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50 flex items-center justify-center text-slate-600 transition-colors"
+            title="Шаг назад"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => {
+              if (!isPlaying && currentTickIndex >= ticks.length - 1) {
+                seekTo(0);
+              }
+              setIsPlaying(!isPlaying);
+            }}
+            className="w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-md transition-colors"
+            title={isPlaying ? 'Пауза' : 'Воспроизведение'}
+          >
+            {isPlaying ? (
+              <Pause className="w-4 h-4 fill-current" />
+            ) : (
+              <Play className="w-4 h-4 fill-current ml-0.5" />
+            )}
+          </button>
+          <button
+            onClick={() => seekTo(currentTickIndex + 10)}
+            className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50 flex items-center justify-center text-slate-600 transition-colors"
+            title="Шаг вперед"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => seekTo(ticks.length - 1)}
+            className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50 flex items-center justify-center text-slate-600 transition-colors"
+            title="В конец"
+          >
+            <SkipForward className="w-3.5 h-3.5 fill-current" />
+          </button>
+        </div>
+
+        {/* Timeline Scrubber */}
+        <div className="flex-1 w-full mx-4 relative py-2">
+          <input
+            type="range"
+            min={0}
+            max={Math.max(0, ticks.length - 1)}
+            value={currentTickIndex}
+            onChange={(e) => seekTo(Number(e.target.value))}
+            className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+          />
+
+          {/* Incident tick markers on timeline */}
+          <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 pointer-events-none px-1 flex justify-between">
+            {episodes.slice(0, 10).map((ep, i) => {
+              const leftPercent = Math.min(100, Math.max(0, (ep.t_start / totalTime) * 100));
+              const color =
+                ep.cost < -0.5
+                  ? 'bg-amber-500'
+                  : ep.cost < 0
+                  ? 'bg-blue-500'
+                  : 'bg-emerald-500';
+              return (
+                <div
+                  key={ep.id || i}
+                  className={`absolute w-1.5 h-3 rounded-full ${color}`}
+                  style={{ left: `${leftPercent}%` }}
+                  title={`${ep.type}: ${ep.cost} pts (t=${ep.t_start}s)`}
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Speed Multipliers */}
+        <div className="flex items-center gap-1 text-xs">
+          {[0.1, 0.5, 1.0, 2.0, 5.0, 10.0].map((s) => (
+            <button
+              key={s}
+              onClick={() => setPlaySpeed(s)}
+              className={`px-2 py-1 rounded-md font-mono transition-colors ${
+                playSpeed === s
+                  ? 'bg-blue-600 text-white font-bold'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+              }`}
+            >
+              {s}x
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };
-
-export default ReplayPage;
