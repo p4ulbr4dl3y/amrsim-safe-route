@@ -156,6 +156,7 @@ def check_map_discrepancies(
     removed_segment_ids: Set[int],
     missing_wall_votes: Dict[int, int],
     has_wall_tracks: bool,
+    rel_angles: Optional[np.ndarray] = None,
 ) -> Optional[str]:
     """Обнаружить снесенные стены карты (map_missing) или новые конструкции (map_extra).
 
@@ -179,10 +180,15 @@ def check_map_discrepancies(
             over_indices = np.flatnonzero(overshoot)
             tick_votes: Dict[int, int] = {}
             for idx in over_indices:
+                beam_rel = (
+                    rel_angles[idx]
+                    if (rel_angles is not None and len(rel_angles) > idx)
+                    else np.radians(float(idx))
+                )
                 for s_idx, seg in enumerate(map_segs):
                     if s_idx in removed_segment_ids:
                         continue
-                    ang = wrap_angle(th + np.radians(float(idx)))
+                    ang = wrap_angle(th + beam_rel)
                     r_s = raycast(x, y, np.array([ang]), seg[None, :])
                     if np.isfinite(r_s[0]) and abs(r_s[0] - exp_ranges[idx]) < 0.25:
                         tick_votes[s_idx] = tick_votes.get(s_idx, 0) + 1

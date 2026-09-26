@@ -10,6 +10,7 @@ from team_dreamteam_4_0.perceive import (
     PEDESTRIAN_CONTOUR_MAX_M,
     Perception,
     Track,
+    check_map_discrepancies,
     fit_cluster_geometry,
     is_wall_cluster,
     is_wall_continuation,
@@ -970,6 +971,41 @@ class TestPerceiveCoverage(unittest.TestCase):
         exp_r = np.array([8.0])
         r_actual = np.array([18.0])
         perc._check_map_discrepancies(r_actual, exp_r, 0.0, 0.0, 0.0, segs, 50)
+
+    def test_map_discrepancies_rel_angles(self):
+        """Map discrepancy detector correctly uses rel_angles array instead of index assumption."""
+        segs = np.array([[5.0, -5.0, 5.0, 5.0]])
+        # 10 beams all pointing along angle 0 (straight ahead)
+        rel_angles = np.zeros(10)
+        exp_ranges = np.full(10, 5.0)
+        ranges = np.full(10, 7.0)  # overshoot by 2.0 m (> 1.2 m)
+
+        removed = set()
+        missing_votes = {0: 19}  # one vote away from threshold (20)
+
+        # 1. Direct function call with rel_angles
+        note = check_map_discrepancies(
+            ranges=ranges,
+            exp_ranges=exp_ranges,
+            x=0.0,
+            y=0.0,
+            th=0.0,
+            map_segs=segs,
+            scan_inliers=50,
+            removed_segment_ids=removed,
+            missing_wall_votes=missing_votes,
+            has_wall_tracks=False,
+            rel_angles=rel_angles,
+        )
+        self.assertEqual(note, "map_missing")
+        self.assertIn(0, removed)
+
+        # 2. Perception._check_map_discrepancies signature backward-compatibility
+        perc = Perception(dt=0.1)
+        # Calling without rel_angles (default None)
+        perc._check_map_discrepancies(ranges, exp_ranges, 0.0, 0.0, 0.0, segs, 50)
+        # Calling with rel_angles
+        perc._check_map_discrepancies(ranges, exp_ranges, 0.0, 0.0, 0.0, segs, 50, rel_angles=rel_angles)
 
     def test_import_fallback(self):
         import sys

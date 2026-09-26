@@ -19,7 +19,9 @@ from team_dreamteam_4_0.route import (
     RouteFollower,
     compute_cross_track_error,
     compute_curvature_speed_limit,
+    compute_pure_pursuit_cmd,
     compute_stanley_cmd,
+    is_drivable,
     smooth_yaw_rate_quintic,
 )
 
@@ -657,6 +659,58 @@ class TestRouteCoverage(unittest.TestCase):
         self.assertEqual(cross_e1, 0.0)
         self.assertEqual(th_e1, 0.0)
         self.assertEqual(idx1, 0)
+
+    def test_terminal_stopping_priority_over_large_angle(self):
+        """Terminal stopping condition must return (0, 0, ..., 0.0) even if angle error > 0.85."""
+        path = np.array([[0.0, 0.0], [1.0, 0.0]])
+        # Robot sitting directly at goal (1.0, 0.0) with opposite heading th = math.pi
+        # Heading to target point produces |alpha| ~ pi > 0.85
+        pose = (1.0, 0.0, math.pi)
+
+        # Pure pursuit command must stop with zero velocity and zero remaining distance
+        v_pp, w_pp, target_pp, s_pp, rem_pp = compute_pure_pursuit_cmd(pose, path, last_s=0.99)
+        self.assertEqual(v_pp, 0.0)
+        self.assertEqual(w_pp, 0.0)
+        self.assertEqual(rem_pp, 0.0)
+
+        # Stanley command must also stop with zero velocity and zero remaining distance
+        v_st, w_st, target_st, s_st, rem_st = compute_stanley_cmd(pose, path, last_s=0.99)
+        self.assertEqual(v_st, 0.0)
+        self.assertEqual(w_st, 0.0)
+        self.assertEqual(rem_st, 0.0)
+
+    def test_is_drivable_empty_inputs(self):
+        """Unhandled empty point sequence in is_drivable must not raise IndexError."""
+        # Standalone function checks
+        res1 = is_drivable(np.zeros((0, 2)))
+        self.assertIsInstance(res1, np.ndarray)
+        self.assertEqual(len(res1), 0)
+
+        res2 = is_drivable(np.array([]))
+        self.assertIsInstance(res2, np.ndarray)
+        self.assertEqual(len(res2), 0)
+
+        res3 = is_drivable([])
+        self.assertIsInstance(res3, np.ndarray)
+        self.assertEqual(len(res3), 0)
+
+        res4 = is_drivable(np.array([]), np.array([]))
+        self.assertIsInstance(res4, np.ndarray)
+        self.assertEqual(len(res4), 0)
+
+        res5 = is_drivable([], [])
+        self.assertIsInstance(res5, np.ndarray)
+        self.assertEqual(len(res5), 0)
+
+        # RouteFollower method checks
+        rf = RouteFollower(load_test_map())
+        rf_res1 = rf.is_drivable(np.zeros((0, 2)))
+        self.assertIsInstance(rf_res1, np.ndarray)
+        self.assertEqual(len(rf_res1), 0)
+
+        rf_res2 = rf.is_drivable(np.array([]))
+        self.assertIsInstance(rf_res2, np.ndarray)
+        self.assertEqual(len(rf_res2), 0)
 
 
 if __name__ == "__main__":
