@@ -260,5 +260,31 @@ describe('apiClient & fallbackData', () => {
       expect(res.ok).toBe(true);
     });
   });
+
+  describe('getApiBase subpath resolution', () => {
+    it('returns /api by default on root path', async () => {
+      const { getApiBase } = await import('../api/client');
+      expect(getApiBase()).toBe('/api');
+    });
+
+    it('returns /amr/api when hosted under /amr subpath', async () => {
+      const originalPathname = window.location.pathname;
+      try {
+        Object.defineProperty(window, 'location', {
+          value: { ...window.location, pathname: '/amr/' },
+          writable: true,
+          configurable: true,
+        });
+        const { getApiBase } = await import('../api/client');
+        expect(getApiBase()).toBe('/amr/api');
+      } finally {
+        Object.defineProperty(window, 'location', {
+          value: { ...window.location, pathname: originalPathname },
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
+  });
 });
 

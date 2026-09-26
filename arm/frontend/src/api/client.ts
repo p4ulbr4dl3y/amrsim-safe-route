@@ -11,7 +11,17 @@ import {
 } from '../types';
 import { getUploadedScenario } from '../utils/scenarioStorage';
 
-const API_BASE = '/api';
+/**
+ * Resolves API base path relative to current deployment subpath (e.g. /amr/api on VPS or /api on localhost).
+ */
+export const getApiBase = (): string => {
+  if (typeof window === 'undefined') return '/api';
+  const path = window.location.pathname.replace(/\/index\.html$/, '');
+  const prefix = path.replace(/\/+$/, '');
+  return prefix ? `${prefix}/api` : '/api';
+};
+
+const getBase = (): string => getApiBase();
 
 /**
  * Honest empty fallbacks when the Python SDUI backend is not currently running.
@@ -237,7 +247,7 @@ export const apiClient = {
   async fetchScenarios(): Promise<ScenarioItem[]> {
     let list: ScenarioItem[];
     try {
-      const res = await fetch(`${API_BASE}/scenarios`);
+      const res = await fetch(`${getBase()}/scenarios`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       list = await res.json();
     } catch (err) {
@@ -274,7 +284,7 @@ export const apiClient = {
    */
   async fetchDashboard(scenarioId = '04_busy_yard'): Promise<DashboardViewModel> {
     try {
-      const res = await fetch(`${API_BASE}/ui/dashboard?scenario=${encodeURIComponent(scenarioId)}`);
+      const res = await fetch(`${getBase()}/ui/dashboard?scenario=${encodeURIComponent(scenarioId)}`);
       if (res.ok) {
         const serverVm = await res.json();
         if (serverVm && serverVm.scenario) {
@@ -309,7 +319,7 @@ export const apiClient = {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/ui/replay?scenario=${encodeURIComponent(scenarioId)}&seed=${seed}`);
+      const res = await fetch(`${getBase()}/ui/replay?scenario=${encodeURIComponent(scenarioId)}&seed=${seed}`);
       if (res.ok) {
         const serverVm = await res.json();
         if (serverVm && (serverVm.scenario || serverVm.ticks)) {
@@ -332,7 +342,7 @@ export const apiClient = {
    */
   async fetchEpisodes(scenarioId = '04_busy_yard'): Promise<EpisodesViewModel> {
     try {
-      const res = await fetch(`${API_BASE}/ui/episodes?scenario=${encodeURIComponent(scenarioId)}`);
+      const res = await fetch(`${getBase()}/ui/episodes?scenario=${encodeURIComponent(scenarioId)}`);
       if (res.ok) {
         const serverVm = await res.json();
         if (serverVm && Array.isArray(serverVm.episodes)) {
@@ -366,7 +376,7 @@ export const apiClient = {
    */
   async fetchMissions(scenarioId = '04_busy_yard'): Promise<MissionsViewModel> {
     try {
-      const res = await fetch(`${API_BASE}/ui/missions?scenario=${encodeURIComponent(scenarioId)}`);
+      const res = await fetch(`${getBase()}/ui/missions?scenario=${encodeURIComponent(scenarioId)}`);
       if (res.ok) {
         const serverVm = await res.json();
         if (serverVm && Array.isArray(serverVm.missions)) {
@@ -390,7 +400,7 @@ export const apiClient = {
    */
   async fetchAnalytics(scenarioId = '04_busy_yard'): Promise<AnalyticsViewModel> {
     try {
-      const res = await fetch(`${API_BASE}/ui/analytics?scenario=${encodeURIComponent(scenarioId)}`);
+      const res = await fetch(`${getBase()}/ui/analytics?scenario=${encodeURIComponent(scenarioId)}`);
       if (res.ok) {
         const serverVm = await res.json();
         if (serverVm && serverVm.blocks) {
@@ -430,7 +440,7 @@ export const apiClient = {
    */
   async saveScenario(id: string, scenarioData: any): Promise<{ ok: boolean; success?: boolean; id?: string; file?: string }> {
     try {
-      const res = await fetch(`${API_BASE}/scenarios/save`, {
+      const res = await fetch(`${getBase()}/scenarios/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -470,7 +480,7 @@ export const apiClient = {
       scenarioData,
     };
 
-    const res = await fetch(`${API_BASE}/run`, {
+    const res = await fetch(`${getBase()}/run`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -488,6 +498,6 @@ export const apiClient = {
    * Get direct download URL for real incidents CSV export.
    */
   getExportCsvUrl(scenarioId = '04_busy_yard'): string {
-    return `${API_BASE}/export/csv?scenario=${encodeURIComponent(scenarioId)}`;
+    return `${getBase()}/export/csv?scenario=${encodeURIComponent(scenarioId)}`;
   },
 };
