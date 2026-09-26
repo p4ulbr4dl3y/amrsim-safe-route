@@ -32,7 +32,7 @@ docker compose run --rm arm python -m amrsim check team_dreamteam_4_0
 docker compose run --rm arm python -m amrsim run scenarios/01_clear.json --controller team_dreamteam_4_0/controller.py --seed 7 --report /app/out/01.json
 ```
 
-## Возможности АРМ (Критерий О3):
+## Возможности АРМ (критерий О3)
 - **Dashboard**: сводная статистика KPI, статус выполнения заданий, целевая функция, анализ штрафов и загрузка сценариев;
 - **Replay**: интерактивный плеер тиков с 2D Canvas картой площадки, положением платформы, пешеходами, шлейфом пути, отрисовкой препятствий, паллет и контейнеров, а также переключением слоев лидара;
 - **Синхронизация сценариев**: сквозная синхронизация выбранного сценария между всеми разделами (Dashboard, Replay, Episodes, Missions, Analytics, Runner) и хэшем URL;
