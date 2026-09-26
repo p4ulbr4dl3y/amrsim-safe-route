@@ -218,8 +218,23 @@ def format_time(seconds: float | None) -> str:
     return f"{sign}{m:02d}:{s:02d}"
 
 
-def get_scenario_file(scenario_id: str) -> Path | None:
+def get_scenario_file(scenario_id: str | None) -> Path | None:
     norm_id = normalize_scenario_id(scenario_id)
+
+    if not scenario_id:
+        for base in [SCENARIOS_DIR, TEAM_SCENARIOS_DIR, BACKEND_SCENARIOS_DIR]:
+            if not base.exists():
+                continue
+            candidate = base / f"{norm_id}.json"
+            if candidate.exists():
+                return candidate
+            candidate = base / norm_id
+            if candidate.exists() and candidate.is_file():
+                return candidate
+            for f in base.glob("*.json"):
+                if f.stem == norm_id or f.stem.startswith(f"{norm_id}_"):
+                    return f
+        return None
 
     # Проверка прямого пути к файлу при наличии
     raw_p = Path(scenario_id)
@@ -444,12 +459,12 @@ def run_simulation(
 
 def extract_map_data(scen_def: dict | None, header: dict | None) -> dict:
     source_map = None
-    if scen_def and "map" in scen_def:
+    if scen_def and isinstance(scen_def, dict) and "map" in scen_def:
         source_map = scen_def["map"]
-    elif header and "map" in header:
+    elif header and isinstance(header, dict) and "map" in header:
         source_map = header["map"]
 
-    if not source_map:
+    if not source_map or not isinstance(source_map, dict):
         return {
             "bounds": [0, 0, 250, 200],
             "drivable": [],
@@ -460,24 +475,32 @@ def extract_map_data(scen_def: dict | None, header: dict | None) -> dict:
             "points": {},
         }
 
-    points_raw = source_map.get("points", {})
+    points_raw = source_map.get("points") or {}
     points_formatted = {}
-    for pt_key, pt_val in points_raw.items():
-        points_formatted[pt_key] = {
-            "x": pt_val.get("x", 0.0),
-            "y": pt_val.get("y", 0.0),
-            "heading": pt_val.get("heading", 0.0),
-            "tol": pt_val.get("tol", 0.2),
-            "label": f"{pt_key} ({POINT_LABELS.get(pt_key, pt_key)})",
-        }
+    if isinstance(points_raw, dict):
+        for pt_key, pt_val in points_raw.items():
+            if not isinstance(pt_val, dict):
+                pt_val = {}
+            pt_key_str = str(pt_key)
+            points_formatted[pt_key_str] = {
+                "x": _safe_float(pt_val.get("x"), 0.0),
+                "y": _safe_float(pt_val.get("y"), 0.0),
+                "heading": _safe_float(pt_val.get("heading"), 0.0),
+                "tol": _safe_float(pt_val.get("tol"), 0.2),
+                "label": f"{pt_key_str} ({POINT_LABELS.get(pt_key_str, pt_key_str)})",
+            }
+
+    bounds = source_map.get("bounds")
+    if not isinstance(bounds, list) or len(bounds) < 4:
+        bounds = [0, 0, 250, 200]
 
     return {
-        "bounds": source_map.get("bounds", [0, 0, 250, 200]),
-        "drivable": source_map.get("drivable", []),
-        "buildings": source_map.get("buildings", []),
-        "zones": source_map.get("zones", []),
-        "gates": source_map.get("gates", []),
-        "crossing": source_map.get("crossing", []),
+        "bounds": bounds,
+        "drivable": source_map.get("drivable") or [],
+        "buildings": source_map.get("buildings") or [],
+        "zones": source_map.get("zones") or [],
+        "gates": source_map.get("gates") or [],
+        "crossing": source_map.get("crossing") or [],
         "points": points_formatted,
     }
 
@@ -514,37 +537,43 @@ def parse_ticks_log(scenario_id: str, max_samples: int = 1200) -> dict:
         _TICKS_CACHE[norm_id] = res
         return res
 
-    duration = raw_ticks[-1].get("t", 0.0)
+    duration = _safe_float(raw_ticks[-1].get("t"), 0.0)
 
     # Обработка всех тактов: вычисление ошибки оценки позы pe_error и проверка лучей лидара
     step = max(1, len(raw_ticks) // max_samples)
     sampled = []
 
     for i, t in enumerate(raw_ticks):
-        x = t.get("x", 0.0)
-        y = t.get("y", 0.0)
-        th = t.get("th", 0.0)
+        x = _safe_float(t.get("x"), 0.0)
+        y = _safe_float(t.get("y"), 0.0)
+        th = _safe_float(t.get("th"), 0.0)
         pe = t.get("pe")
 
-        if pe and len(pe) >= 2:
-            t["pe_error"] = round(math.sqrt((pe[0] - x) ** 2 + (pe[1] - y) ** 2), 4)
+        if pe and isinstance(pe, (list, tuple)) and len(pe) >= 2:
+            pe_0 = _safe_float(pe[0], 0.0)
+            pe_1 = _safe_float(pe[1], 0.0)
+            t["pe_error"] = round(math.sqrt((pe_0 - x) ** 2 + (pe_1 - y) ** 2), 4)
         else:
             t["pe_error"] = 0.0
+
+        hum_val = _safe_float(t.get("hum"), 999.0) if t.get("hum") is not None else 999.0
+        obj_val = _safe_float(t.get("obj"), 999.0) if t.get("obj") is not None else 999.0
 
         has_event = bool(
             t.get("nt")
             or t.get("coll")
             or t.get("cont")
-            or (t.get("hum") is not None and t["hum"] < 3.2)
-            or (t.get("obj") is not None and t["obj"] < 1.0)
+            or (t.get("hum") is not None and hum_val < 3.2)
+            or (t.get("obj") is not None and obj_val < 1.0)
         )
 
         if i % step == 0 or has_event or i == len(raw_ticks) - 1:
             # Генерация лучей лидара при необходимости
+            obj_dist = _safe_float(t.get("obj"), 5.0)
             lidar = [
                 {
                     "angle": th + (a - 4) * 0.15,
-                    "dist": min(20.0, max(1.5, (t.get("obj") or 5.0) + (a % 3) * 0.6)),
+                    "dist": min(20.0, max(1.5, obj_dist + (a % 3) * 0.6)),
                 }
                 for a in range(9)
             ]
@@ -598,13 +627,14 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
 
     map_data = extract_map_data(scen_def, header)
 
-    score_data = report.get("score", {}) if report else {}
+    score_data = (report.get("score") or {}) if report else {}
     total_score = round(_safe_float(score_data.get("total")), 2)
     deliveries_count = score_data.get("deliveries", 0)
-    deliveries_total = len(report.get("missions", [])) if report and report.get("missions") else 2
+    missions = (report.get("missions") or []) if report else []
+    deliveries_total = len(missions) if missions else 2
 
     fatal = 1 if score_data.get("fatal") else 0
-    episodes = score_data.get("episodes", [])
+    episodes = score_data.get("episodes") or []
     warnings_count = len(episodes)
 
     # Расчет средней ошибки локализации по сырым тактам
@@ -629,18 +659,19 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
     # Недавние события, сформированные из миссий и эпизодов
     recent_events = []
     # Добавление выполненных миссий как успешных событий
-    for m in report.get("missions", []) if report else []:
+    for m in missions:
         t_arr = _safe_float(
             m.get("t_arrival") if m.get("t_arrival") is not None else m.get("t_end", 0.0)
         )
-        m_id = m.get("id", "m1")
-        dest = m.get("to", "")
+        m_id = str(m.get("id") or "m1")
+        dest = str(m.get("to") or "")
         hold = _safe_float(m.get("max_hold_dist"))
         delivered = m.get("delivered", True)
+        title_text = f"Доставка {m_id} завершена" if delivered else f"Таймаут доставки {m_id}"
         recent_events.append(
             {
                 "id": f"e-m-{m_id}",
-                "title": f"AMR-1 · {'Доставка ' + m_id + ' завершена' if delivered else 'Таймаут доставки ' + m_id} ({POINT_LABELS.get(dest, dest)})",
+                "title": f"AMR-1 · {title_text} ({POINT_LABELS.get(dest, dest)})",
                 "detail": f"Время {t_arr:.1f}с, удержание {hold:.3f}м"
                 if delivered
                 else f"Время истекло ({t_arr:.1f}с)",
@@ -765,17 +796,17 @@ def build_replay_view_model(scenario_id: str, seed: int = 7) -> dict:
     raw_ticks = ticks_data.get("raw_ticks") or ticks_data.get("ticks", [])
     missions = build_replay_missions(header, raw_ticks)
 
-    episodes_raw = report.get("score", {}).get("episodes", []) if report else []
+    episodes_raw = (report.get("score") or {}).get("episodes") or [] if report else []
     episodes_formatted = [
         {
             "id": f"ep-{idx + 1}",
-            "type": ep.get("type", "warning"),
-            "category": CATEGORY_NAMES.get(ep.get("type", ""), ep.get("type", "")),
-            "t_start": _safe_float(ep.get("t_start"), 0.0),
-            "t_end": _safe_float(ep.get("t_end"), 0.0),
-            "x": _safe_float(ep.get("x"), 0.0),
-            "y": _safe_float(ep.get("y"), 0.0),
-            "cost": _safe_float(ep.get("cost"), 0.0),
+            "type": (ep or {}).get("type", "warning"),
+            "category": CATEGORY_NAMES.get((ep or {}).get("type", ""), (ep or {}).get("type", "")),
+            "t_start": _safe_float((ep or {}).get("t_start"), 0.0),
+            "t_end": _safe_float((ep or {}).get("t_end"), 0.0),
+            "x": _safe_float((ep or {}).get("x"), 0.0),
+            "y": _safe_float((ep or {}).get("y"), 0.0),
+            "cost": _safe_float((ep or {}).get("cost"), 0.0),
         }
         for idx, ep in enumerate(episodes_raw)
     ]
@@ -799,8 +830,8 @@ def build_episodes_view_model(scenario_id: str) -> dict:
     ticks_data = parse_ticks_log(norm_id)
     raw_ticks = ticks_data.get("raw_ticks", [])
 
-    score = report.get("score", {}) if report else {}
-    episodes_raw = score.get("episodes", [])
+    score = (report.get("score") or {}) if report else {}
+    episodes_raw = score.get("episodes") or []
 
     # Поиск ближайшего такта по временной метке
     def find_tick_at(t_val: float) -> dict | None:
@@ -821,11 +852,13 @@ def build_episodes_view_model(scenario_id: str) -> dict:
     total_cost = 0.0
 
     for idx, ep in enumerate(episodes_raw):
+        if not isinstance(ep, dict):
+            continue
         t_start = _safe_float(ep.get("t_start"), 0.0)
         t_end = _safe_float(ep.get("t_end"), t_start)
         cost = _safe_float(ep.get("cost"), 0.0)
         total_cost += cost
-        ep_type = ep.get("type", "warning")
+        ep_type = str(ep.get("type") or "warning")
 
         # Снимок телеметрии из ближайшего такта
         tk = find_tick_at(t_start)
@@ -834,8 +867,8 @@ def build_episodes_view_model(scenario_id: str) -> dict:
             telemetry = {
                 "v": round(_safe_float(tk.get("v"), 0.0), 2),
                 "cv": round(_safe_float(tk.get("cv"), 0.0), 2),
-                "hum": round(_safe_float(tk["hum"]), 2) if tk.get("hum") is not None else None,
-                "obj": round(_safe_float(tk["obj"]), 2) if tk.get("obj") is not None else None,
+                "hum": round(_safe_float(tk.get("hum")), 2) if tk.get("hum") is not None else None,
+                "obj": round(_safe_float(tk.get("obj")), 2) if tk.get("obj") is not None else None,
                 "pe_error": _safe_float(tk.get("pe_error"), 0.0),
                 "status": str(tk.get("st") or "moving").upper(),
                 "note": tk.get("nt", ep_type),
@@ -865,10 +898,10 @@ def build_episodes_view_model(scenario_id: str) -> dict:
     # При малом числе штрафных эпизодов извлечение событий миссий и ключевых точек телеметрии
     if len(episodes) < 4:
         # 1. Контрольные точки миссий: отправление, доставка или таймаут
-        for m in report.get("missions", []) if report else []:
-            m_id = m.get("id", "m1")
-            from_pt = POINT_LABELS.get(m.get("from", ""), m.get("from", ""))
-            to_pt = POINT_LABELS.get(m.get("to", ""), m.get("to", ""))
+        for m in (report.get("missions") or []) if report else []:
+            m_id = str(m.get("id") or "m1")
+            from_pt = POINT_LABELS.get(str(m.get("from") or ""), str(m.get("from") or ""))
+            to_pt = POINT_LABELS.get(str(m.get("to") or ""), str(m.get("to") or ""))
             t_st = _safe_float(m.get("t_start"), 0.0)
             t_arr = _safe_float(
                 m.get("t_arrival") if m.get("t_arrival") is not None else m.get("t_end", 0.0)
@@ -893,10 +926,10 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "telemetrySnapshot": {
                         "v": round(_safe_float(tk_st.get("v") if tk_st else 0.0), 2),
                         "cv": round(_safe_float(tk_st.get("cv") if tk_st else 0.0), 2),
-                        "hum": round(_safe_float(tk_st["hum"]), 2)
+                        "hum": round(_safe_float(tk_st.get("hum")), 2)
                         if tk_st and tk_st.get("hum") is not None
                         else None,
-                        "obj": round(_safe_float(tk_st["obj"]), 2)
+                        "obj": round(_safe_float(tk_st.get("obj")), 2)
                         if tk_st and tk_st.get("obj") is not None
                         else None,
                         "pe_error": _safe_float(tk_st.get("pe_error") if tk_st else 0.0),
@@ -908,7 +941,8 @@ def build_episodes_view_model(scenario_id: str) -> dict:
 
             # Прибытие
             tk_arr = find_tick_at(t_arr)
-            hold_dist = m.get("max_hold_dist")
+            hold_dist_raw = m.get("max_hold_dist")
+            hold_dist = _safe_float(hold_dist_raw) if hold_dist_raw is not None else None
             hold_str = (
                 f", удержание $d \\le {hold_dist:.3f}\\,\\text{{м}}$"
                 if hold_dist is not None
@@ -933,10 +967,10 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "telemetrySnapshot": {
                         "v": round(_safe_float(tk_arr.get("v") if tk_arr else 0.0), 2),
                         "cv": round(_safe_float(tk_arr.get("cv") if tk_arr else 0.0), 2),
-                        "hum": round(_safe_float(tk_arr["hum"]), 2)
+                        "hum": round(_safe_float(tk_arr.get("hum")), 2)
                         if tk_arr and tk_arr.get("hum") is not None
                         else None,
-                        "obj": round(_safe_float(tk_arr["obj"]), 2)
+                        "obj": round(_safe_float(tk_arr.get("obj")), 2)
                         if tk_arr and tk_arr.get("obj") is not None
                         else None,
                         "pe_error": _safe_float(tk_arr.get("pe_error") if tk_arr else 0.0),
@@ -1091,8 +1125,8 @@ def build_episodes_view_model(scenario_id: str) -> dict:
                     "telemetrySnapshot": {
                         "v": round(_safe_float(tk.get("v")), 2),
                         "cv": round(_safe_float(tk.get("cv")), 2),
-                        "hum": round(_safe_float(tk["hum"]), 2) if tk.get("hum") is not None else None,
-                        "obj": round(_safe_float(tk["obj"]), 2) if tk.get("obj") is not None else None,
+                        "hum": round(_safe_float(tk.get("hum")), 2) if tk.get("hum") is not None else None,
+                        "obj": round(_safe_float(tk.get("obj")), 2) if tk.get("obj") is not None else None,
                         "pe_error": _safe_float(tk.get("pe_error")),
                         "status": str(tk.get("st") or "moving").upper(),
                         "note": tk.get("nt", "waypoint"),
@@ -1158,17 +1192,17 @@ def build_episodes_view_model(scenario_id: str) -> dict:
 def build_missions_view_model(scenario_id: str) -> dict:
     norm_id = normalize_scenario_id(scenario_id)
     report = get_scenario_report(norm_id)
-    raw_missions = report.get("missions", []) if report else []
-    score_blocks = report.get("score", {}).get("blocks", {}) if report else {}
-    score_max = report.get("score", {}).get("max", {}) if report else {}
+    raw_missions = (report.get("missions") or []) if report else []
+    score_blocks = (report.get("score") or {}).get("blocks") or {}
+    score_max = (report.get("score") or {}).get("max") or {}
 
     missions = []
     completed = 0
 
     for m in raw_missions:
-        m_id = m.get("id", "m")
-        from_pt = m.get("from", "warehouse")
-        to_pt = m.get("to", "shop_a")
+        m_id = str(m.get("id") or "m")
+        from_pt = str(m.get("from") or "warehouse")
+        to_pt = str(m.get("to") or "shop_a")
         t_start = _safe_float(m.get("t_start"), 0.0)
         t_end = _safe_float(m.get("t_end"), 0.0)
         t_arr_raw = m.get("t_arrival")

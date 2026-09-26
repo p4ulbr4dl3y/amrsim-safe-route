@@ -1207,3 +1207,123 @@ def test_bounded_cache_eviction_and_lru():
     assert "a" not in cache
     assert len(cache) == 3
 
+
+def test_get_scenario_file_none():
+    res = get_scenario_file(None)
+    assert res is not None
+    assert res.exists()
+    assert res.name == "04_busy_yard.json"
+
+
+def test_extract_map_data_null_points():
+    # Null map object
+    d1 = server.extract_map_data({"map": None}, None)
+    assert d1["points"] == {}
+
+    # Null points dictionary
+    d2 = server.extract_map_data({"map": {"points": None}}, None)
+    assert d2["points"] == {}
+
+    # Null point within points dictionary
+    d3 = server.extract_map_data(
+        {"map": {"points": {"p1": None, "p2": {"x": None, "y": None}}}}, None
+    )
+    assert "p1" in d3["points"]
+    assert d3["points"]["p1"]["x"] == 0.0
+    assert d3["points"]["p1"]["y"] == 0.0
+    assert d3["points"]["p2"]["x"] == 0.0
+    assert d3["points"]["p2"]["y"] == 0.0
+
+
+def test_view_models_with_null_report_collections(monkeypatch):
+    """View models handle report with null episodes, null missions, null blocks without crash."""
+    mock_report = {
+        "scenario": "01_clear",
+        "missions": None,
+        "score": {
+            "total": None,
+            "deliveries": None,
+            "episodes": None,
+            "blocks": None,
+            "max": None,
+        },
+    }
+    monkeypatch.setattr(server, "get_scenario_report", lambda *args, **kwargs: mock_report)
+
+    dash_vm = server.build_dashboard_view_model("01_clear")
+    assert dash_vm["deliveriesTotal"] == 2
+    assert dash_vm["safetyWarnings"] == 0
+
+    rep_vm = server.build_replay_view_model("01_clear")
+    assert rep_vm["episodes"] == []
+
+    ep_vm = server.build_episodes_view_model("01_clear")
+    assert isinstance(ep_vm["episodes"], list)
+
+    miss_vm = server.build_missions_view_model("01_clear")
+    assert miss_vm["missions"] == []
+    assert miss_vm["summary"]["total"] == 0
+
+
+def test_build_dashboard_view_model_non_string_or_null_mission_id(monkeypatch):
+    """build_dashboard_view_model handles null or non-string (int, bool) mission ID."""
+    mock_report = {
+        "scenario": "01_clear",
+        "missions": [
+            {"id": None, "to": "shop_a", "delivered": True, "t_arrival": 10.0},
+            {"id": 42, "to": "warehouse", "delivered": False, "t_end": 20.0},
+            {"id": "", "to": "shop_b", "delivered": True, "t_arrival": 30.0},
+        ],
+        "score": {"total": 50, "episodes": []},
+    }
+    monkeypatch.setattr(server, "get_scenario_report", lambda *args, **kwargs: mock_report)
+
+    dash_vm = server.build_dashboard_view_model("01_clear")
+    assert len(dash_vm["recentEvents"]) >= 3
+    event_ids = [e["id"] for e in dash_vm["recentEvents"]]
+    assert "e-m-m1" in event_ids
+    assert "e-m-42" in event_ids
+
+
+def test_parse_ticks_log_null_coordinates(tmp_path, monkeypatch):
+    """parse_ticks_log handles null coordinates and telemetry gracefully."""
+    log_file = tmp_path / "null_coords.jsonl"
+    lines = [
+        json.dumps({"type": "header", "scenario": "null_coords", "missions": []}),
+        json.dumps({
+            "type": "tick",
+            "t": 1.0,
+            "x": None,
+            "y": None,
+            "th": None,
+            "pe": [None, None],
+            "obj": None,
+            "hum": None,
+            "v": None,
+        }),
+        json.dumps({
+            "type": "tick",
+            "t": 2.0,
+            "x": 1.0,
+            "y": 2.0,
+            "th": 0.5,
+            "pe": None,
+            "obj": 0.5,
+            "hum": 2.0,
+            "v": 0.2,
+        }),
+    ]
+    log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(server, "get_scenario_log_path", lambda *args: log_file)
+    server._TICKS_CACHE.clear()
+
+    res = server.parse_ticks_log("null_coords")
+    assert res["totalTicks"] == 2
+    ticks = res["ticks"]
+    assert len(ticks) >= 1
+    t0 = res["raw_ticks"][0]
+    assert t0["pe_error"] == 0.0
+    assert "lidarRays" in ticks[0]
+
+
