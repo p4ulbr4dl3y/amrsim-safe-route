@@ -332,7 +332,7 @@ def build_context():
         "wall_m": must_find(alternatives, r"длиной (120) м", "стена"),
         "steps": must_find(approach, r"на (10\^4) шагов", "шаги"),
         "fog": must_find(approach, r"в тумане (0\.9) м/с на пустом коридоре", "туман"),
-        "window": must_find(approach, r"в окне (±5 м)", "окно поиска"),
+        "window": must_find(approach, r"в окне ([±\+\-]+5 м)", "окно поиска"),
         "grid": must_find(approach, r"шаг сетки (0\.5) м", "шаг сетки"),
         "limit_min": must_find(
             criteria, r"(10 минут) реального времени", "лимит времени"

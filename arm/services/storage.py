@@ -120,12 +120,6 @@ def get_scenario_log_path(scenario_id: str) -> Path | None:
     for p in candidates:
         if p.exists():
             return p
-    if norm_id in ("01e_clear_easy", "02e_gnss_shadow_easy"):
-        base_id = "01_clear" if "01" in norm_id else "02_gnss_shadow"
-        res = get_scenario_log_path(base_id)
-        if res:
-            return res
-
     # Неизвестный сценарий: лог не подставляется
     if get_scenario_file(norm_id) is None:
         return None
@@ -183,7 +177,7 @@ def parse_ticks_log(scenario_id: str, max_samples: int = 1200) -> dict[str, Any]
 
     duration = _safe_float(raw_ticks[-1].get("t"), 0.0)
 
-    # Обработка всех тактов: вычисление ошибки оценки позы pe_error и проверка лучей лидара
+    # Обработка всех тактов: вычисление ошибки оценки позы pe_error
     step = max(1, len(raw_ticks) // max_samples)
     sampled = []
 
@@ -211,16 +205,9 @@ def parse_ticks_log(scenario_id: str, max_samples: int = 1200) -> dict[str, Any]
         )
 
         if i % step == 0 or has_event or i == len(raw_ticks) - 1:
-            # Генерация лучей лидара (относительные углы лучей в СК робота, 0 = вперед)
-            obj_dist = _safe_float(t.get("obj"), 5.0)
-            lidar = [
-                {
-                    "angle": (a - 4) * 0.15,
-                    "dist": min(20.0, max(1.5, obj_dist + (a % 3) * 0.6)),
-                }
-                for a in range(9)
-            ]
-            t["lidarRays"] = lidar
+            # Если в сыром логе присутствуют лучи лидара (lidarRays), сохраняем их
+            if "lidarRays" in t and isinstance(t["lidarRays"], list):
+                t["lidarRays"] = t["lidarRays"]
             sampled.append(t)
 
     res = {

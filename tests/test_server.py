@@ -1328,14 +1328,47 @@ def test_parse_ticks_log_null_coordinates(tmp_path, monkeypatch):
     assert res["totalTicks"] == 2
     ticks = res["ticks"]
     assert len(ticks) >= 1
+    # Без сырых лучей лидара синтетические лучи не генерируются
+    assert "lidarRays" not in ticks[0]
+
+
+def test_parse_ticks_log_preserves_raw_lidar_rays(tmp_path, monkeypatch):
+    """Сырые лучи лидара (lidarRays) из лога сохраняются, если они есть."""
+    log_file = tmp_path / "raw_lidar.jsonl"
+    lines = [
+        json.dumps({
+            "type": "tick",
+            "t": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "th": 0.0,
+            "pe": [0.0, 0.0],
+            "lidarRays": [{"angle": 0.0, "dist": 5.0}],
+        }),
+    ]
+    log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    monkeypatch.setattr(server, "get_scenario_log_path", lambda *args: log_file)
+    server._TICKS_CACHE.clear()
+
+    res = server.parse_ticks_log("raw_lidar")
+    ticks = res["ticks"]
+    assert len(ticks) == 1
     assert "lidarRays" in ticks[0]
-    rays = ticks[0]["lidarRays"]
-    assert len(rays) == 9
-    # Центральный луч 4 должен быть направлен строго вперед (0 рад в СК робота)
-    assert abs(rays[4]["angle"]) < 1e-6
-    # Крайние лучи симметричны относительно курса робота
-    assert abs(rays[0]["angle"] - (-0.6)) < 1e-6
-    assert abs(rays[8]["angle"] - 0.6) < 1e-6
+    assert ticks[0]["lidarRays"] == [{"angle": 0.0, "dist": 5.0}]
+
+
+def test_scenario_01e_clear_easy_no_spoofing():
+    """Сценарий 01e_clear_easy не подменяется логом 01_clear."""
+    server._TICKS_CACHE.clear()
+    log_path = get_scenario_log_path("01e_clear_easy")
+    assert log_path is not None
+    assert "01e_clear_easy" in log_path.name
+    res = server.parse_ticks_log("01e_clear_easy")
+    header = res.get("header") or {}
+    assert header.get("scenario") == "01e_clear_easy"
+    # Проверка отсутствия синтетических lidarRays в тактах
+    for t in res.get("ticks", []):
+        assert "lidarRays" not in t
 
 
 def test_build_analytics_view_model_null_score_and_blocks(monkeypatch):

@@ -9,7 +9,7 @@
  "salted": false,
  "cheat": false,
  "controller": {
-  "path": "teams/team_dreamteam_4_0/controller.py",
+  "path": "team_dreamteam_4_0/controller.py",
   "sha256": "560f0b56f50034fd"
  },
  "counted": true,
@@ -97,12 +97,12 @@
  },
  "step_time_ms": {
   "n": 3441,
-  "mean": 1.295,
-  "max": 25.243
+  "mean": 1.25,
+  "max": 25.017
  },
- "wall_time_s": 5.818,
+ "wall_time_s": 5.621,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
- "log": "results/table_runs/logs/team_dreamteam_4_0__03_fog_snow__s21.jsonl"
+ "log": null
 }

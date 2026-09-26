@@ -9,7 +9,7 @@
  "salted": false,
  "cheat": false,
  "controller": {
-  "path": "teams/team_dreamteam_4_0/controller.py",
+  "path": "team_dreamteam_4_0/controller.py",
   "sha256": "560f0b56f50034fd"
  },
  "counted": true,
@@ -73,12 +73,12 @@
  },
  "step_time_ms": {
   "n": 1765,
-  "mean": 1.512,
-  "max": 26.19
+  "mean": 1.372,
+  "max": 24.741
  },
- "wall_time_s": 3.493,
+ "wall_time_s": 3.173,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
- "log": "results/table_runs/logs/team_dreamteam_4_0__02_gnss_shadow__s21.jsonl"
+ "log": null
 }

@@ -143,6 +143,9 @@ def apply_lateral_offset(
     s_plat_out = s_obs + 2.0
     s_ramp_out = min(total_len, s_obs + 4.5)
 
+    if s_plat_in <= s_ramp_in + 0.1:
+        return None, 0.0
+
     for delta in candidates:
         s_samples = np.arange(s_ramp_in, s_ramp_out + 0.2, 0.25)
         pts_shifted = []
@@ -184,6 +187,23 @@ def apply_lateral_offset(
             prefix = [path[j] for j in range(len(path)) if cum_lens[j] < s_ramp_in - 0.1]
             suffix = [path[j] for j in range(len(path)) if cum_lens[j] > s_ramp_out + 0.1]
             new_path = prefix + pts_shifted + suffix
+            if drivable_fn is not None:
+                segs_ok = True
+                for k in range(len(new_path) - 1):
+                    p_a = new_path[k]
+                    p_b = new_path[k + 1]
+                    seg_dist = math.hypot(p_b[0] - p_a[0], p_b[1] - p_a[1])
+                    n_sub = max(2, int(math.ceil(seg_dist / 0.2)))
+                    alphas = np.linspace(0.0, 1.0, n_sub)
+                    sub_pts = np.column_stack([
+                        p_a[0] + alphas * (p_b[0] - p_a[0]),
+                        p_a[1] + alphas * (p_b[1] - p_a[1]),
+                    ])
+                    if not bool(np.all(drivable_fn(sub_pts, margin=0.05))):
+                        segs_ok = False
+                        break
+                if not segs_ok:
+                    continue
             return np.asarray(new_path, dtype=float), float(delta)
 
     return None, 0.0
@@ -630,9 +650,14 @@ class RouteFollower:
                 obs_ahead = None
 
         if obs_ahead is not None:
-            shifted = self.apply_lateral_offset(
-                self.active_path, obs_ahead, curr_progress, all_obstacles=parsed_obstacles
-            )
+            # На уже перепланированном A* маршруте не накладывать боковое смещение:
+            # траектория огибания уже построена по свободной сетке, боковой сдвиг
+            # искривленной полилинии срезает границы проезда.
+            shifted = None
+            if self.note != "replan":
+                shifted = self.apply_lateral_offset(
+                    self.active_path, obs_ahead, curr_progress, all_obstacles=parsed_obstacles
+                )
             if shifted is not None:
                 self.active_path = shifted
                 self.note = "offset dy=%.1f" % self.last_offset_dy

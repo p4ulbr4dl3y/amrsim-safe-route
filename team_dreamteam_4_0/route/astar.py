@@ -81,13 +81,11 @@ def astar_search(
     obstacles: Optional[List[Tuple[float, float, float]]] = None,
     drivable_fn: Optional[Callable[..., Any]] = None,
 ) -> Optional[List[List[float]]]:
-    """Вычислить путь между началом и целью методом A* по сетке с последующим спрямлением.
+    """Поиск пути на 8-связной сетке A* со спрямлением лучами видимости:
 
-    Перепланирование маршрута по сетке 0.5 м для сценария s3_blocked_corridor:
-    - дискретизация пространства: регулярная сетка проходимости с шагом 0.5 м;
-    - статические и динамические препятствия: проверка свободности ячеек с запасом безопасности;
-    - эвристический поиск: оптимальный поиск пути на 8-связной сетке с евклидовой эвристикой;
-    - сглаживание отрезков: спрямление траектории проверкой прямой видимости без задевания стен.
+    - евклидова эвристика с шагом сетки 0.5 м;
+    - запас проходимости до статических и динамических препятствий 1.25 м;
+    - жадное сглаживание по прямой видимости с контролем границ проезда.
     """
     obs_circles = obstacles or []
     ny, nx = static_free_grid.shape
@@ -179,7 +177,10 @@ def astar_search(
         shortcutted.append(coords[furthest])
         i = furthest
 
-    return [[round(x, 2), round(y, 2)] for x, y in shortcutted]
+    safe_pts = [p for p in shortcutted if bool(drivable_fn(p[0], p[1], margin=0.0))]
+    if len(safe_pts) < 2:
+        return None
+    return [[round(x, 2), round(y, 2)] for x, y in safe_pts]
 
 
 def replan_astar(
@@ -250,6 +251,10 @@ def replan_astar(
 
     suffix = [path[j] for j in range(len(path)) if cum_lens[j] > s_goal]
     new_path = bypass + suffix
+    if drivable_fn is not None:
+        new_path = [p for p in new_path if bool(drivable_fn(p[0], p[1], margin=0.0))]
+        if len(new_path) < 2:
+            return None
     return np.asarray(new_path, dtype=float)
 
 

@@ -390,6 +390,11 @@ def test_alternatives_has_no_unsubstantiated_claims():
         assert banned not in alternatives, f"Found unverified claim '{banned}' in ALTERNATIVES.md"
     assert "1.1-3.9 мс" in alternatives
     assert "205.4 мс" in alternatives
+    # 0.25 м - порог отсечки инлайнеров, а не порог функции Хубера (0.08 м)
+    assert "функцией потерь Хубера (порог 0.25" not in alternatives
+    assert "функция потерь Хубера с порогом перехода" in alternatives
+    assert "0.08" in alternatives
+
 
 
 

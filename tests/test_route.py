@@ -984,6 +984,24 @@ class TestRouteDefectFixes(unittest.TestCase):
         self.assertIsInstance(grid3, np.ndarray)
         self.assertTrue(np.any(grid3))
 
+    def test_s2_container_block_replan_stays_in_drivable(self):
+        """O4: s2_container_block seed 42 replanning keeps robot center strictly inside drivable."""
+        import sys
+        from pathlib import Path
+
+        sim_dir = str(Path(__file__).resolve().parent.parent / "amrsim-participants")
+        if sim_dir not in sys.path:
+            sys.path.insert(0, sim_dir)
+        from amrsim.runner import run_scenario
+
+        sc_path = str(Path(__file__).resolve().parent.parent / "scenarios" / "s2_container_block.json")
+        ctrl_path = str(Path(__file__).resolve().parent.parent / "team_dreamteam_4_0" / "controller.py")
+
+        res = run_scenario(sc_path, seed=42, controller_path=ctrl_path)
+        self.assertEqual(res["score"]["blocks"]["rules"], 10.0)
+        self.assertEqual(res["score"]["total"], 100.0)
+        self.assertEqual(res["score"]["episodes"], [])
+
 
 if __name__ == "__main__":
     unittest.main()
