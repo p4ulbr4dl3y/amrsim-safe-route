@@ -8,7 +8,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .grid import cell_to_coord, coord_to_cell, find_nearest_free_cell, is_clear_of_obstacles, is_line_free
+from .grid import (
+    cell_to_coord,
+    coord_to_cell,
+    find_nearest_free_cell,
+    is_clear_of_obstacles,
+    is_line_free,
+)
 
 
 class _PriorityQueue:

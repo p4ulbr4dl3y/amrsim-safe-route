@@ -32,8 +32,8 @@ describe('RunnerPage Component', () => {
     expect(detailedLogCheck.checked).toBe(true);
     expect(cheatPoseCheck.checked).toBe(false);
 
-    // Initial terminal lines
-    expect(screen.getByText(/Simulation finished with exit code 0/i)).toBeTruthy();
+    // Initial terminal waiting placeholder
+    expect(screen.getByText(/Терминал ожидает запуска симуляции/i)).toBeTruthy();
   });
 
   it('uses scenario from queryParams if provided', async () => {
@@ -62,7 +62,7 @@ describe('RunnerPage Component', () => {
     render(<RunnerPage onNavigate={onNavigateMock} />);
 
     // Change controller
-    const controllerSelect = screen.getByDisplayValue(/backend\/controller\.py/i);
+    const controllerSelect = screen.getByDisplayValue(/team_dreamteam_4_0\/controller\.py/i);
     fireEvent.change(controllerSelect, { target: { value: 'team/controller.py' } });
     expect((controllerSelect as HTMLSelectElement).value).toBe('team/controller.py');
 
@@ -115,7 +115,7 @@ describe('RunnerPage Component', () => {
     await waitFor(() => {
       expect(runSpy).toHaveBeenCalledWith({
         scenario: '04_busy_yard',
-        controller: 'backend/controller.py',
+        controller: 'team_dreamteam_4_0/controller.py',
         seed: 7,
         cheatPose: false,
       });

@@ -226,12 +226,13 @@ def get_scenario_log_path(scenario_id: str) -> Path | None:
         # Собственные сценарии: логи в сдаче, чтобы подпись миссии бралась из своего лога
         ROOT_DIR / "results" / "own_scenarios" / "logs" / f"{norm_id}.jsonl",
         ROOT_DIR / "amrsim-participants" / "samples" / f"{norm_id}.jsonl",
-        # Использование образцов 01_clear.jsonl или 04_busy_yard.jsonl, если лог тактов еще не сформирован
-        ROOT_DIR / "amrsim-participants" / "samples" / "04_busy_yard.jsonl",
     ]
     for p in candidates:
         if p.exists():
             return p
+    if norm_id in ("01e_clear_easy", "02e_gnss_shadow_easy"):
+        base_id = "01_clear" if "01" in norm_id else "02_gnss_shadow"
+        return get_scenario_log_path(base_id)
     return None
 
 

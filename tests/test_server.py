@@ -428,6 +428,11 @@ def test_get_scenario_log_path_none(tmp_path, monkeypatch):
     assert server.get_scenario_log_path("missing") is None
 
 
+def test_get_scenario_log_path_unknown_returns_none_without_mock():
+    """Неизвестный сценарий возвращает None и не подставляет чужой образец 04_busy_yard."""
+    assert server.get_scenario_log_path("totally_unknown_scenario_xyz") is None
+
+
 def test_run_simulation_missing_scen():
     from server import run_simulation
 

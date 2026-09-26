@@ -15,6 +15,7 @@ from team_dreamteam_4_0.safety import (
     SLOW_PERSON_MIN_PTS,
     SafetyGovernor,
     calculate_clearance,
+    cbf_velocity_limit,
     determine_status,
     predict_ttc_clearance,
 )
@@ -827,6 +828,59 @@ class TestSafety(unittest.TestCase):
         self.assertEqual(v_stop, 0.0)
         self.assertEqual(status_stop, "waiting")
 
+    def test_cbf_velocity_limit_analytical(self):
+        # 1. d <= d_min (0.5 м для пешехода, 0.3 м для статики) -> v = 0
+        self.assertEqual(cbf_velocity_limit(d=0.5, v_obs=0.0, is_pedestrian=True), 0.0)
+        self.assertEqual(cbf_velocity_limit(d=0.4, v_obs=0.0, is_pedestrian=True), 0.0)
+        self.assertEqual(cbf_velocity_limit(d=0.3, v_obs=0.0, is_pedestrian=False), 0.0)
+        self.assertEqual(cbf_velocity_limit(d=0.2, v_obs=0.0, is_pedestrian=False), 0.0)
+
+        # 2. Пешеход при d = 1.0 м (< 3.0 м):
+        # h = 1.0 - 0.5 = 0.5 м, v_cbf = 0.0 + 0.5 * 0.5 = 0.25 м/с.
+        # Гладкое замедление: u = (1.0 - 0.5)/(3.0 - 0.5) = 0.2.
+        # S(0.2) = 0.04 * (3 - 0.4) = 0.104, v_smooth = 0.28 * 0.104 = 0.02912 м/с.
+        # v <= min(0.25, 0.02912) <= 0.28.
+        v_ped_1m = cbf_velocity_limit(d=1.0, v_obs=0.0, is_pedestrian=True)
+        self.assertLessEqual(v_ped_1m, 0.28)
+        self.assertGreater(v_ped_1m, 0.0)
+
+        # 3. Пешеход на границе d = 3.0 м: v_smooth ровно 0.28 м/с
+        v_ped_3m = cbf_velocity_limit(d=3.0, v_obs=0.0, is_pedestrian=True)
+        self.assertAlmostEqual(v_ped_3m, 0.28, places=4)
+
+        # 4. Движущееся препятствие v_obs: v <= v_obs + alpha * (d - d_min)
+        # Статический объект при d = 2.0 м, d_min = 0.3 м, alpha = 0.5:
+        # v_cbf = 0.0 + 0.5 * (2.0 - 0.3) = 0.85 м/с.
+        v_static_2m = cbf_velocity_limit(d=2.0, v_obs=0.0, is_pedestrian=False)
+        self.assertAlmostEqual(v_static_2m, 0.85, places=4)
+
+        # Объект удаляется со скоростью 0.5 м/с:
+        # v_cbf = 0.5 + 0.5 * (2.0 - 0.3) = 1.35 м/с.
+        v_moving_away = cbf_velocity_limit(d=2.0, v_obs=0.5, is_pedestrian=False)
+        self.assertAlmostEqual(v_moving_away, 1.35, places=4)
+
+    def test_cbf_integration_in_safety_governor(self):
+        # Пешеход прямо по курсу движения (ahead) на дистанции 2.0 м (clearance = 2.0 - 1.2 = 0.8 м):
+        # CBF фильтр должен гладко ограничить скорость ниже 0.28 м/с
+        tr = Track(track_id=42, ox=2.0, oy=0.0)
+        tr.pts = np.array([[2.0, 0.0]])
+        tr.class_label = "pedestrian"
+        tr.dyn = True
+
+        v_safe, _, status, note = self.gov.evaluate(
+            v_cand=1.39,
+            w_cand=0.0,
+            v_odom=0.3,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[tr],
+            ranges=np.full(360, 20.0),
+            rel_angles=np.radians(np.arange(360)),
+            zones=[],
+        )
+        self.assertLessEqual(v_safe, 0.28)
+
 
 class TestSafetyEdgeCases(unittest.TestCase):
     def test_determine_status_slowed_stationary(self):
@@ -1000,27 +1054,6 @@ class TestSafetyEdgeCases(unittest.TestCase):
         self.assertEqual(st_c, "estop")
         self.assertEqual(v_c, 0.0)
         self.assertEqual(w_c, 0.0)
-
-    def test_import_fallback(self):
-        import sys
-
-        mod_name = "team.safety"
-        if mod_name in sys.modules:
-            orig = sys.modules[mod_name]
-            try:
-                with open("/Users/yegor/doc-1790342627/team/safety.py", "r") as f:
-                    code = f.read()
-                globs = {
-                    "__name__": "__main__",
-                    "__file__": "/Users/yegor/doc-1790342627/team/safety.py",
-                    "__package__": "",
-                }
-                team_path = "/Users/yegor/doc-1790342627/team"
-                if team_path not in sys.path:
-                    sys.path.insert(0, team_path)
-                exec(compile(code, "/Users/yegor/doc-1790342627/team/safety.py", "exec"), globs)
-            finally:
-                sys.modules[mod_name] = orig
 
 
 if __name__ == "__main__":

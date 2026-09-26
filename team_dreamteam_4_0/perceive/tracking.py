@@ -108,8 +108,8 @@ class KalmanFilter2D:
         S = self.H @ self.cov @ self.H.T + self.R
         K = self.cov @ self.H.T @ np.linalg.inv(S)
         self.state = self.state + K @ y
-        I = np.eye(4)
-        self.cov = (I - K @ self.H) @ self.cov
+        eye4 = np.eye(4)
+        self.cov = (eye4 - K @ self.H) @ self.cov
         return self.state
 
 

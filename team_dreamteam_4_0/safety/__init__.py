@@ -5,6 +5,11 @@
 """
 
 from .clearance import (
+    CBF_ALPHA,
+    CBF_D_MIN_PED,
+    CBF_D_MIN_STATIC,
+    CBF_SMOOTH_RANGE,
+    CBF_SMOOTH_V_MAX,
     DECEL_NORMAL,
     DT,
     ESTOP_GAP,
@@ -21,6 +26,7 @@ from .clearance import (
     STOP_PREDICT_WITH_CANDIDATE,
     V_MAX_DEFAULT,
     calculate_clearance,
+    cbf_velocity_limit,
     predict_ttc_clearance,
 )
 from .governor import SafetyGovernor
@@ -42,6 +48,12 @@ __all__ = [
     "STOP_GAP",
     "STATIC_OBJECT_NEAR_GAP",
     "ESTOP_GAP",
+    "CBF_ALPHA",
+    "CBF_D_MIN_PED",
+    "CBF_D_MIN_STATIC",
+    "CBF_SMOOTH_RANGE",
+    "CBF_SMOOTH_V_MAX",
+    "cbf_velocity_limit",
     "calculate_clearance",
     "predict_ttc_clearance",
     "determine_status",

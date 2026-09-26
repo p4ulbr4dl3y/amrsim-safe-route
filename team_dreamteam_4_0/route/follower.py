@@ -9,11 +9,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 try:
-    from ..geom import box_segs, inside_polygon, wrap_angle
+    from ..geom import box_segs, wrap_angle
 except (ImportError, ValueError):
-    from geom import box_segs, inside_polygon, wrap_angle
+    from geom import box_segs, wrap_angle
 
-from .astar import _PriorityQueue, astar_search, replan_astar
+from .astar import astar_search, replan_astar
 from .grid import (
     build_static_free_grid,
     cell_to_coord,
@@ -25,7 +25,13 @@ from .grid import (
     lateral_clearance,
     parse_obstacles,
 )
-from .pure_pursuit import check_speed_zones, compute_pure_pursuit_cmd, get_path_progress
+from .pure_pursuit import (
+    check_speed_zones,
+    compute_curvature_speed_limit,
+    compute_pure_pursuit_cmd,
+    compute_stanley_cmd,
+    get_path_progress,
+)
 
 
 def check_obstacles_in_tube(
@@ -209,6 +215,8 @@ class RouteFollower:
         self.time_left: Optional[float] = None
         self.final_approach: bool = False
         self.last_offset_dy: float = 0.0
+        self.last_w: float = 0.0
+        self.a_lat_max: float = float(self.config.get("a_lat_max", 0.85))
 
     def _parse_map(self, m: Dict[str, Any]) -> None:
         if "drivable" in m:
@@ -302,6 +310,7 @@ class RouteFollower:
         self.note = None
         self.last_replan_t = -10.0
         self.last_offset_dy = 0.0
+        self.last_w = 0.0
 
         t_start = mission.get("t_start")
         self.t_start = float(t_start) if t_start is not None else None
@@ -455,11 +464,38 @@ class RouteFollower:
             drivable_fn=self.is_drivable,
         )
 
+    def compute_curvature_speed_limit(
+        self,
+        alpha: float,
+        lookahead_dist: float,
+        a_lat_max: Optional[float] = None,
+        v_nominal: float = 1.39,
+    ) -> float:
+        """Рассчитать предельную скорость по боковому ускорению в дуге."""
+        limit_a = self.a_lat_max if a_lat_max is None else a_lat_max
+        return compute_curvature_speed_limit(
+            alpha, lookahead_dist, a_lat_max=limit_a, v_nominal=v_nominal
+        )
+
     def pure_pursuit(
         self, pose: Tuple[float, float, float], path: np.ndarray, v_max: float = 1.39
     ) -> Tuple[float, float, Tuple[float, float], float, float]:
         v, w, target_pt, curr_s, rem_dist = compute_pure_pursuit_cmd(
-            pose, path, last_s=self.last_s, v_max=v_max
+            pose, path, last_s=self.last_s, v_max=v_max, a_lat_max=self.a_lat_max
+        )
+        self.last_s = curr_s
+        return v, w, target_pt, curr_s, rem_dist
+
+    def stanley(
+        self,
+        pose: Tuple[float, float, float],
+        path: np.ndarray,
+        v_max: float = 1.39,
+        k_e: float = 1.5,
+        k_soft: float = 0.5,
+    ) -> Tuple[float, float, Tuple[float, float], float, float]:
+        v, w, target_pt, curr_s, rem_dist = compute_stanley_cmd(
+            pose, path, last_s=self.last_s, v_max=v_max, k_e=k_e, k_soft=k_soft, a_lat_max=self.a_lat_max
         )
         self.last_s = curr_s
         return v, w, target_pt, curr_s, rem_dist

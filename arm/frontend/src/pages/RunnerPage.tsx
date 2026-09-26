@@ -13,7 +13,7 @@ interface RunnerPageProps {
 export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams }) => {
   const [scenario, setScenario] = useState(queryParams?.scenario || '04_busy_yard');
   const [scenarios, setScenarios] = useState<ScenarioItem[]>([]);
-  const [controller, setController] = useState('backend/controller.py');
+  const [controller, setController] = useState('team_dreamteam_4_0/controller.py');
   const [seed, setSeed] = useState(7);
   const [genReport, setGenReport] = useState(true);
   const [detailedLog, setDetailedLog] = useState(true);
@@ -21,21 +21,10 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
 
   // Состояние выполнения
   const [isRunning, setIsRunning] = useState(false);
-  const [progress, setProgress] = useState(100);
-  const [isCompleted, setIsCompleted] = useState(true);
-  const [finalScore, setFinalScore] = useState<number | null>(98.18);
-  const [outputLogs, setOutputLogs] = useState<string[]>([
-    '$ python -m amrsim run amrsim-participants/scenarios/04_busy_yard.json --controller backend/controller.py --seed 7 --report out/04_busy_yard.json --log out/04_busy_yard.jsonl',
-    '',
-    '[INFO] Loading scenario: 04_busy_yard',
-    '[INFO] Loading controller: backend/controller.py',
-    '[INFO] Setting seed: 7',
-    '[INFO] Simulation initialized successfully',
-    '[INFO] Running controller in strict sandbox mode (numpy + standard library only)...',
-    '',
-    '[SUCCESS] Simulation finished with exit code 0',
-    '[SCORE] Final score: 98.18 / 100 (counted: true)',
-  ]);
+  const [progress, setProgress] = useState(0);
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [finalScore, setFinalScore] = useState<number | null>(null);
+  const [outputLogs, setOutputLogs] = useState<string[]>([]);
 
   // Загрузка сценариев при монтировании
   useEffect(() => {
@@ -177,7 +166,10 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
                   onChange={(e) => setController(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-2.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                 >
-                  <option value="backend/controller.py">backend/controller.py (Командный)</option>
+                  <option value="team_dreamteam_4_0/controller.py">
+                    team_dreamteam_4_0/controller.py (Командный)
+                  </option>
+                  <option value="backend/controller.py">backend/controller.py (Алиас)</option>
                   <option value="team/controller.py">team/controller.py (Алиас)</option>
                   <option value="amrsim-participants/baseline/controller.py">
                     amrsim-participants/baseline/controller.py (Базовый)
@@ -263,7 +255,12 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
           </div>
 
           <div className="flex-1 bg-slate-900 border border-slate-800 rounded-lg p-4 font-mono text-xs text-slate-200 overflow-y-auto max-h-[420px] space-y-1">
-            {outputLogs.map((line, idx) => {
+            {outputLogs.length === 0 ? (
+              <div className="text-slate-500 italic select-none py-2">
+                Терминал ожидает запуска симуляции...
+              </div>
+            ) : (
+              outputLogs.map((line, idx) => {
               const isCommand = line.startsWith('$');
               const isSuccess = line.startsWith('[SUCCESS]') || line.startsWith('[SCORE]');
               const isError = line.startsWith('[ERROR]');
@@ -287,7 +284,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({ onNavigate, queryParams 
                   {line}
                 </div>
               );
-            })}
+            }))}
           </div>
         </div>
       </div>

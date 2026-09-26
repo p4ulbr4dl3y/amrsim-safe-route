@@ -1041,6 +1041,80 @@ class TestPerceiveCoverage(unittest.TestCase):
         self.assertEqual(len(perc.tracks), 2)
         self.assertTrue(all(tr.class_label == "pedestrian" for tr in perc.tracks))
 
+    def test_map_discrepancy_ghost_wall_detection(self):
+        """Детекция снесенной стены карты (ghost wall / map_missing).
+
+        Если луч лидара должен был пересечь стену карты на r_expected, но пролетел
+        насквозь (r_measured > r_expected + 1.2 м) стабильно на протяжении N тиков,
+        стена помечается как отсутствующая и исключается из набора сегментов.
+        """
+        demolished = np.array([[5.0, -3.0, 5.0, 3.0]])
+        back_wall = np.array([[15.0, -5.0, 15.0, 5.0]])
+        segs = np.vstack([demolished, back_wall])
+        rel_angles = np.radians(np.arange(360))
+        ranges = raycast(0.0, 0.0, rel_angles, back_wall)
+
+        perc = Perception(dt=0.1)
+        self.assertEqual(len(perc.removed_segment_ids), 0)
+
+        for _ in range(25):
+            perc.step(
+                ranges=ranges,
+                rel_angles=rel_angles,
+                pose=(0.0, 0.0, 0.0),
+                odom_pose=(0.0, 0.0, 0.0),
+                map_segs=segs,
+                sigma_pose=0.0,
+                is_fog=False,
+                v_odom=0.0,
+                scan_inliers=50,
+            )
+
+        self.assertIn(0, perc.removed_segment_ids)
+        self.assertEqual(perc.note, "map_missing")
+
+    def test_map_discrepancy_added_static_obstacle_detection(self):
+        """Детекция неучтенного статического препятствия (added obstacle / map_extra).
+
+        Если подтвержденный кластер лидара неподвижен и не совпадает со стенами карты,
+        он классифицируется как статический объект / wall_extra и попадает в extra obstacles.
+        """
+        room = np.array([[-10.0, -10.0], [10.0, -10.0], [10.0, 10.0], [-10.0, 10.0]])
+        segs = box_segs(room)
+        rel_angles = np.radians(np.arange(360))
+        ranges = raycast(0.0, 0.0, rel_angles, segs)
+
+        # Добавляем препятствие (контейнер/поддон) на 3 метрах спереди (лучи 355..5)
+        for b in list(range(355, 360)) + list(range(0, 6)):
+            ranges[b] = 3.0
+
+        perc = Perception(dt=0.1)
+        for _ in range(25):
+            perc.step(
+                ranges=ranges,
+                rel_angles=rel_angles,
+                pose=(0.0, 0.0, 0.0),
+                odom_pose=(0.0, 0.0, 0.0),
+                map_segs=segs,
+                sigma_pose=0.0,
+                is_fog=False,
+                v_odom=0.0,
+                scan_inliers=50,
+            )
+
+        # Препятствие зафиксировано в треках
+        active = perc.active_tracks
+        self.assertGreaterEqual(len(active), 1)
+        obs_tr = active[0]
+        self.assertTrue(obs_tr.is_static_object or obs_tr.is_wall)
+        self.assertFalse(obs_tr.is_pedestrian)
+
+        # Зафиксировано как дополнительное препятствие
+        extras = perc.get_extra_obstacles()
+        self.assertGreaterEqual(len(extras), 1)
+        self.assertAlmostEqual(extras[0][0], 3.0, delta=0.5)
+
 
 if __name__ == "__main__":
     unittest.main()
+

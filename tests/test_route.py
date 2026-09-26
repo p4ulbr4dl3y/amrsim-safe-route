@@ -13,7 +13,15 @@ import unittest
 import numpy as np
 
 from team_dreamteam_4_0.geom import inside_polygon
-from team_dreamteam_4_0.route import Planner, RouteFollower
+from team_dreamteam_4_0.route import (
+    Planner,
+    QuinticSpline1D,
+    RouteFollower,
+    compute_cross_track_error,
+    compute_curvature_speed_limit,
+    compute_stanley_cmd,
+    smooth_yaw_rate_quintic,
+)
 
 
 def load_test_map():
@@ -159,17 +167,59 @@ class TestRouteFollower(unittest.TestCase):
         self.assertLessEqual(abs(w), 0.8)
         self.assertLess(w, 0.0)  # should rotate clockwise (negative)
 
-        # 2. Turning speed limit: |alpha| > 0.35 rad -> v <= 0.5 m/s
+        # 2. Curvature speed limit: a_lat = v^2 * |kappa| <= a_lat_max
         pose_turn = (100.0, 151.0, 0.5)  # alpha = -0.5 rad
         v_turn, w_turn, tgt_turn, _, _ = self.rf.pure_pursuit(pose_turn, straight_path)
-        self.assertLessEqual(v_turn, 0.5)
-        self.assertGreater(v_turn, 0.0)
+        self.assertLess(v_turn, 1.39)
+        self.assertGreater(v_turn, 0.5)
+        # Verify lateral acceleration does not exceed a_lat_max (0.85 m/s^2)
+        kappa = 2.0 * math.sin(0.5) / 1.5
+        expected_v = math.sqrt(0.85 / kappa)
+        self.assertAlmostEqual(v_turn, expected_v, places=3)
+        self.assertLessEqual(v_turn**2 * kappa, 0.85 + 1e-5)
 
         # 3. Straight course -> nominal speed (up to v_max)
         pose_str = (100.0, 151.0, 0.0)
         v_str, w_str, _, _, _ = self.rf.pure_pursuit(pose_str, straight_path)
         self.assertGreater(v_str, 1.0)
         self.assertAlmostEqual(w_str, 0.0, delta=1e-3)
+
+    def test_curvature_optimal_speed_profile(self):
+        """Регрессионный тест: непрерывный профиль скорости по боковому ускорению a_lat."""
+        # 1. Прямолинейное движение (alpha = 0): скорость номинальная 1.39 м/с
+        v0 = compute_curvature_speed_limit(0.0, 1.5, a_lat_max=0.85, v_nominal=1.39)
+        self.assertAlmostEqual(v0, 1.39)
+
+        # 2. Плавный изгиб (alpha = 0.2 рад): a_lat = v^2 * kappa < a_lat_max -> 1.39 м/с
+        v_gentle = compute_curvature_speed_limit(0.2, 1.5, a_lat_max=0.85, v_nominal=1.39)
+        self.assertAlmostEqual(v_gentle, 1.39)
+
+        # 3. Средняя кривизна (alpha = 0.5 рад, lookahead = 1.5 м):
+        # kappa = 2 * sin(0.5) / 1.5 ~ 0.6392 м^-1
+        # v_curve = sqrt(0.85 / 0.6392) ~ 1.153 м/с
+        v_curve = compute_curvature_speed_limit(0.5, 1.5, a_lat_max=0.85, v_nominal=1.39)
+        self.assertAlmostEqual(v_curve, 1.153, places=3)
+        self.assertLess(v_curve, 1.39)
+        a_lat = v_curve**2 * (2.0 * math.sin(0.5) / 1.5)
+        self.assertLessEqual(a_lat, 0.85 + 1e-6)
+
+        # 4. Крутой поворот (alpha = 0.8 рад):
+        # kappa = 2 * sin(0.8) / 1.5 ~ 0.9565 м^-1
+        # v_curve = sqrt(0.85 / 0.9565) ~ 0.943 м/с
+        v_sharp = compute_curvature_speed_limit(0.8, 1.5, a_lat_max=0.85, v_nominal=1.39)
+        self.assertAlmostEqual(v_sharp, 0.943, places=3)
+        self.assertLess(v_sharp, v_curve)
+
+        # 5. Разворот на месте при |alpha| > 0.85 рад в pure_pursuit
+        straight_path = np.array([[0.0, 0.0], [10.0, 0.0]])
+        pose_pivot = (0.0, 0.0, 1.0)  # alpha = -1.0 rad (|alpha| > 0.85)
+        v_piv, w_piv, _, _, _ = self.rf.pure_pursuit(pose_pivot, straight_path)
+        self.assertEqual(v_piv, 0.0)
+        self.assertNotEqual(w_piv, 0.0)
+
+        # 6. Метод на RouteFollower с переопределением a_lat_max
+        v_custom = self.rf.compute_curvature_speed_limit(0.5, 1.5, a_lat_max=0.7)
+        self.assertAlmostEqual(v_custom, math.sqrt(0.7 / (2.0 * math.sin(0.5) / 1.5)), places=3)
 
     def test_pure_pursuit_braking_and_dock(self):
         dock_path = np.array(
@@ -527,6 +577,86 @@ class TestRouteCoverage(unittest.TestCase):
                 exec(compile(code, "/Users/yegor/doc-1790342627/team/route.py", "exec"), globs)
             finally:
                 sys.modules[mod_name] = orig
+
+
+    def test_stanley_controller_tracking(self):
+        rf = RouteFollower(load_test_map())
+        straight_path = np.array(
+            [
+                [100.0, 151.0],
+                [150.0, 151.0],
+                [200.0, 151.0],
+            ]
+        )
+        # 1. On path, heading aligned -> cross error 0, w ~ 0
+        v, w, tgt, curr_s, rem_dist = rf.stanley((100.0, 151.0, 0.0), straight_path)
+        self.assertGreater(v, 1.0)
+        self.assertAlmostEqual(w, 0.0, delta=1e-3)
+
+        # 2. Offset to the left (y = 151.3 > 151.0) -> steer clockwise (negative w)
+        v_l, w_l, _, _, _ = rf.stanley((100.0, 151.3, 0.0), straight_path)
+        self.assertLess(w_l, -0.1)
+
+        # 3. Offset to the right (y = 150.7 < 151.0) -> steer counter-clockwise (positive w)
+        v_r, w_r, _, _, _ = rf.stanley((100.0, 150.7, 0.0), straight_path)
+        self.assertGreater(w_r, 0.1)
+
+        # 4. Heading error positive -> negative corrective steering
+        v_h, w_h, _, _, _ = rf.stanley((100.0, 151.0, 0.1), straight_path)
+        self.assertLess(w_h, 0.0)
+
+        # 5. Direct standalone compute_stanley_cmd call
+        v_s, w_s, tgt_s, curr_s_s, rem_s = compute_stanley_cmd((100.0, 151.0, 0.0), straight_path)
+        self.assertGreater(v_s, 1.0)
+        self.assertAlmostEqual(w_s, 0.0, delta=1e-3)
+
+        # 6. Cross-track computation directly
+        s, cross_e, th_e, idx = compute_cross_track_error(straight_path, 105.0, 151.4, 0.0)
+        self.assertAlmostEqual(s, 5.0)
+        self.assertAlmostEqual(cross_e, 0.4)
+        self.assertAlmostEqual(th_e, 0.0)
+
+    def test_quintic_spline_smoothing(self):
+        # Boundary condition validation
+        spline = QuinticSpline1D(x0=0.0, v0=0.0, a0=0.0, x1=1.0, v1=0.0, a1=0.0, duration=1.0)
+        self.assertAlmostEqual(spline.calc_point(0.0), 0.0)
+        self.assertAlmostEqual(spline.calc_point(1.0), 1.0)
+        self.assertAlmostEqual(spline.calc_first_derivative(0.0), 0.0)
+        self.assertAlmostEqual(spline.calc_first_derivative(1.0), 0.0)
+        self.assertAlmostEqual(spline.calc_second_derivative(0.0), 0.0)
+        self.assertAlmostEqual(spline.calc_second_derivative(1.0), 0.0)
+
+        # Intermediate smoothness: midpoint value for symmetric quintic is 0.5
+        self.assertAlmostEqual(spline.calc_point(0.5), 0.5)
+
+        # Test non-zero initial and terminal conditions:
+        spline_dyn = QuinticSpline1D(x0=1.0, v0=2.0, a0=3.0, x1=5.0, v1=-1.0, a1=0.5, duration=2.0)
+        self.assertAlmostEqual(spline_dyn.calc_point(0.0), 1.0)
+        self.assertAlmostEqual(spline_dyn.calc_point(2.0), 5.0)
+        self.assertAlmostEqual(spline_dyn.calc_first_derivative(0.0), 2.0)
+        self.assertAlmostEqual(spline_dyn.calc_first_derivative(2.0), -1.0)
+        self.assertAlmostEqual(spline_dyn.calc_second_derivative(0.0), 3.0)
+        self.assertAlmostEqual(spline_dyn.calc_second_derivative(2.0), 0.5)
+
+        # Function smooth_yaw_rate_quintic limits abrupt jump
+        w_smooth = smooth_yaw_rate_quintic(w_curr=0.0, w_target=1.0, dt=0.1, horizon_s=0.3)
+        self.assertGreater(w_smooth, 0.0)
+        self.assertLess(w_smooth, 0.5)  # significantly smoothed compared to raw jump 1.0
+
+    def test_compute_cross_track_error_degenerate_paths(self):
+        # Empty path
+        s, cross_e, th_e, idx = compute_cross_track_error(np.empty((0, 2)), 10.0, 20.0, 0.0, last_s=3.5)
+        self.assertEqual(s, 3.5)
+        self.assertEqual(cross_e, 0.0)
+        self.assertEqual(th_e, 0.0)
+        self.assertEqual(idx, 0)
+
+        # Single point path
+        s1, cross_e1, th_e1, idx1 = compute_cross_track_error(np.array([[10.0, 20.0]]), 10.0, 20.0, 0.0, last_s=5.0)
+        self.assertEqual(s1, 5.0)
+        self.assertEqual(cross_e1, 0.0)
+        self.assertEqual(th_e1, 0.0)
+        self.assertEqual(idx1, 0)
 
 
 if __name__ == "__main__":

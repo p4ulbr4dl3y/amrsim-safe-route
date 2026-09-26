@@ -43,6 +43,65 @@ STOP_GAP = 0.8  # Текущий или прогнозируемый зазор,
 STATIC_OBJECT_NEAR_GAP = 1.5
 ESTOP_GAP = 1.2  # Дистанция подтвержденного кластера для экстренного торможения
 
+# Параметры CBF (Control Barrier Functions)
+CBF_ALPHA = 0.5  # Коэффициент K-функции гамма(h) = alpha * h
+CBF_D_MIN_PED = 0.5  # Защитный буфер для пешеходов (м)
+CBF_D_MIN_STATIC = 0.3  # Защитный буфер для статических объектов (м)
+CBF_SMOOTH_RANGE = 3.0  # Дистанция начала гладкого замедления (м)
+CBF_SMOOTH_V_MAX = 0.28  # Максимальная скорость по нормативу ТЗ при d < 3.0 м (1 км/ч = 0.278 м/с)
+
+
+def cbf_velocity_limit(
+    d: float,
+    v_obs: float = 0.0,
+    is_pedestrian: bool = True,
+    alpha: float = CBF_ALPHA,
+) -> float:
+    """Аналитический CBF-фильтр (Control Barrier Function QP filter) для ограничения скорости.
+
+    Функция барьера безопасности: h(x) = d - d_min.
+    Условие инвариантности безопасности Нагумо: dot{h} >= -gamma(h), gamma(h) = alpha * h.
+    При dot{h} approx -(v - v_obs) получаем: v <= v_obs + alpha * (d - d_min).
+
+    Нормативное плавное замедление ТЗ:
+    - при d < 0.5 м -> v = 0 (полная остановка);
+    - при d < 3.0 м -> v <= 0.28 м/с (1 км/ч);
+    - переход без рывков по ускорению.
+
+    Аргументы:
+      d: расстояние до препятствия (честный зазор или дистанция);
+      v_obs: проекция скорости препятствия по курсу AMR;
+      is_pedestrian: признак пешехода / динамического объекта;
+      alpha: коэффициент K-функции Нагумо.
+
+    Возвращает:
+      максимально допустимую скорость v_max_cbf >= 0.0.
+    """
+    d_min = CBF_D_MIN_PED if is_pedestrian else CBF_D_MIN_STATIC
+    h = d - d_min
+    if h <= 0.0:
+        return 0.0
+
+    # Аналитический CBF предел скорости
+    v_cbf = max(0.0, float(v_obs + alpha * h))
+
+    # Нормативное гладкое замедление ТЗ для пешеходов/препятствий по курсу
+    if is_pedestrian:
+        if d <= CBF_D_MIN_PED:
+            v_smooth = 0.0
+        elif d <= CBF_SMOOTH_RANGE:
+            # Кубический сплайн гладкого перехода от 0 до CBF_SMOOTH_V_MAX:
+            # u in [0, 1], S(u) = 3*u^2 - 2*u^3, v_smooth = CBF_SMOOTH_V_MAX * S(u)
+            u = (d - CBF_D_MIN_PED) / (CBF_SMOOTH_RANGE - CBF_D_MIN_PED)
+            u_clamped = min(1.0, max(0.0, u))
+            s_u = u_clamped * u_clamped * (3.0 - 2.0 * u_clamped)
+            v_smooth = CBF_SMOOTH_V_MAX * s_u
+        else:
+            v_smooth = math.inf
+        return min(v_cbf, v_smooth)
+
+    return v_cbf
+
 
 def calculate_clearance(
     pts: np.ndarray,

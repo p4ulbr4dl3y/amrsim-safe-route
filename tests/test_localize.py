@@ -6,7 +6,12 @@ import unittest
 import numpy as np
 
 from team_dreamteam_4_0.geom import box_segs, raycast
-from team_dreamteam_4_0.localize import Localizer
+from team_dreamteam_4_0.localize import (
+    Localizer,
+    ScanMatcher,
+    match_scan_to_walls,
+    recover_grid_search,
+)
 
 ANGLES = np.radians(np.arange(360))
 
@@ -917,6 +922,84 @@ class TestLocalizeCoverage(unittest.TestCase):
         self.assertAlmostEqual(loc.x, 10.25, delta=0.01)
         self.assertAlmostEqual(loc.y, 4.0, delta=0.01)
         self.assertAlmostEqual(loc.th, 0.0, delta=0.05)
+
+    def test_scan_matcher_lm_damped_single_wall(self):
+        """Диагональное демпфирование Левенберга-Марквардта предотвращает сингулярность при одной стене."""
+        wall = np.array([[0.0, 45.0, 200.0, 45.0]])
+        angles_rel = np.radians(np.arange(360))
+        ranges = raycast(100.0, 50.0, angles_rel, wall)
+
+        # Возмущение вдоль стены (dx=0.15 м) и поперек (dy=-0.12 м, dth=0.03 рад)
+        res = ScanMatcher.match(100.15, 49.88, 0.03, ranges, angles_rel, wall)
+
+        self.assertTrue(res.success)
+        # Поперечная ось и угол сошлись к стене
+        self.assertAlmostEqual(res.y, 50.0, delta=0.01)
+        self.assertAlmostEqual(res.th, 0.0, delta=0.01)
+        # Продольная неограниченная ось не улетает в бесконечность
+        self.assertAlmostEqual(res.x, 100.15, delta=0.01)
+
+    def test_scan_matcher_lm_adaptive_lambda(self):
+        """Адаптивный параметр lambda обеспечивает монотонную сходимость в угловой геометрии."""
+        wall_north = np.array([[0.0, 55.0, 200.0, 55.0]])
+        wall_south = np.array([[0.0, 45.0, 200.0, 45.0]])
+        wall_east = np.array([[115.0, 45.0, 115.0, 55.0]])
+        segs = np.vstack([wall_north, wall_south, wall_east])
+        angles_rel = np.radians(np.arange(360))
+        ranges = raycast(100.0, 50.0, angles_rel, segs)
+
+        res = match_scan_to_walls(100.15, 49.88, 0.03, ranges, angles_rel, segs)
+        self.assertTrue(res.success)
+        self.assertAlmostEqual(res.x, 100.0, delta=0.005)
+        self.assertAlmostEqual(res.y, 50.0, delta=0.005)
+        self.assertAlmostEqual(res.th, 0.0, delta=0.002)
+        self.assertGreater(res.inliers, 100)
+        self.assertLess(res.std, 0.01)
+
+    def test_hierarchical_csm_large_displacement_recovery(self):
+        """Пирамидальный поиск CSM обеспечивает захват позы с начальным смещением до 5 метров."""
+        poly = np.array(
+            [[0.0, 0.0], [25.0, 0.0], [25.0, 15.0], [10.0, 15.0], [10.0, 7.0], [0.0, 7.0]]
+        )
+        segs = box_segs(poly)
+        angles = np.radians(np.arange(360))
+        x_true, y_true, th_true = 5.0, 3.5, 0.05
+        ranges = raycast(x_true, y_true, angles + th_true, segs)
+
+        # Смещение на 4.5 м по X и 3.0 м по Y (евклидово расстояние ~5.4 м)
+        init_x = x_true + 4.0
+        init_y = y_true + 2.5
+        init_th = th_true - 0.10
+
+        loc = Localizer((init_x, init_y, init_th))
+        loc.is_lost = True
+        loc._unconfirmed_dist = 200.0
+
+        ok = loc.try_recover(ranges, angles, segs, stopped=True)
+        self.assertTrue(ok)
+        self.assertFalse(loc.is_lost)
+        # Субмиллиметровая точность после Уровня 2 (LM)
+        self.assertAlmostEqual(loc.x, x_true, delta=0.005)
+        self.assertAlmostEqual(loc.y, y_true, delta=0.005)
+        self.assertAlmostEqual(loc.th, th_true, delta=0.002)
+
+    def test_hierarchical_csm_fallback_when_lm_insufficient(self):
+        """Резервная ветка CSM срабатывает при недоборе инлайеров fine-стадии."""
+        poly = np.array(
+            [[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [8.0, 10.0], [8.0, 5.0], [0.0, 5.0]]
+        )
+        segs = box_segs(poly)
+        angles = np.radians(np.arange(360))
+        ranges = raycast(4.0, 2.5, angles, segs)
+
+        # Вызов recover_grid_search напрямую
+        res = recover_grid_search(4.5, 2.0, 0.0, ranges, angles, segs)
+        self.assertIsNotNone(res)
+        rx, ry, rth = res
+        self.assertAlmostEqual(rx, 4.0, delta=0.005)
+        self.assertAlmostEqual(ry, 2.5, delta=0.005)
+        self.assertAlmostEqual(rth, 0.0, delta=0.005)
+
 
     def test_import_fallback(self):
         import sys
