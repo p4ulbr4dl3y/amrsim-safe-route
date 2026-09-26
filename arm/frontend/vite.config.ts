@@ -15,6 +15,15 @@ export default defineConfig({
       }
     }
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          katex: ['katex'],
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

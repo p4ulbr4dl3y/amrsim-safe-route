@@ -650,7 +650,7 @@ def test_format_table_and_check_regressions_null_total():
 
 
 def test_resolve_scenario_path_anchored():
-    from scripts.eval import resolve_scenario_path, REPO_ROOT
+    from scripts.eval import REPO_ROOT, resolve_scenario_path
     p = resolve_scenario_path("01_clear")
     assert p.exists()
     assert p == REPO_ROOT / "amrsim-participants/scenarios/01_clear.json"
