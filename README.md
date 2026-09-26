@@ -9,6 +9,33 @@
 
 ---
 
+## Быстрая проверка за 60 секунд (Quickstart)
+
+Запуск верификации любым удобным способом:
+
+```bash
+# Способ 1: через Make (автоматически выбирает uv или стандартный python3):
+make verify          # проверка изоляции Т3, модульные тесты Т5 и линтер
+make sim             # запуск симуляции контрольного сценария 01_clear
+
+# Способ 2: стандартный pip и venv (без uv):
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+PYTHONPATH=amrsim-participants python -m amrsim check team_dreamteam_4_0
+pytest -v
+
+# Способ 3: через менеджер uv:
+uv sync
+PYTHONPATH=amrsim-participants uv run python -m amrsim check team_dreamteam_4_0
+uv run pytest -v
+```
+
+Веб-станция оператора АРМ (критерий О3):
+- онлайн без установки: **https://state3407.space/amr/**;
+- локальный запуск: `make arm` или `python arm/server.py --port 8000`.
+
+---
+
 ## 1. Проверка изоляции и окружения (Критерий Т3)
 
 По регламенту соревнований контроллер не использует внешних библиотек оптимизации, сетевых вызовов и записи на диск во время работы:
@@ -19,7 +46,7 @@
 ```bash
 uv sync
 ```
-*Либо через стандартный pip: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.*
+*Либо через стандартный pip: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements-dev.txt`.*
 
 ### Валидация правил изоляции пакета команды:
 ```bash
