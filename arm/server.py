@@ -169,6 +169,8 @@ def main() -> None:
         f"Сервер API АРМ Безопасный маршрут (SDUI) запущен: http://{args.host}:{args.port}"
     )
     print("Конечные точки интерфейса:")
+    print("  GET  /docs (Swagger UI документация)")
+    print("  GET  /api/openapi.json (OpenAPI 3.0 спецификация)")
     print("  GET  /api/scenarios")
     print("  GET  /api/ui/dashboard?scenario=<id>")
     print("  GET  /api/ui/replay?scenario=<id>&seed=<seed>")

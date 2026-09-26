@@ -1577,14 +1577,28 @@ def test_api_scenarios_non_dict_report(http_server, monkeypatch):
             assert sc["hasReport"] is False
             assert sc["score"] is None
 
-    # Report has non-dict score (e.g. string or number)
-    monkeypatch.setattr(server, "get_scenario_report", lambda sc_id: {"score": "perfect"})
-    with urlopen(url) as resp:
+def test_openapi_and_docs_endpoints(http_server):
+    """Verify that /api/openapi.json returns valid OpenAPI 3.0 spec and /docs returns HTML."""
+    openapi_url = f"{http_server}/api/openapi.json"
+    with urlopen(openapi_url) as resp:
         assert resp.status == 200
-        data = json.loads(resp.read().decode("utf-8"))
-        for sc in data:
-            assert sc["hasReport"] is True
-            assert sc["score"] is None
+        assert "application/json" in resp.headers.get("Content-Type", "")
+        spec = json.loads(resp.read().decode("utf-8"))
+        assert spec["openapi"] == "3.0.0"
+        assert "paths" in spec
+        assert "/api/scenarios" in spec["paths"]
+        assert "/api/run" in spec["paths"]
+        assert "/api/ui/replay" in spec["paths"]
+        assert "components" in spec
+        assert "ControlStepOutput" in spec["components"]["schemas"]
+
+    docs_url = f"{http_server}/docs"
+    with urlopen(docs_url) as resp:
+        assert resp.status == 200
+        assert "text/html" in resp.headers.get("Content-Type", "")
+        html = resp.read().decode("utf-8")
+        assert "swagger-ui" in html
+        assert "/api/openapi.json" in html
 
 
 

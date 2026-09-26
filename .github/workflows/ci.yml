@@ -101,3 +101,26 @@ jobs:
           curl -f http://localhost:8000/api/scenarios || exit 1
           docker stop test_arm
 
+  deploy:
+    name: Deploy to Production VPS
+    needs: [backend, frontend, docker]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /root/amrsim-safe-route
+            git pull origin main || true
+            docker build -t amrsim-arm:latest .
+            docker stop amr || true
+            docker rm amr || true
+            docker run -d --name amr --restart always -p 127.0.0.1:8012:8000 --memory=350m amrsim-arm:latest
+            docker image prune -f
+            curl -f http://127.0.0.1:8012/api/scenarios > /dev/null
+

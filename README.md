@@ -1,139 +1,135 @@
-# Безопасный маршрут — контроллер AMR (Dreamteam 4.0)
+# Безопасный маршрут - контроллер платформы Dreamteam 4.0
 
-Кейс «Безопасный маршрут»: автономная платформа возит грузы между складом,
-цехами A/B и зарядной по проездам и не должна задевать людей, предметы и стены —
-в том числе в тени ГНСС, тумане и снеге. Этот репозиторий — контроллер участника:
-каждый тик он получает `obs` (одометрия, IMU, лидар, ГНСС, миссия) и возвращает
-`v`, `w`, `status`, `pose_est`, `note` по схеме amr-1.0.
+Кейс «Безопасный маршрут»: автономная мобильная платформа перевозит грузы между складом, цехами и зарядной станцией по узким проездам без столкновений с людьми, препятствиями и стенами при любых помехах, включая тень ГНСС, туман и снег. Этот репозиторий содержит контроллер участника: каждый такт управления он принимает входные данные `obs` (состояние одометрии, показания гироскопа, лидарные дистанции, координаты ГНСС, параметры активной миссии) и возвращает словарь по схеме amr-1.0 с полями `v`, `w`, `status`, `pose_est`, `note`.
 
-Контроллер собран из модулей строго на стандартной библиотеке и numpy:
-`localize/` (скан-матч LM, ГНСС-гейт, калибровка масштаба, CSM lost recovery, dock-snap),
-`perceive/` (кластеры, трекинг Калмана с эвристиками Stop, map_missing и map_extra),
-`route/` (pure pursuit, кривизно-оптимальный профиль, боковой сдвиг и локальный A*),
-`safety/` (зазоры, коридор, estop, статусы, тиры lost_speed_limit), `geom.py` (геометрия),
-`controller.py` (сборка и порядок вызовов). Описание подхода, анализ альтернатив и обоснование решений -
-в [`APPROACH.md`](APPROACH.md) и [`results/ALTERNATIVES.md`](results/ALTERNATIVES.md).
-Модули `compute_stanley_cmd`, `smooth_yaw_rate_quintic` и `cbf_velocity_limit` реализованы и покрыты тестами,
-но в боевой пайплайн не подключены; их статус отмечен в `APPROACH.md` и `results/ALTERNATIVES.md`.
+Контроллер собран из модулей исключительно на стандартной библиотеке Python и NumPy:
+- пакет `localize/`: скан-матч Левенберга-Марквардта, стробирование ГНСС, калибровка масштаба колес, двухуровневый поиск lost recovery, привязка к доку dock-snap;
+- пакет `perceive/`: евклидовы кластеры, фильтр Калмана с эвристиками фиксации неподвижности, детекторы расхождений карты map_missing и map_extra;
+- пакет `route/`: чистое преследование Pure Pursuit, кривизно-оптимальный профиль скорости, латеральный сдвиг и локальный поиск пути A*;
+- пакет `safety/`: контроль зазоров, коридор экстренного торможения, аварийный останов estop, градации скорости lost_speed_limit;
+- модуль `geom.py`: векторная геометрия, расчет пересечений лучей raycast, выравнивание AABB, нормализация углов;
+- модуль `controller.py`: главный диспетчер такта и порядок вызовов подсистем.
 
-## Требования
+Подробное инженерное обоснование подхода, анализ альтернатив и компромиссов представлены в документах [`APPROACH.md`](APPROACH.md) и [`results/ALTERNATIVES.md`](results/ALTERNATIVES.md).
+Модули `compute_stanley_cmd`, `smooth_yaw_rate_quintic` и `cbf_velocity_limit` реализованы и покрыты тестами, но в боевой пайплайн не подключены; их статус отмечен в `APPROACH.md` и `results/ALTERNATIVES.md`.
 
-- Python >= 3.10 (см. `pyproject.toml`, `requires-python = ">=3.10"`);
-- только `numpy` (в корневом `requirements.txt`: `numpy>=1.24.0`, в `team_dreamteam_4_0/requirements.txt`: `numpy`);
-- симулятор `amrsim` лежит в `amrsim-participants/` и запускается через
-  `PYTHONPATH=amrsim-participants`; кроме numpy он ничего не требует.
+## Требования окружения (Критерий Т3)
 
-## Установка в чистом окружении
+Для чистого запуска и проверки достаточно стандартного тулчейна Python:
+- версия Python >= 3.10;
+- единственная внешняя зависимость: библиотека `numpy>=1.24.0` в корневом файле `requirements.txt` и `numpy` в файле `team_dreamteam_4_0/requirements.txt`;
+- симулятор `amrsim` расположен в каталоге `amrsim-participants/` и не требует сторонних пакетов, кроме NumPy;
+- воспроизведение прогонов поддерживается через менеджер `uv` либо стандартное виртуальное окружение.
 
-Из корня репозитория:
+## Установка и подготовка окружения
 
+Воспроизведение через `uv`:
+```bash
+uv sync
+```
+
+Либо через стандартное виртуальное окружение Python:
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Или через `uv`:
-```bash
-uv sync
-```
-
 ## Проверка правил изоляции (Критерий Т3)
 
+Запуск автоматической валидации изоляции пакета команды по регламенту соревнований:
 ```bash
-PYTHONPATH=amrsim-participants python -m amrsim check team_dreamteam_4_0
+PYTHONPATH=amrsim-participants uv run python -m amrsim check team_dreamteam_4_0
 ```
 
-Ожидаемый результат:
-```
+Ожидаемый вывод проверки:
+```text
 check team_dreamteam_4_0: 0 violation(s) or error(s), 0 warning(s)
 result: OK
 ```
 
-## Прогон одного сценария
+## Запуск одного сценария
 
+Выполнение симуляции сценария по одной команде:
 ```bash
-PYTHONPATH=amrsim-participants python -m amrsim run \
-  scenarios/01_clear.json \
-  --controller team_dreamteam_4_0/controller.py --seed 7 --report out/01.json
+PYTHONPATH=amrsim-participants uv run python -m amrsim run scenarios/01_clear.json --controller team_dreamteam_4_0/controller.py --seed 7 --report out/01.json
 ```
 
-Отчёт по сценарию появится в `out/01.json`. Флаг `--log out/01.jsonl` формирует покадровый журнал тиков для АРМ.
+Итоговый отчет формируется в файле `out/01.json`. Дополнительный аргумент `--log out/01.jsonl` записывает покадровый журнал тактов для воспроизведения в веб-станции оператора.
 
-## Пакет прогонов по seed
+## Пакетный прогон по набору сидов
 
+Запуск полного пакета сценариев и сидов одной командой:
 ```bash
-PYTHONPATH=amrsim-participants python -m amrsim batch \
-  teams scenarios \
-  --seeds 1,2,3,7,11,21,42 --out out/table.csv
+PYTHONPATH=amrsim-participants uv run python -m amrsim batch teams scenarios --seeds 1,2,3,7,11,21,42 --out out/table.csv
 ```
 
-## Тесты и линтеры
+## Автоматические тесты и контроль качества (Критерий Т5)
 
+Проверка алгоритмических модулей, сервера и математических инвариантов:
 ```bash
-uv run ruff check       # Быстрый линтинг Python
-uv run pytest -v        # 256 автоматических тестов (алгоритмы, сервер, оценка)
+uv run pytest -v
+uv run ruff check
 ```
 
-## АРМ Оператора (Критерий О3 - 15 баллов)
+## Автоматизированное рабочее место оператора (Критерий О3)
 
-Веб-станция оператора с Server-Driven UI, 2D Canvas картой и Replay Studio.
-
-1. Запуск сервера АРМ (Python stdlib, раздает собранный UI из `arm/frontend/dist`):
+Веб-станция оператора с архитектурой Server-Driven UI, двухмерной картой на HTML5 Canvas и студией повторов:
+- живой демо-стенд: **https://state3407.space/amr/** (развернут на VPS, непрерывный мониторинг и SDUI);
+- интерактивная документация API и OpenAPI 3.0: **https://state3407.space/amr/docs**;
+- запуск локального сервера оператора:
 ```bash
 python arm/server.py --port 8000
 ```
-Открыть в браузере: `http://localhost:8000`
-
-2. Разработка и тестирование фронтенда:
+- локальный адрес в браузере: `http://localhost:8000`;
+- локальная документация API: `http://localhost:8000/docs`;
+- сборка и тестирование интерфейса:
 ```bash
 cd arm/frontend
 npm install
-npm run lint    # Проверка типов TypeScript (tsc --noEmit)
-npm test        # 89 тестов Vitest
-npm run build   # Сборка SPA в arm/frontend/dist
+npm run lint
+npm test
+npm run build
 ```
 
-### Опциональный запуск в Docker
+### Запуск в контейнере Docker
 
-Сборка и запуск контейнера АРМ и симулятора через Docker Compose:
+Сборка и старт контейнера станции оператора и симулятора:
 ```bash
 docker compose up --build
 ```
-Открыть в браузере: `http://localhost:8000`.
-
-Запуск симулятора или проверки правил изоляции Т3 внутри контейнера:
+Проверка изоляции Т3 внутри контейнера:
 ```bash
-# Проверка изоляции правил Т3
 docker compose run --rm arm python -m amrsim check team_dreamteam_4_0
-
-# Прогон тестового сценария
+```
+Прогон сценария внутри контейнера:
+```bash
 docker compose run --rm arm python -m amrsim run scenarios/01_clear.json --controller team_dreamteam_4_0/controller.py --seed 7 --report /app/out/01.json
 ```
 
 ## Состав репозитория
 
-```
-team_dreamteam_4_0/    # Модули алгоритма контроллера (критерии Т1, Т2, Т4, Т5)
-  controller.py        # Точка входа: порядок predict -> scan-match -> GNSS -> perception -> route -> safety
-  geom.py              # Геометрия: отрезки, raycast, AABB, нормализация углов
-  localize/            # Локализация: LM скан-матч, ГНСС, калибровка, 2-уровневый CSM lost recovery
-  perceive/            # Восприятие: кластеризация, трекинг Калмана с эвристиками Stop, map_missing и map_extra
-  route/               # Маршрут: pure pursuit, кривизно-оптимальный профиль, боковой сдвиг, локальный A*
-  safety/              # Безопасность: зазоры, коридор, estop, статусы, тиры lost_speed_limit
-  APPROACH.md          # Локализация, маршрут, безопасность и ограничения с метками внедрения (Т3)
-  requirements.txt     # Одна строка: numpy
-  scenarios/           # Свои проверки О4 (s1..s5)
-arm/                   # Рабочее место оператора (критерий О3)
-  server.py            # Zero-dependency HTTP/API сервер
-  requirements.txt     # Зависимости АРМ
-  README.md            # Инструкция запуска АРМ
-  frontend/            # React + Vite + Tailwind + Canvas 2D + KaTeX
-scenarios/             # Открытые (01..04) и кастомные сценарии (s1..s5, критерий О4)
-tests/                 # 256 модульных тестов: алгоритмы, сервер, метрики (критерий Т5)
-results/               # Отчёты score: seed_packet (4x7), свои сценарии и логи, моменты (О2, О4)
-  ALTERNATIVES.md      # Инженерное обоснование подхода, анализ альтернатив и компромиссов (О1)
-APPROACH.md            # Корневой файл обоснования подхода (критерии Т3, О1)
-presentation.pdf       # Презентация к защите до 12 слайдов (критерий О5)
-PITCH.md               # Поминутный сценарий защиты на 5 минут и FAQ (О2, О5)
-.github/workflows/ci.yml # Автоматический CI (тесты, линтеры, сборка, симуляция)
+```text
+team_dreamteam_4_0/    - пакет алгоритмов контроллера
+  controller.py        - диспетчер шага управления
+  geom.py              - вычислительная геометрия
+  localize/            - скан-матч, ГНСС, калибровка, восстановление позы
+  perceive/            - кластеризация, трекинг Калмана, детектор расхождений карты
+  route/               - чистое преследование, скоростной профиль, боковой сдвиг, A*
+  safety/              - контроль зазоров, коридор торможения, аварийный останов
+  APPROACH.md          - детальное описание подхода с метками внедрения
+  requirements.txt     - одна строка numpy
+  scenarios/           - валидационные сценарии команды
+arm/                   - рабочее место оператора
+  server.py            - сервер на стандартной библиотеке
+  requirements.txt     - зависимости рабочего места
+  README.md            - инструкция к интерфейсу оператора
+  frontend/            - клиентское приложение на React и TypeScript
+scenarios/             - соревновательные и расширенные сценарии
+tests/                 - модульные и интеграционные тесты
+results/               - отчеты симуляций, таблицы и сравнительный анализ
+  ALTERNATIVES.md      - анализ альтернативных алгоритмов и компромиссов
+APPROACH.md            - корневой файл описания подхода
+presentation.pdf       - презентация для защиты решения
+PITCH.md               - сценарий защиты и ответы на типовые вопросы
+.github/workflows/ci.yml - автоматический конвейер непрерывной интеграции
 ```

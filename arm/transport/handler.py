@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from arm.core import config, runner
 from arm.services import storage, view_models
+from arm.transport.docs import OPENAPI_SPEC, SWAGGER_UI_HTML
 
 ROOT_DIR: Path = config.ROOT_DIR
 FRONTEND_DIST: Path = config.FRONTEND_DIST
@@ -96,10 +97,28 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_HEAD(self) -> None:
+        self.do_GET()
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
         params = parse_qs(parsed.query)
+
+        # ----------------------------------------------------------------------
+        # 0. API: OpenAPI спецификация и Swagger UI документация
+        # ----------------------------------------------------------------------
+        if path == "/api/openapi.json":
+            return self.send_json(OPENAPI_SPEC)
+
+        if path.rstrip("/") in ("/docs", "/api/docs", "/amr/docs", "/amr/api/docs") or path in ("/docs/", "/api/docs/"):
+            content = SWAGGER_UI_HTML.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
 
         # ----------------------------------------------------------------------
         # 1. API: список сценариев
