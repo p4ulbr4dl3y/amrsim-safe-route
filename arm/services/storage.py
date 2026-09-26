@@ -79,6 +79,96 @@ def get_scenario_file(scenario_id: str | None) -> Path | None:
                 or f.stem.startswith(f"{norm_id}_")
             ):
                 return f
+
+    # Автоматическая генерация и сохранение кастомных карт custom_map_WxH
+    if scenario_id:
+        import re
+
+        sc_str = str(scenario_id).strip()
+        sc_norm = sc_str[:-5] if sc_str.lower().endswith(".json") else sc_str
+        m = re.match(r"^custom_map_(\d+)x(\d+)$", sc_norm, re.IGNORECASE)
+        if m:
+            w = max(20, min(500, int(m.group(1))))
+            h = max(20, min(500, int(m.group(2))))
+            center_y = h / 2.0
+            lane_w = 10.0
+            auto_scen = {
+                "schema": "amr-1.0",
+                "name": sc_norm,
+                "description": f"Пользовательская карта {w}x{h}м с базовым проездом.",
+                "dt": 0.1,
+                "duration_s": 300.0,
+                "hidden": False,
+                "provide_detections": False,
+                "weather": {"snow": False},
+                "events": [],
+                "start": {"x": 15.0, "y": center_y, "theta": 0.0},
+                "missions": [
+                    {
+                        "id": "m1",
+                        "from": "dock_start",
+                        "to": "dock_end",
+                        "deadline_s": 180.0,
+                        "reference_length_m": max(10.0, w - 30.0),
+                        "reference_path": [[15.0, center_y], [max(20.0, w - 15.0), center_y]],
+                    }
+                ],
+                "map": {
+                    "frame": "x east, y north, meters; heading radians from +x counterclockwise",
+                    "bounds": [0, 0, w, h],
+                    "drivable": [
+                        [
+                            [10.0, center_y - lane_w / 2.0],
+                            [max(20.0, w - 10.0), center_y - lane_w / 2.0],
+                            [max(20.0, w - 10.0), center_y + lane_w / 2.0],
+                            [10.0, center_y + lane_w / 2.0],
+                        ]
+                    ],
+                    "buildings": [],
+                    "points": {
+                        "dock_start": {
+                            "x": 15.0,
+                            "y": center_y,
+                            "heading": 0.0,
+                            "tol": 0.5,
+                            "label": "Стартовый док",
+                        },
+                        "dock_end": {
+                            "x": max(20.0, w - 15.0),
+                            "y": center_y,
+                            "heading": 0.0,
+                            "tol": 0.5,
+                            "label": "Целевой док",
+                        },
+                    },
+                    "zones": [],
+                    "gates": [],
+                    "crossing": [],
+                },
+                "map_patches": [],
+                "pedestrians": [],
+            }
+            _, target_p = save_scenario(auto_scen, scenario_id=sc_norm)
+            return target_p
+
+        # Если запрошен сценарий вида <base>_custom, используем базовый сценарий как основу
+        if sc_norm.endswith("_custom"):
+            base_id = sc_norm[:-7]
+            base_file = get_scenario_file(base_id)
+            if base_file and base_file.exists():
+                try:
+                    with open(base_file, "r", encoding="utf-8") as f:
+                        base_json = json.load(f)
+                    base_json["name"] = sc_norm
+                    _, target_p = save_scenario(base_json, scenario_id=sc_norm)
+                    return target_p
+                except Exception:
+                    pass
+
+        # Если сценарий начинается с custom_, создаем стандартную карту 120x100
+        if sc_norm.startswith("custom_"):
+            return get_scenario_file("custom_map_120x100")
+
     return None
 
 

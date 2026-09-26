@@ -1725,6 +1725,56 @@ def test_api_post_run_with_scenario_data(http_server, monkeypatch):
         assert kwargs.get("scenario_data") is not None
 
 
+def test_get_scenario_file_custom_map_generation(tmp_path, monkeypatch):
+    """Проверить, что get_scenario_file для custom_map_120x100 генерирует файл на лету."""
+    sc_file = get_scenario_file("custom_map_120x100")
+    assert sc_file is not None
+    assert sc_file.exists()
+    with open(sc_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["schema"] == "amr-1.0"
+    assert data["name"] == "custom_map_120x100"
+    assert data["map"]["bounds"] == [0, 0, 120, 100]
+
+    # Проверка с расширением .json
+    sc_file_json = get_scenario_file("custom_map_120x100.json")
+    assert sc_file_json is not None
+    assert sc_file_json.exists()
+
+    # Проверка фоллбэка для неизвестного custom_*
+    sc_fallback = get_scenario_file("custom_empty_unknown")
+    assert sc_fallback is not None
+    assert sc_fallback.exists()
+
+
+def test_api_post_run_custom_map_without_data(http_server, monkeypatch):
+    """Проверить, что POST /api/run для custom_map_120x100 без явных данных сценария завершается успешно."""
+    from unittest.mock import MagicMock
+    from arm.transport import handler
+
+    mock_run = MagicMock(return_value={"exitCode": 0, "stdout": "ok", "stderr": "", "score": 95.0})
+    monkeypatch.setattr(handler, "run_simulation", mock_run)
+
+    payload = {
+        "scenario": "custom_map_120x100",
+        "controller": "backend/controller.py",
+        "seed": 7,
+    }
+    req = Request(
+        f"{http_server}/api/run",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(req) as resp:
+        assert resp.status == 200
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["exitCode"] == 0
+        assert mock_run.called
+
+
+
+
 
 
 

@@ -86,9 +86,9 @@ describe('Scenario Constructor Page', () => {
       />
     );
 
-    // Title and badge
-    expect(screen.getByText('Конструктор сценариев AMR')).toBeTruthy();
-    expect(screen.getByText('amr-1.0')).toBeTruthy();
+    // Title without AMR and without amr-1.0 badge
+    expect(screen.getByText('Конструктор сценариев')).toBeTruthy();
+    expect(screen.queryByText('amr-1.0')).toBeNull();
 
     // Top action buttons in Russian
     expect(screen.getByText('Импорт')).toBeTruthy();
@@ -98,23 +98,23 @@ describe('Scenario Constructor Page', () => {
     expect(screen.getByText('Сохранить')).toBeTruthy();
     expect(screen.getByText('Запустить в симуляторе')).toBeTruthy();
 
-    // Inspector tabs in Russian
-    expect(screen.getByText('Параметры')).toBeTruthy();
-    expect(screen.getByText('Объекты')).toBeTruthy();
-    expect(screen.getByText('Свойства')).toBeTruthy();
-    expect(screen.getByText('Слои')).toBeTruthy();
+    // Inspector tabs in Russian (by title on compact sidebar)
+    expect(screen.getByTitle('Параметры')).toBeTruthy();
+    expect(screen.getByTitle('Объекты')).toBeTruthy();
+    expect(screen.getByTitle('Свойства')).toBeTruthy();
+    expect(screen.getByTitle('Слои')).toBeTruthy();
 
-    // Floating palette tools in Russian
-    expect(screen.getByText('Выбор')).toBeTruthy();
-    expect(screen.getByText('Рука')).toBeTruthy();
-    expect(screen.getByText('Робот')).toBeTruthy();
-    expect(screen.getByText('Поддон')).toBeTruthy();
-    expect(screen.getByText('Контейнер')).toBeTruthy();
-    expect(screen.getByText('Пешеход')).toBeTruthy();
-    expect(screen.getByText('Зона')).toBeTruthy();
-    expect(screen.getByText('Док')).toBeTruthy();
-    expect(screen.getByText('Стена')).toBeTruthy();
-    expect(screen.getByText('Проезд')).toBeTruthy();
+    // Floating palette tools in Russian (by aria-label)
+    expect(screen.getByRole('button', { name: 'Выбор' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Рука' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Робот' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Поддон' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Контейнер' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Пешеход' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Зона' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Док' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Стена' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Проезд' })).toBeTruthy();
   });
 
   it('allows editing scenario metadata and toggling weather', () => {
@@ -162,12 +162,12 @@ describe('Scenario Constructor Page', () => {
     );
 
     // Switch to Objects tab
-    fireEvent.click(screen.getByText('Объекты'));
-    expect(screen.getByText('Робот (AMR Платформа)')).toBeTruthy();
+    fireEvent.click(screen.getByTitle('Объекты'));
+    expect(screen.getByText('Робот (АТЛАНТ-250)')).toBeTruthy();
     expect(screen.getByText(/Док-станции и ворота/i)).toBeTruthy();
 
     // Click on Robot to open Properties
-    fireEvent.click(screen.getByText('Робот (AMR Платформа)'));
+    fireEvent.click(screen.getByText('Робот (АТЛАНТ-250)'));
 
     // Should switch to Properties tab and display Robot start position form
     expect(screen.getByText('Робот: Позиция старта')).toBeTruthy();
@@ -183,9 +183,9 @@ describe('Scenario Constructor Page', () => {
     );
 
     // Switch to Layers tab
-    fireEvent.click(screen.getByText('Слои'));
+    fireEvent.click(screen.getByTitle('Слои'));
     expect(screen.getByText('Отображение слоев карты:')).toBeTruthy();
-    expect(screen.getByText('Робот (AMR старт)')).toBeTruthy();
+    expect(screen.getByText('Робот (АТЛАНТ-250 старт)')).toBeTruthy();
     expect(screen.getByText('Проезды и коридоры')).toBeTruthy();
     expect(screen.getByText('Препятствия (паллеты, контейнеры)')).toBeTruthy();
     expect(screen.getByText('Пешеходы и траектории')).toBeTruthy();
@@ -203,12 +203,12 @@ describe('Scenario Constructor Page', () => {
 
     // Open import modal
     fireEvent.click(screen.getByText('Импорт'));
-    expect(screen.getByText('Импорт сценария AMR')).toBeTruthy();
+    expect(screen.getByText('Импорт сценария')).toBeTruthy();
 
     // Paste invalid JSON
     const textarea = screen.getByPlaceholderText(/\{ "schema": "amr-1.0"/i);
     fireEvent.change(textarea, { target: { value: '{ invalid_json: ' } });
-    fireEvent.click(screen.getByText('Проверить и загрузить'));
+    fireEvent.click(screen.getByText('Применить сценарий'));
 
     // Should display error in Russian
     await waitFor(() => {
@@ -218,11 +218,11 @@ describe('Scenario Constructor Page', () => {
     // Paste valid AMR scenario
     const validSample = JSON.stringify(scenarioTemplates[0].createScenario());
     fireEvent.change(textarea, { target: { value: validSample } });
-    fireEvent.click(screen.getByText('Проверить и загрузить'));
+    fireEvent.click(screen.getByText('Применить сценарий'));
 
     // Modal should close on success
     await waitFor(() => {
-      expect(screen.queryByText('Импорт сценария AMR')).toBeNull();
+      expect(screen.queryByText('Импорт сценария')).toBeNull();
     });
   });
 
@@ -250,11 +250,11 @@ describe('Scenario Constructor Page', () => {
 
     // Open JSON modal
     fireEvent.click(screen.getByText('JSON'));
-    expect(screen.getByText('Редактор кода сценария (JSON amr-1.0)')).toBeTruthy();
+    expect(screen.getByText('Редактор кода сценария (JSON)')).toBeTruthy();
 
     // Close modal
     fireEvent.click(screen.getByText('Закрыть'));
-    expect(screen.queryByText('Редактор кода сценария (JSON amr-1.0)')).toBeNull();
+    expect(screen.queryByText('Редактор кода сценария (JSON)')).toBeNull();
   });
 
   it('saves scenario to storage and launches in simulator', () => {
@@ -309,7 +309,7 @@ describe('Scenario Constructor Page', () => {
     );
 
     // Open "Карта" tab
-    fireEvent.click(screen.getByText('Карта'));
+    fireEvent.click(screen.getByTitle('Карта'));
     expect(screen.getByText('Чистая карта полигона')).toBeTruthy();
     expect(screen.getByText('Ширина карты (м):')).toBeTruthy();
     expect(screen.getByText('Длина карты (м):')).toBeTruthy();
@@ -331,7 +331,7 @@ describe('Scenario Constructor Page', () => {
     );
 
     // Switch to Objects tab and pick pedestrian
-    fireEvent.click(screen.getByText('Объекты'));
+    fireEvent.click(screen.getByTitle('Объекты'));
     const pedItem = screen.getByText(/p1 \(/i);
     fireEvent.click(pedItem);
 

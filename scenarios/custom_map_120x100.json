@@ -1,0 +1,88 @@
+{
+  "schema": "amr-1.0",
+  "name": "custom_map_120x100",
+  "description": "test",
+  "dt": 0.1,
+  "duration_s": 30.0,
+  "hidden": false,
+  "provide_detections": false,
+  "weather": {
+    "snow": false
+  },
+  "events": [],
+  "start": {
+    "x": 15.0,
+    "y": 50.0,
+    "theta": 0.0
+  },
+  "missions": [
+    {
+      "id": "m1",
+      "from": "dock_start",
+      "to": "dock_end",
+      "deadline_s": 180.0,
+      "reference_length_m": 90.0,
+      "reference_path": [
+        [
+          15.0,
+          50.0
+        ],
+        [
+          105.0,
+          50.0
+        ]
+      ]
+    }
+  ],
+  "map": {
+    "frame": "x east, y north, meters; heading radians from +x counterclockwise",
+    "bounds": [
+      0,
+      0,
+      120,
+      100
+    ],
+    "drivable": [
+      [
+        [
+          10.0,
+          45.0
+        ],
+        [
+          110.0,
+          45.0
+        ],
+        [
+          110.0,
+          55.0
+        ],
+        [
+          10.0,
+          55.0
+        ]
+      ]
+    ],
+    "buildings": [],
+    "points": {
+      "dock_start": {
+        "x": 15.0,
+        "y": 50.0,
+        "heading": 0.0,
+        "tol": 0.5,
+        "label": "\u0421\u0442\u0430\u0440\u0442"
+      },
+      "dock_end": {
+        "x": 105.0,
+        "y": 50.0,
+        "heading": 0.0,
+        "tol": 0.5,
+        "label": "\u0426\u0435\u043b\u044c"
+      }
+    },
+    "zones": [],
+    "gates": [],
+    "crossing": []
+  },
+  "map_patches": [],
+  "pedestrians": []
+}

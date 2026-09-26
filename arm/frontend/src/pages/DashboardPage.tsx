@@ -813,7 +813,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <div className="flex items-center gap-4 text-xs text-slate-500">
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-0.5 bg-emerald-600 inline-block"></span>
-                  Траектория AMR
+                  Траектория АТЛАНТ-250
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-2 bg-slate-200 inline-block rounded-sm"></span>
@@ -849,11 +849,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
           </div>
 
-          {/* Card: Скорость AMR */}
+          {/* Card: Скорость АТЛАНТ-250 */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-1">
-                <span>Скорость AMR (</span>
+                <span>Скорость АТЛАНТ-250 (</span>
                 <span className="font-serif"><Latex math="v" /></span>
                 <span>, м/с)</span>
               </h2>

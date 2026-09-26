@@ -125,7 +125,11 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({
     try {
       const uploaded = getUploadedScenario();
       const scenarioData =
-        uploaded && (uploaded.id === scenario || uploaded.name === scenario)
+        uploaded &&
+        (uploaded.id === scenario ||
+          uploaded.name === scenario ||
+          uploaded.fileName === `${scenario}.json` ||
+          uploaded.scenarioJson?.name === scenario)
           ? uploaded.scenarioJson
           : undefined;
 
@@ -194,6 +198,11 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({
                   onChange={(e) => handleScenarioChange(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-2.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                 >
+                  {scenario && !scenarios.some((sc) => sc.id === scenario) && (
+                    <option key={scenario} value={scenario}>
+                      {scenario} (Пользовательский)
+                    </option>
+                  )}
                   {scenarios.length > 0 ? (
                     scenarios.map((sc) => (
                       <option key={sc.id} value={sc.id}>
@@ -304,7 +313,7 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({
           <div className="flex items-center justify-between pb-2 border-b border-slate-100">
             <div className="flex items-center gap-2 text-xs font-mono font-medium text-slate-600">
               <TerminalIcon className="w-4 h-4 text-slate-500" />
-              <span>Терминал симулятора amrsim</span>
+              <span>Терминал симулятора АТЛАНТ-250</span>
             </div>
             {isRunning && (
               <span className="text-[11px] font-mono text-blue-600 flex items-center gap-1.5">

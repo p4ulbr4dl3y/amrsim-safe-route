@@ -17,6 +17,7 @@ ROOT_DIR: Path = config.ROOT_DIR
 FRONTEND_DIST: Path = config.FRONTEND_DIST
 SCENARIOS_DIR: Path = config.SCENARIOS_DIR
 TEAM_SCENARIOS_DIR: Path = config.TEAM_SCENARIOS_DIR
+BACKEND_SCENARIOS_DIR: Path = config.BACKEND_SCENARIOS_DIR
 SCENARIO_META: dict[str, dict[str, str]] = config.SCENARIO_META
 
 build_dashboard_view_model = view_models.build_dashboard_view_model
@@ -168,6 +169,30 @@ class AMRServerHandler(SimpleHTTPRequestHandler):
                                     "name": meta.get("title", f"backend/{sc_id}.json"),
                                     "description": meta.get(
                                         "description", "Собственный сценарий команды О4"
+                                    ),
+                                    "type": "custom",
+                                    "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),
+                                    "hasReport": isinstance(rep, dict),
+                                    "score": score,
+                                }
+                            )
+
+                # Кастомные сценарии из каталога scenarios/
+                if BACKEND_SCENARIOS_DIR.exists():
+                    for f in sorted(BACKEND_SCENARIOS_DIR.glob("*.json")):
+                        sc_id = f.stem
+                        if sc_id not in seen:
+                            seen.add(sc_id)
+                            meta = SCENARIO_META.get(sc_id, {})
+                            rep = get_scenario_report(sc_id)
+                            rep_score = rep.get("score") if isinstance(rep, dict) else None
+                            score = rep_score.get("total") if isinstance(rep_score, dict) else None
+                            scenarios.append(
+                                {
+                                    "id": sc_id,
+                                    "name": meta.get("title", f"scenarios/{sc_id}.json"),
+                                    "description": meta.get(
+                                        "description", "Пользовательский сценарий"
                                     ),
                                     "type": "custom",
                                     "file": str(f.relative_to(ROOT_DIR)).replace("\\", "/"),

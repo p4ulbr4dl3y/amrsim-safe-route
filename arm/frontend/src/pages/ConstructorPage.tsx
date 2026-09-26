@@ -44,6 +44,8 @@ import {
   Hand,
   Building,
   Route,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 interface ConstructorPageProps {
@@ -71,8 +73,9 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
   >('speed_limit');
   const [selectedEntity, setSelectedEntity] = useState<SelectedEntity | null>(null);
 
-  // Inspector sidebar tab
+  // Inspector sidebar tab and visibility
   const [sidebarTab, setSidebarTab] = useState<'params' | 'objects' | 'properties' | 'layers' | 'map'>('params');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Clean map creation parameters
   const [cleanMapWidth, setCleanMapWidth] = useState(120);
@@ -339,6 +342,62 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
     setScenario(newScenario);
     setSelectedEntity(null);
     showToast(`Чистая карта ${width}×${height}м создана`);
+
+    const scName = newScenario.name;
+    const mapData: MapData = {
+      bounds: newMap.bounds,
+      drivable: newMap.drivable,
+      buildings: newMap.buildings,
+      zones: newMap.zones,
+      gates: newMap.gates,
+      crossing: newMap.crossing,
+      points: newMap.points,
+    };
+    const uploadedData: UploadedScenarioData = {
+      id: scName,
+      name: scName,
+      fileName: `${scName}.json`,
+      fileType: 'scenario',
+      mapData,
+      scenarioJson: newScenario,
+      missionsViewModel: {
+        scenario: scName,
+        summary: {
+          completed: 1,
+          total: 1,
+          deliveryScore: 40.0,
+          maxDeliveryScore: 40.0,
+          efficiencyScore: 15.0,
+          maxEfficiencyScore: 15.0,
+        },
+        missions: [
+          {
+            id: 'm1',
+            from: 'dock_start',
+            to: 'dock_end',
+            fromLabel: 'Стартовый док',
+            toLabel: 'Целевой док',
+            status: 'DELIVERED',
+            t_start: 0,
+            t_end: 180.0,
+            t_arrival: 120.0,
+            hold_duration_s: 3.0,
+            hold_ticks: 30,
+            max_hold_dist: 0.1,
+            tol: 0.5,
+            deadline_s: 180.0,
+            safety_margin_s: 54.0,
+            reference_length_m: width - 30,
+            actual_time_s: 120.0,
+          },
+        ],
+      },
+      uploadedAt: Date.now(),
+    };
+    saveUploadedScenario(uploadedData);
+    persistSelectedScenario(scName);
+    onScenarioChange?.(scName);
+    apiClient.saveScenario(newScenario.name, newScenario).catch(() => {});
   };
 
   // Modals state
@@ -382,7 +441,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
   };
 
   // Save to scenarioStorage
-  const handleSaveToStorage = () => {
+  const handleSaveToStorage = async () => {
     const scName = scenario.name.trim() || 'custom_scenario';
     const mapData: MapData = {
       bounds: scenario.map.bounds || [0, 0, 250, 200],
@@ -442,16 +501,18 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
     saveUploadedScenario(uploadedData);
     persistSelectedScenario(scName);
     onScenarioChange?.(scName);
-    showToast(`Сценарий "${scName}" сохранен в локальное хранилище`);
+    try {
+      await apiClient.saveScenario(scName, scenario);
+    } catch (err) {
+      console.warn('[ConstructorPage] Auto-save before simulation failed:', err);
+    }
+    showToast(`Сценарий "${scName}" сохранен`);
   };
 
   // Run in simulator
   const handleLaunchInSimulator = () => {
-    handleSaveToStorage();
     const scName = scenario.name.trim() || 'custom_scenario';
-    apiClient.saveScenario(scName, scenario).catch((err) => {
-      console.warn('[ConstructorPage] Auto-save before simulation failed:', err);
-    });
+    handleSaveToStorage();
     onNavigate('runner', { scenario: scName });
   };
 
@@ -593,16 +654,11 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
       <div className="bg-white rounded-xl border border-slate-200 p-3.5 px-5 flex flex-wrap items-center justify-between gap-4 z-20 shadow-sm">
         {/* Left: Title & Preset Selector */}
         <div className="flex items-center gap-4">
-          <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-bold text-slate-900 tracking-tight">
-                Конструктор сценариев AMR
+                Конструктор сценариев
               </h1>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-semibold">
-                amr-1.0
-              </span>
             </div>
-          </div>
 
           <div className="h-6 w-px bg-slate-200 mx-1 hidden md:block" />
 
@@ -765,10 +821,10 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
         </div>
       </div>
 
-      {/* Main Workspace: Left Vertical Tabs + Inspector & Center Canvas */}
+      {/* Main Workspace: Left Vertical Tabs + Inspector & Center Canvas & Right Element Sidebar */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex-1 flex overflow-hidden min-h-[640px] relative">
-        {/* Left Vertical Tab Strip with hover-expand */}
-        <div className="w-12 hover:w-44 transition-all duration-200 ease-in-out bg-slate-50 border-r border-slate-200 flex flex-col py-3 px-1.5 space-y-1 group z-20 overflow-hidden flex-shrink-0 select-none shadow-xs">
+        {/* Left Vertical Tab Strip (compact icons) */}
+        <div className="w-12 bg-slate-50 border-r border-slate-200 flex flex-col py-3 px-1.5 space-y-1.5 z-20 flex-shrink-0 select-none shadow-xs">
           {[
             { id: 'params', label: 'Параметры', icon: Sliders },
             { id: 'objects', label: 'Объекты', icon: List },
@@ -777,39 +833,60 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
             { id: 'map', label: 'Карта', icon: MapPin },
           ].map((tab) => {
             const Icon = tab.icon;
-            const isActive = sidebarTab === tab.id;
+            const isActive = isSidebarOpen && sidebarTab === tab.id;
             return (
               <button
                 key={tab.id}
-                onClick={() => setSidebarTab(tab.id as any)}
-                className={`w-full flex items-center h-10 px-2.5 gap-3 rounded-lg text-xs font-semibold transition-colors ${
+                onClick={() => {
+                  if (isSidebarOpen && sidebarTab === tab.id) {
+                    setIsSidebarOpen(false);
+                  } else {
+                    setSidebarTab(tab.id as any);
+                    setIsSidebarOpen(true);
+                  }
+                }}
+                className={`w-9 h-9 mx-auto flex items-center justify-center rounded-lg text-xs font-semibold transition-colors ${
                   isActive
-                    ? 'bg-blue-50 text-blue-600 border border-blue-200 font-bold shadow-xs'
+                    ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
                 title={tab.label}
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap overflow-hidden">
-                  {tab.label}
-                </span>
               </button>
             );
           })}
+
+          {/* Toggle sidebar button at bottom of tab strip */}
+          <button
+            onClick={() => setIsSidebarOpen((prev) => !prev)}
+            className="w-9 h-9 mx-auto flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors mt-auto"
+            title={isSidebarOpen ? 'Свернуть панель' : 'Развернуть панель'}
+          >
+            {isSidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
         </div>
 
-        {/* Left Inspector Sidebar */}
-        <aside className="w-80 lg:w-96 bg-white border-r border-slate-200 flex flex-col z-10 shadow-sm overflow-hidden flex-shrink-0">
-          {/* Header showing current tab name */}
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 bg-slate-50/70">
-            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              {sidebarTab === 'params' && 'Параметры сценария'}
-              {sidebarTab === 'objects' && 'Объекты на карте'}
-              {sidebarTab === 'properties' && 'Свойства элемента'}
-              {sidebarTab === 'layers' && 'Слои отображения'}
-              {sidebarTab === 'map' && 'Конструктор карты'}
-            </span>
-          </div>
+        {/* Left Inspector Sidebar (collapsible) */}
+        {isSidebarOpen && (
+          <aside className="w-80 lg:w-96 bg-white border-r border-slate-200 flex flex-col z-10 shadow-sm overflow-hidden flex-shrink-0">
+            {/* Header showing current tab name and collapse button */}
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 bg-slate-50/70">
+              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                {sidebarTab === 'params' && 'Параметры сценария'}
+                {sidebarTab === 'objects' && 'Объекты на карте'}
+                {sidebarTab === 'properties' && 'Свойства элемента'}
+                {sidebarTab === 'layers' && 'Слои отображения'}
+                {sidebarTab === 'map' && 'Конструктор карты'}
+              </span>
+              <button
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-md transition-colors"
+                title="Свернуть панель"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            </div>
 
           {/* Sidebar Tab Content */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -906,7 +983,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                         R
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-slate-900">Робот (AMR Платформа)</div>
+                        <div className="text-xs font-bold text-slate-900">Робот (АТЛАНТ-250)</div>
                         <div className="text-[11px] text-slate-500 font-mono">
                           X: {scenario.start.x.toFixed(1)} м, Y: {scenario.start.y.toFixed(1)} м, θ:{' '}
                           {scenario.start.theta.toFixed(2)} рад
@@ -1145,7 +1222,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                     <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                       <span className="text-xs font-bold text-slate-800">Робот: Позиция старта</span>
                       <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-mono font-semibold">
-                        AMR
+                        АТЛАНТ-250
                       </span>
                     </div>
 
@@ -1715,7 +1792,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                 <p className="text-xs font-bold text-slate-700">Отображение слоев карты:</p>
 
                 {[
-                  { key: 'robot', label: 'Робот (AMR старт)', icon: Navigation },
+                  { key: 'robot', label: 'Робот (АТЛАНТ-250 старт)', icon: Navigation },
                   { key: 'corridors', label: 'Проезды и коридоры', icon: Box },
                   { key: 'buildings', label: 'Стены и здания', icon: Package },
                   { key: 'obstacles', label: 'Препятствия (паллеты, контейнеры)', icon: Package },
@@ -1816,225 +1893,229 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
             )}
           </div>
         </aside>
+      )}
 
-        {/* Center Canvas Area with Floating Palette */}
-        <main className="flex-1 flex flex-col relative overflow-hidden">
-          {/* Floating Canvas Tool Palette */}
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 bg-white/95 backdrop-blur-md border border-slate-200/80 rounded-2xl shadow-lg p-1.5 flex items-center gap-1">
-            <button
-              onClick={() => setActiveTool('select')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'select'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Выбрать / переместить объект"
-            >
-              <MousePointer className="w-4 h-4" />
-              <span className="hidden sm:inline">Выбор</span>
-            </button>
+      {/* Center Canvas Area */}
+      <main className="flex-1 flex flex-col relative overflow-hidden">
+        {/* Interactive Canvas */}
+        <div className="flex-1 w-full h-full">
+          <ConstructorCanvas
+            scenario={scenario}
+            activeTool={activeTool}
+            activeZoneType={activeZoneType}
+            selectedEntity={selectedEntity}
+            layers={layers}
+            onSelect={setSelectedEntity}
+            onUpdateScenario={setScenario}
+          />
+        </div>
 
-            <button
-              onClick={() => setActiveTool('pan')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'pan'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Панорамирование карты (или удерживайте Shift / среднюю кнопку мыши)"
-            >
-              <Hand className="w-4 h-4" />
-              <span className="hidden sm:inline">Рука</span>
-            </button>
+        {/* Bottom Status & Hint Bar */}
+        <div className="bg-white border-t border-slate-200 px-6 py-2 flex items-center justify-between text-xs text-slate-500 z-10 shadow-xs">
+          <div className="flex items-center gap-4">
+            <span>
+              Режим:{' '}
+              <strong className="text-slate-800">
+                {activeTool === 'select' && 'Выбор и перемещение'}
+                {activeTool === 'pan' && 'Панорамирование'}
+                {activeTool === 'set_robot' && 'Установка платформы АТЛАНТ-250 (кликните на карте, потяните для угла)'}
+                {activeTool === 'add_pallet' && 'Добавление поддона (кликните в месте установки)'}
+                {activeTool === 'add_container' && 'Добавление контейнера (кликните в месте установки)'}
+                {activeTool === 'add_pedestrian' && 'Добавление пешехода (кликните для размещения)'}
+                {activeTool === 'add_zone' && 'Создание зоны (растяните прямоугольник мышью)'}
+                {activeTool === 'add_dock' && 'Добавление дока (кликните для размещения)'}
+                {activeTool === 'add_wall' && 'Добавление стены / здания (растяните прямоугольник мышью)'}
+                {activeTool === 'add_drivable' && 'Добавление проезжей зоны (растяните прямоугольник мышью)'}
+                {activeTool === 'delete' && 'Удаление объекта (кликните на объект)'}
+              </strong>
+            </span>
 
-            <div className="h-5 w-px bg-slate-200 mx-1" />
-
-            <button
-              onClick={() => setActiveTool('set_robot')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'set_robot'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Установить начальную позицию и курс робота"
-            >
-              <Navigation className="w-4 h-4" />
-              <span className="hidden sm:inline">Робот</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('add_pallet')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'add_pallet'
-                  ? 'bg-amber-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Добавить деревянный поддон 1.2 x 0.8 м"
-            >
-              <Package className="w-4 h-4" />
-              <span className="hidden sm:inline">Поддон</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('add_container')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'add_container'
-                  ? 'bg-blue-800 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Добавить контейнер 6.0 x 2.4 м"
-            >
-              <Box className="w-4 h-4" />
-              <span className="hidden sm:inline">Контейнер</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('add_pedestrian')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'add_pedestrian'
-                  ? 'bg-orange-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Добавить пешехода с маршрутом"
-            >
-              <User className="w-4 h-4" />
-              <span className="hidden sm:inline">Пешеход</span>
-            </button>
-
-            <div className="flex items-center gap-0.5">
-              <button
-                onClick={() => setActiveTool('add_zone')}
-                className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                  activeTool === 'add_zone'
-                    ? 'bg-purple-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-                title="Добавить зону (растяните прямоугольник мышью)"
-              >
-                <ShieldAlert className="w-4 h-4" />
-                <span className="hidden sm:inline">Зона</span>
-              </button>
-              {activeTool === 'add_zone' && (
-                <select
-                  value={activeZoneType}
-                  onChange={(e) => setActiveZoneType(e.target.value as any)}
-                  className="bg-purple-50 text-purple-900 text-[11px] font-semibold rounded-lg px-2 py-1.5 border border-purple-200 outline-none"
+            {selectedEntity && (
+              <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
+                <span className="text-blue-600 font-semibold">
+                  Выбрано: {selectedEntity.type} {selectedEntity.id ? `(${selectedEntity.id})` : ''}
+                </span>
+                <button
+                  onClick={handleDeleteSelected}
+                  className="text-red-600 hover:underline text-[11px] font-semibold"
                 >
-                  <option value="speed_limit">⚡ Скорость</option>
-                  <option value="forbidden">⛔ Запретная</option>
-                  <option value="gnss_shadow">📡 Тень ГНСС</option>
-                  <option value="people_area">🚶 Пешеходная</option>
-                </select>
-              )}
-            </div>
-
-            <button
-              onClick={() => setActiveTool('add_dock')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'add_dock'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Добавить док-станцию или складские ворота"
-            >
-              <MapPin className="w-4 h-4" />
-              <span className="hidden sm:inline">Док</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('add_wall')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'add_wall'
-                  ? 'bg-slate-700 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Добавить стену или здание (растяните прямоугольник мышью)"
-            >
-              <Building className="w-4 h-4" />
-              <span className="hidden sm:inline">Стена</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('add_drivable')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'add_drivable'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Добавить проезжую зону (растяните прямоугольник мышью)"
-            >
-              <Route className="w-4 h-4" />
-              <span className="hidden sm:inline">Проезд</span>
-            </button>
-
-            <div className="h-5 w-px bg-slate-200 mx-1" />
-
-            <button
-              onClick={() => setActiveTool('delete')}
-              className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTool === 'delete'
-                  ? 'bg-red-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-red-600 hover:bg-red-50'
-              }`}
-              title="Удалить кликнутый объект"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+                  Удалить выбранное
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Interactive Canvas */}
-          <div className="flex-1 w-full h-full">
-            <ConstructorCanvas
-              scenario={scenario}
-              activeTool={activeTool}
-              activeZoneType={activeZoneType}
-              selectedEntity={selectedEntity}
-              layers={layers}
-              onSelect={setSelectedEntity}
-              onUpdateScenario={setScenario}
-            />
+          <div className="text-[11px] text-slate-400">
+            Колесико мыши: приблизить / отдалить • Клик: выбор / добавление
           </div>
+        </div>
+      </main>
 
-          {/* Bottom Status & Hint Bar */}
-          <div className="bg-white border-t border-slate-200 px-6 py-2 flex items-center justify-between text-xs text-slate-500 z-10 shadow-xs">
-            <div className="flex items-center gap-4">
-              <span>
-                Режим:{' '}
-                <strong className="text-slate-800">
-                  {activeTool === 'select' && 'Выбор и перемещение'}
-                  {activeTool === 'pan' && 'Панорамирование'}
-                  {activeTool === 'set_robot' && 'Установка робота (кликните на карте, потяните для угла)'}
-                  {activeTool === 'add_pallet' && 'Добавление поддона (кликните в месте установки)'}
-                  {activeTool === 'add_container' && 'Добавление контейнера (кликните в месте установки)'}
-                  {activeTool === 'add_pedestrian' && 'Добавление пешехода (кликните для размещения)'}
-                  {activeTool === 'add_zone' && 'Создание зоны (растяните прямоугольник мышью)'}
-                  {activeTool === 'add_dock' && 'Добавление дока (кликните для размещения)'}
-                  {activeTool === 'add_wall' && 'Добавление стены / здания (растяните прямоугольник мышью)'}
-                  {activeTool === 'add_drivable' && 'Добавление проезжей зоны (растяните прямоугольник мышью)'}
-                  {activeTool === 'delete' && 'Удаление объекта (кликните на объект)'}
-                </strong>
-              </span>
+      {/* Right Element Selection Sidebar */}
+      <aside className="w-14 bg-white border-l border-slate-200 flex flex-col items-center py-3 px-1.5 space-y-1.5 z-20 flex-shrink-0 select-none shadow-xs">
+        <button
+          onClick={() => setActiveTool('select')}
+          aria-label="Выбор"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'select'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Выбрать / переместить объект"
+        >
+          <MousePointer className="w-4 h-4" />
+        </button>
 
-              {selectedEntity && (
-                <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
-                  <span className="text-blue-600 font-semibold">
-                    Выбрано: {selectedEntity.type} {selectedEntity.id ? `(${selectedEntity.id})` : ''}
-                  </span>
-                  <button
-                    onClick={handleDeleteSelected}
-                    className="text-red-600 hover:underline text-[11px] font-semibold"
-                  >
-                    Удалить выбранное
-                  </button>
-                </div>
-              )}
+        <button
+          onClick={() => setActiveTool('pan')}
+          aria-label="Рука"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'pan'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Панорамирование карты (или удерживайте Shift / среднюю кнопку мыши)"
+        >
+          <Hand className="w-4 h-4" />
+        </button>
+
+        <div className="w-6 h-px bg-slate-200 my-1" />
+
+        <button
+          onClick={() => setActiveTool('set_robot')}
+          aria-label="Робот"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'set_robot'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Установить начальную позицию и курс платформы АТЛАНТ-250"
+        >
+          <Navigation className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => setActiveTool('add_pallet')}
+          aria-label="Поддон"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'add_pallet'
+              ? 'bg-amber-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Добавить деревянный поддон 1.2 x 0.8 м"
+        >
+          <Package className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => setActiveTool('add_container')}
+          aria-label="Контейнер"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'add_container'
+              ? 'bg-blue-800 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Добавить контейнер 6.0 x 2.4 м"
+        >
+          <Box className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => setActiveTool('add_pedestrian')}
+          aria-label="Пешеход"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'add_pedestrian'
+              ? 'bg-orange-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Добавить пешехода с маршрутом"
+        >
+          <User className="w-4 h-4" />
+        </button>
+
+        <div className="relative">
+          <button
+            onClick={() => setActiveTool('add_zone')}
+            aria-label="Зона"
+            className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+              activeTool === 'add_zone'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+            title="Добавить зону (растяните прямоугольник мышью)"
+          >
+            <ShieldAlert className="w-4 h-4" />
+          </button>
+          {activeTool === 'add_zone' && (
+            <div className="absolute right-full top-0 mr-2 z-30 bg-white border border-slate-200 rounded-lg shadow-lg p-1 whitespace-nowrap">
+              <select
+                value={activeZoneType}
+                onChange={(e) => setActiveZoneType(e.target.value as any)}
+                className="bg-purple-50 text-purple-900 text-[11px] font-semibold rounded-lg px-2 py-1 border border-purple-200 outline-none"
+              >
+                <option value="speed_limit">⚡ Скорость</option>
+                <option value="forbidden">⛔ Запретная</option>
+                <option value="gnss_shadow">📡 Тень ГНСС</option>
+                <option value="people_area">🚶 Пешеходная</option>
+              </select>
             </div>
+          )}
+        </div>
 
-            <div className="text-[11px] text-slate-400">
-              Колесико мыши: приблизить / отдалить • Клик: выбор / добавление
-            </div>
-          </div>
-        </main>
+        <button
+          onClick={() => setActiveTool('add_dock')}
+          aria-label="Док"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'add_dock'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Добавить док-станцию или складские ворота"
+        >
+          <MapPin className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => setActiveTool('add_wall')}
+          aria-label="Стена"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'add_wall'
+              ? 'bg-slate-700 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Добавить стену или здание (растяните прямоугольник мышью)"
+        >
+          <Building className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => setActiveTool('add_drivable')}
+          aria-label="Проезд"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'add_drivable'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Добавить проезжую зону (растяните прямоугольник мышью)"
+        >
+          <Route className="w-4 h-4" />
+        </button>
+
+        <div className="w-6 h-px bg-slate-200 my-1" />
+
+        <button
+          onClick={() => setActiveTool('delete')}
+          aria-label="Удалить"
+          className={`w-10 h-10 flex items-center justify-center rounded-xl text-xs font-semibold transition-all ${
+            activeTool === 'delete'
+              ? 'bg-red-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-red-600 hover:bg-red-50'
+          }`}
+          title="Удалить кликнутый объект"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </aside>
       </div>
 
       {/* IMPORT SCENARIO MODAL */}
@@ -2044,7 +2125,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Upload className="w-5 h-5 text-blue-600" />
-                <h2 className="text-base font-bold text-slate-900">Импорт сценария AMR</h2>
+                <h2 className="text-base font-bold text-slate-900">Импорт сценария</h2>
               </div>
               <button
                 onClick={() => {
@@ -2076,7 +2157,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                 Перетащите файл .json сюда или нажмите для выбора
               </div>
               <div className="text-xs text-slate-400">
-                Поддерживаются файлы сценариев стандарта amr-1.0 (amrsim)
+                Поддерживаются файлы сценариев формата JSON (amrsim)
               </div>
             </div>
 
@@ -2142,7 +2223,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
                 disabled={!importJsonText.trim()}
                 className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
               >
-                Проверить и загрузить
+                Применить сценарий
               </button>
             </div>
           </div>
@@ -2157,7 +2238,7 @@ export const ConstructorPage: React.FC<ConstructorPageProps> = ({
               <div className="flex items-center gap-2">
                 <FileCode className="w-5 h-5 text-blue-600" />
                 <h2 className="text-base font-bold text-slate-900">
-                  Редактор кода сценария (JSON amr-1.0)
+                  Редактор кода сценария (JSON)
                 </h2>
               </div>
               <button

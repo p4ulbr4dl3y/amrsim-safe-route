@@ -550,7 +550,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({
                 <div className="text-xs text-slate-600 leading-relaxed bg-blue-50/50 p-3 rounded-lg border border-blue-100">
                   <Latex>
                     {selectedEpisode.ruleExplanation ||
-                      'Контроллер зарегистрировал взаимодействие с окружающей средой в рамках регламента AMR-SIM.'}
+                      'Контроллер зарегистрировал взаимодействие с окружающей средой платформы АТЛАНТ-250.'}
                   </Latex>
                 </div>
               </div>
@@ -559,7 +559,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({
               {EPISODE_FORMULAS[selectedEpisode.type] && (
                 <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col gap-1.5 text-xs">
                   <div className="text-[11px] font-semibold text-slate-700 flex items-center justify-between">
-                    <span>Формула штрафа (AMR-1.0):</span>
+                    <span>Формула штрафа:</span>
                     <span className="font-mono text-slate-400 text-[10px]">правило</span>
                   </div>
                   <div className="bg-white p-2 rounded border border-slate-200 text-center font-serif text-xs">

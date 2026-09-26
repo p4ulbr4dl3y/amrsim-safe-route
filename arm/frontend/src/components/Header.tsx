@@ -33,7 +33,7 @@ export const Header: React.FC<HeaderProps> = ({ currentRoute, onNavigate }) => {
         </div>
         <div className="flex items-center gap-2.5">
           <span className="font-bold text-slate-900 tracking-tight text-lg">
-            AMR <span className="text-blue-600">SafeRoute</span>
+            АТЛАНТ-250 <span className="text-blue-600">SafeRoute</span>
           </span>
           <span className="text-[11px] text-slate-400 font-medium px-2 py-0.5 bg-slate-100 rounded-full border border-slate-200">
             АРМ Оператора

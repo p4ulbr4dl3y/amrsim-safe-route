@@ -380,7 +380,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900">
-                Математическая модель регламента скоринга (AMR-1.0)
+                Математическая модель регламента скоринга (АТЛАНТ-250)
               </h2>
               <p className="text-xs text-slate-500">
                 Формулы расчета баллов, весовых коэффициентов и штрафных санкций по 6 ключевым блокам
