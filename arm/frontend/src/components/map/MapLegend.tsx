@@ -39,6 +39,14 @@ export const MapLegend: React.FC = () => {
         <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block"></span>
         <span>Пешеход (3 м)</span>
       </div>
+      <div className="flex items-center gap-1.5">
+        <span className="w-3 h-2 bg-amber-400 border border-amber-600 rounded-sm inline-block"></span>
+        <span>Поддон</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="w-3 h-2 bg-slate-500 border border-slate-800 rounded-sm inline-block"></span>
+        <span>Контейнер</span>
+      </div>
     </div>
   );
 };

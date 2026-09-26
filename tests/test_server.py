@@ -575,6 +575,20 @@ def test_extract_map_data_variations():
     assert header_map["bounds"] == [0, 0, 100, 100]
     assert "ptA" in header_map["points"]
     assert header_map["referencePaths"] == [[[10.0, 20.0], [30.0, 40.0]]]
+    assert header_map["map_patches"] == []
+    assert header_map["events"] == []
+
+    # Scenario with map_patches and events
+    scen = {
+        "map": {"bounds": [0, 0, 120, 100], "points": {}},
+        "map_patches": [{"id": "CONTAINER_1", "op": "add", "polygon": [[10, 10], [15, 10], [15, 12], [10, 12]]}],
+        "events": [{"type": "object_dropped", "t": 60.0, "x": 50.0, "y": 50.0, "r": 0.4}],
+    }
+    scen_map = extract_map_data(scen, None)
+    assert len(scen_map["map_patches"]) == 1
+    assert scen_map["map_patches"][0]["id"] == "CONTAINER_1"
+    assert len(scen_map["events"]) == 1
+    assert scen_map["events"][0]["type"] == "object_dropped"
 
 
 def test_parse_ticks_log_edge_cases(tmp_path, monkeypatch):

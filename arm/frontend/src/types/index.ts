@@ -104,6 +104,20 @@ export interface MapData {
   crossing?: any[];
   points: Record<string, { x: number; y: number; heading: number; tol: number; label: string }>;
   referencePaths?: [number, number][][];
+  map_patches?: Array<{
+    id: string;
+    op?: string;
+    polygon?: [number, number][];
+    [key: string]: any;
+  }>;
+  events?: Array<{
+    type: string;
+    t?: number;
+    x?: number;
+    y?: number;
+    r?: number;
+    [key: string]: any;
+  }>;
 }
 
 export interface ScenarioItem {

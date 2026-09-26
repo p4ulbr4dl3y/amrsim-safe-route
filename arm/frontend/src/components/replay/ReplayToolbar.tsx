@@ -28,6 +28,7 @@ const LAYER_ITEMS: { key: keyof MapLayersConfig; label: string }[] = [
   { key: 'buildings', label: 'Здания' },
   { key: 'docks', label: 'Доки' },
   { key: 'pedestrians', label: 'Пешеходы' },
+  { key: 'obstacles', label: 'Препятствия (поддоны, контейнеры)' },
 ];
 
 export const ReplayToolbar: React.FC<ReplayToolbarProps> = ({

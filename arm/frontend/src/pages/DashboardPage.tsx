@@ -211,6 +211,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 gates: headerObj.map.gates || [],
                 crossing: headerObj.map.crossing || [],
                 points: headerObj.map.points || headerObj.points || {},
+                map_patches: headerObj.map_patches || headerObj.map?.map_patches || [],
+                events: headerObj.events || headerObj.map?.events || [],
               };
             }
 
@@ -310,6 +312,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               gates: raw.map?.gates || [],
               crossing: raw.map?.crossing || [],
               points: raw.map?.points || raw.points || {},
+              map_patches: raw.map_patches || raw.map?.map_patches || [],
+              events: raw.events || raw.map?.events || [],
             };
 
             const startX = typeof raw.start?.x === 'number' ? raw.start.x : (parsedMapData.bounds[0] + 10);
@@ -518,6 +522,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 gates: report.map.gates || [],
                 crossing: report.map.crossing || [],
                 points: report.map.points || report.points || {},
+                map_patches: report.map_patches || report.map?.map_patches || [],
+                events: report.events || report.map?.events || [],
               };
             }
 

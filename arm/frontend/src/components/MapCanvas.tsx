@@ -11,6 +11,7 @@ export interface MapLayersConfig {
   buildings: boolean;
   docks: boolean;
   pedestrians: boolean;
+  obstacles: boolean;
 }
 
 interface MapCanvasProps {
@@ -35,6 +36,7 @@ const defaultLayers: MapLayersConfig = {
   buildings: true,
   docks: true,
   pedestrians: true,
+  obstacles: true,
 };
 
 const POINT_LABELS: Record<string, string> = {
@@ -328,6 +330,210 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
           ctx.fill();
           ctx.stroke();
         }
+      });
+    }
+
+    // 4b. Obstacles (Containers, Pallets, and Static Map Patches)
+    if (layers.obstacles && activeMap.map_patches && activeMap.map_patches.length > 0) {
+      activeMap.map_patches.forEach((patch: any) => {
+        if (patch.op && patch.op !== 'add') return;
+        const poly = patch.polygon;
+        if (!poly || poly.length < 3) return;
+
+        ctx.beginPath();
+        const start = toScreen(poly[0][0], poly[0][1]);
+        ctx.moveTo(start.x, start.y);
+        for (let i = 1; i < poly.length; i++) {
+          const pt = toScreen(poly[i][0], poly[i][1]);
+          ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.closePath();
+
+        const patchId = (patch.id || '').toLowerCase();
+        const isPallet = patchId.includes('pallet') || patchId.includes('поддон');
+        const isContainer = patchId.includes('container') || patchId.includes('can') || patchId.includes('контейнер');
+
+        if (isPallet) {
+          ctx.fillStyle = '#FCD34D';
+          ctx.strokeStyle = '#D97706';
+          ctx.lineWidth = 1.5;
+        } else if (isContainer) {
+          ctx.fillStyle = '#64748B';
+          ctx.strokeStyle = '#1E293B';
+          ctx.lineWidth = 1.8;
+        } else {
+          ctx.fillStyle = '#CBD5E1';
+          ctx.strokeStyle = '#475569';
+          ctx.lineWidth = 1.5;
+        }
+
+        ctx.fill();
+        ctx.stroke();
+
+        // For containers with 4 vertices, draw subtle corrugated rib lines
+        if (isContainer && poly.length === 4) {
+          ctx.save();
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+          ctx.lineWidth = 1;
+          const p0 = toScreen(poly[0][0], poly[0][1]);
+          const p1 = toScreen(poly[1][0], poly[1][1]);
+          const p3 = toScreen(poly[3][0], poly[3][1]);
+          const ribCount = 4;
+          for (let r = 1; r < ribCount; r++) {
+            const frac = r / ribCount;
+            const topX = p0.x + (p1.x - p0.x) * frac;
+            const topY = p0.y + (p1.y - p0.y) * frac;
+            const botX = p3.x + (p1.x - p0.x) * frac;
+            const botY = p3.y + (p1.y - p0.y) * frac;
+            ctx.beginPath();
+            ctx.moveTo(topX, topY);
+            ctx.lineTo(botX, botY);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        // Draw obstacle label badge
+        if (!isMiniMap) {
+          const centerWx = poly.reduce((acc: number, p: any) => acc + p[0], 0) / poly.length;
+          const centerWy = poly.reduce((acc: number, p: any) => acc + p[1], 0) / poly.length;
+          const centerSc = toScreen(centerWx, centerWy);
+
+          ctx.save();
+          ctx.font = 'bold 9px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          let label = patch.id || 'Объект';
+          if (label.startsWith('CONTAINER_')) {
+            label = `Контейнер ${label.replace('CONTAINER_', '')}`;
+          } else if (label.startsWith('PALLET_')) {
+            label = `Поддон ${label.replace('PALLET_', '')}`;
+          }
+
+          const metrics = ctx.measureText(label);
+          const padX = 4;
+          const padY = 2;
+          ctx.fillStyle = isPallet ? 'rgba(254, 243, 199, 0.92)' : 'rgba(30, 41, 59, 0.85)';
+          ctx.fillRect(
+            centerSc.x - metrics.width / 2 - padX,
+            centerSc.y - 6 - padY,
+            metrics.width + padX * 2,
+            12 + padY * 2
+          );
+          ctx.fillStyle = isPallet ? '#92400E' : '#FFFFFF';
+          ctx.fillText(label, centerSc.x, centerSc.y);
+          ctx.restore();
+        }
+      });
+    }
+
+    // 4c. Dynamic Dropped Obstacles (Events: Pallets dropped on road)
+    if (layers.obstacles && activeMap.events && activeMap.events.length > 0) {
+      activeMap.events.forEach((ev: any) => {
+        if (ev.type !== 'object_dropped' || typeof ev.x !== 'number' || typeof ev.y !== 'number') return;
+
+        const isDropped = !currentTick || currentTick.t >= (ev.t ?? 0);
+        const screenPt = toScreen(ev.x, ev.y);
+        const r = ev.r || 0.4;
+        const radiusPx = Math.max(6, r * currentScale);
+
+        // Standard pallet dimensions: 1.2m x 0.8m
+        const palletW = Math.max(12, 1.2 * currentScale);
+        const palletH = Math.max(8, 0.8 * currentScale);
+
+        ctx.save();
+
+        if (isDropped) {
+          // Safety / danger halo around dropped pallet
+          ctx.beginPath();
+          ctx.arc(screenPt.x, screenPt.y, radiusPx + Math.max(4, 0.4 * currentScale), 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(245, 158, 11, 0.15)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(217, 119, 6, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Pallet body rectangle
+          const px = screenPt.x - palletW / 2;
+          const py = screenPt.y - palletH / 2;
+          ctx.fillStyle = '#FCD34D';
+          ctx.fillRect(px, py, palletW, palletH);
+          ctx.strokeStyle = '#B45309';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(px, py, palletW, palletH);
+
+          // Wood slats (horizontal boards across pallet)
+          ctx.strokeStyle = '#D97706';
+          ctx.lineWidth = 1;
+          for (let s = 1; s <= 2; s++) {
+            const slatY = py + (palletH * s) / 3;
+            ctx.beginPath();
+            ctx.moveTo(px + 1, slatY);
+            ctx.lineTo(px + palletW - 1, slatY);
+            ctx.stroke();
+          }
+
+          // Center cross/dot
+          ctx.beginPath();
+          ctx.arc(screenPt.x, screenPt.y, 2, 0, Math.PI * 2);
+          ctx.fillStyle = '#B45309';
+          ctx.fill();
+
+          // Label
+          if (!isMiniMap) {
+            const label = `Поддон (${ev.t !== undefined ? ev.t + 'с' : '0.4м'})`;
+            ctx.font = 'bold 9px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            const metrics = ctx.measureText(label);
+            const padX = 4;
+            const padY = 2;
+            const labelY = py - 3;
+
+            ctx.fillStyle = 'rgba(254, 243, 199, 0.95)';
+            ctx.strokeStyle = '#D97706';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(
+              screenPt.x - metrics.width / 2 - padX,
+              labelY - 10 - padY,
+              metrics.width + padX * 2,
+              12 + padY
+            );
+            ctx.fillRect(
+              screenPt.x - metrics.width / 2 - padX,
+              labelY - 10 - padY,
+              metrics.width + padX * 2,
+              12 + padY
+            );
+            ctx.fillStyle = '#92400E';
+            ctx.fillText(label, screenPt.x, labelY);
+          }
+        } else {
+          // Pre-drop ghost marker (future dropped pallet)
+          const px = screenPt.x - palletW / 2;
+          const py = screenPt.y - palletH / 2;
+          ctx.fillStyle = 'rgba(254, 243, 199, 0.3)';
+          ctx.fillRect(px, py, palletW, palletH);
+          ctx.strokeStyle = 'rgba(217, 119, 6, 0.55)';
+          ctx.lineWidth = 1.2;
+          ctx.setLineDash([3, 2]);
+          ctx.strokeRect(px, py, palletW, palletH);
+          ctx.setLineDash([]);
+
+          if (!isMiniMap) {
+            const label = `Поддон (t=${ev.t}с)`;
+            ctx.font = 'bold 9px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillStyle = 'rgba(180, 83, 9, 0.7)';
+            ctx.fillText(label, screenPt.x, py - 2);
+          }
+        }
+
+        ctx.restore();
       });
     }
 

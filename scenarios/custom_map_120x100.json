@@ -1,39 +1,14 @@
 {
   "schema": "amr-1.0",
   "name": "custom_map_120x100",
-  "description": "test",
+  "description": "Пользовательская карта 120×100м с базовым проездом.",
   "dt": 0.1,
-  "duration_s": 30.0,
+  "duration_s": 300,
   "hidden": false,
   "provide_detections": false,
   "weather": {
     "snow": false
   },
-  "events": [],
-  "start": {
-    "x": 15.0,
-    "y": 50.0,
-    "theta": 0.0
-  },
-  "missions": [
-    {
-      "id": "m1",
-      "from": "dock_start",
-      "to": "dock_end",
-      "deadline_s": 180.0,
-      "reference_length_m": 90.0,
-      "reference_path": [
-        [
-          15.0,
-          50.0
-        ],
-        [
-          105.0,
-          50.0
-        ]
-      ]
-    }
-  ],
   "map": {
     "frame": "x east, y north, meters; heading radians from +x counterclockwise",
     "bounds": [
@@ -45,44 +20,259 @@
     "drivable": [
       [
         [
-          10.0,
-          45.0
+          10,
+          45
         ],
         [
-          110.0,
-          45.0
+          110,
+          45
         ],
         [
-          110.0,
-          55.0
+          110,
+          55
         ],
         [
-          10.0,
-          55.0
+          10,
+          55
+        ]
+      ],
+      [
+        [
+          53.2,
+          54.9
+        ],
+        [
+          64.7,
+          54.9
+        ],
+        [
+          64.7,
+          70
+        ],
+        [
+          53.2,
+          70
+        ]
+      ],
+      [
+        [
+          52.9,
+          70.2
+        ],
+        [
+          65.4,
+          70.2
+        ],
+        [
+          65.4,
+          81
+        ],
+        [
+          52.9,
+          81
         ]
       ]
     ],
     "buildings": [],
     "points": {
       "dock_start": {
-        "x": 15.0,
-        "y": 50.0,
-        "heading": 0.0,
+        "x": 15,
+        "y": 50,
+        "heading": 0,
         "tol": 0.5,
-        "label": "\u0421\u0442\u0430\u0440\u0442"
+        "label": "Стартовый док"
       },
       "dock_end": {
-        "x": 105.0,
-        "y": 50.0,
-        "heading": 0.0,
+        "x": 59.2,
+        "y": 75.1,
+        "heading": 0,
         "tol": 0.5,
-        "label": "\u0426\u0435\u043b\u044c"
+        "label": "Целевой док"
       }
     },
-    "zones": [],
+    "zones": [
+      {
+        "id": "PA_1",
+        "type": "people_area",
+        "polygon": [
+          [
+            53,
+            45
+          ],
+          [
+            64.9,
+            45
+          ],
+          [
+            64.9,
+            66.6
+          ],
+          [
+            53,
+            66.6
+          ]
+        ]
+      },
+      {
+        "id": "PA_2",
+        "type": "people_area",
+        "polygon": [
+          [
+            42.8,
+            45
+          ],
+          [
+            74,
+            45
+          ],
+          [
+            74,
+            55
+          ],
+          [
+            42.8,
+            55
+          ]
+        ]
+      }
+    ],
     "gates": [],
     "crossing": []
   },
-  "map_patches": [],
-  "pedestrians": []
+  "map_patches": [
+    {
+      "id": "CONTAINER_1",
+      "op": "add",
+      "polygon": [
+        [
+          32.7,
+          52.5
+        ],
+        [
+          32.7,
+          46.4
+        ],
+        [
+          35.1,
+          46.5
+        ],
+        [
+          35.1,
+          52.6
+        ]
+      ]
+    }
+  ],
+  "start": {
+    "x": 15,
+    "y": 50,
+    "theta": 0
+  },
+  "missions": [
+    {
+      "id": "m1",
+      "from": "dock_start",
+      "to": "dock_end",
+      "deadline_s": 180,
+      "reference_length_m": 90,
+      "reference_path": [
+        [
+          15,
+          50
+        ],
+        [
+          105,
+          50
+        ]
+      ]
+    }
+  ],
+  "pedestrians": [
+    {
+      "id": "p1",
+      "waypoints": [
+        [
+          48,
+          59.6
+        ],
+        [
+          56,
+          36.1
+        ]
+      ],
+      "speed": 1,
+      "inattentive": false,
+      "loop": true,
+      "t_start": 10
+    },
+    {
+      "id": "p2",
+      "waypoints": [
+        [
+          71.3,
+          58.3
+        ],
+        [
+          46,
+          56.9
+        ]
+      ],
+      "speed": 1,
+      "inattentive": false,
+      "loop": true,
+      "t_start": 10
+    },
+    {
+      "id": "p3",
+      "waypoints": [
+        [
+          49.3,
+          39.5
+        ],
+        [
+          52.3,
+          66.4
+        ]
+      ],
+      "speed": 1,
+      "inattentive": false,
+      "loop": true,
+      "t_start": 10
+    },
+    {
+      "id": "p4",
+      "waypoints": [
+        [
+          69.8,
+          39.5
+        ],
+        [
+          70.1,
+          60
+        ]
+      ],
+      "speed": 1,
+      "inattentive": false,
+      "loop": true,
+      "t_start": 10
+    },
+    {
+      "id": "p5",
+      "waypoints": [
+        [
+          58.7,
+          42.2
+        ],
+        [
+          67.8,
+          61.1
+        ]
+      ],
+      "speed": 1,
+      "inattentive": false,
+      "loop": true,
+      "t_start": 10
+    }
+  ],
+  "events": []
 }

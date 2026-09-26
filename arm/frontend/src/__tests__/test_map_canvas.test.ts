@@ -75,6 +75,18 @@ export function computeFollowRobotOffset(
   };
 }
 
+export function classifyObstacleType(id: string): 'pallet' | 'container' | 'generic' {
+  const norm = (id || '').toLowerCase();
+  if (norm.includes('pallet') || norm.includes('поддон')) return 'pallet';
+  if (norm.includes('container') || norm.includes('can') || norm.includes('контейнер')) return 'container';
+  return 'generic';
+}
+
+export function isObstacleActiveAtTick(dropTime: number, currentTickTime?: number | null): boolean {
+  if (currentTickTime === undefined || currentTickTime === null) return true;
+  return currentTickTime >= dropTime;
+}
+
 describe('MapCanvas Geometry & Projection', () => {
   const warehouseBounds: [number, number, number, number] = [0, 0, 250, 200];
 
@@ -185,4 +197,41 @@ describe('MapCanvas Geometry & Projection', () => {
       expect(fit.fitOffset.y).toBeGreaterThanOrEqual(0);
     });
   });
+
+  describe('Obstacles (Pallets & Containers) Visibility & Classification', () => {
+    it('correctly classifies pallet obstacles by id keywords', () => {
+      expect(classifyObstacleType('PALLET_1')).toBe('pallet');
+      expect(classifyObstacleType('pallet_wood')).toBe('pallet');
+      expect(classifyObstacleType('поддон_деревянный')).toBe('pallet');
+    });
+
+    it('correctly classifies container obstacles by id keywords', () => {
+      expect(classifyObstacleType('CONTAINER_1')).toBe('container');
+      expect(classifyObstacleType('CONTAINER_S')).toBe('container');
+      expect(classifyObstacleType('CAN_1')).toBe('container');
+      expect(classifyObstacleType('морской_контейнер')).toBe('container');
+    });
+
+    it('falls back to generic obstacle for unknown identifiers', () => {
+      expect(classifyObstacleType('WALL_EXTRA')).toBe('generic');
+      expect(classifyObstacleType('')).toBe('generic');
+    });
+
+    it('determines dropped object active visibility based on replay tick time', () => {
+      const dropTime = 60.0;
+
+      // Before drop time, not active (ghost marker)
+      expect(isObstacleActiveAtTick(dropTime, 0.0)).toBe(false);
+      expect(isObstacleActiveAtTick(dropTime, 59.9)).toBe(false);
+
+      // At or after drop time, fully active
+      expect(isObstacleActiveAtTick(dropTime, 60.0)).toBe(true);
+      expect(isObstacleActiveAtTick(dropTime, 65.5)).toBe(true);
+
+      // When tick time is undefined (overview or static view), visible as active
+      expect(isObstacleActiveAtTick(dropTime, undefined)).toBe(true);
+      expect(isObstacleActiveAtTick(dropTime, null)).toBe(true);
+    });
+  });
 });
+
