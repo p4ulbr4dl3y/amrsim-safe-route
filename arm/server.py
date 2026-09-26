@@ -660,6 +660,8 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
     recent_events = []
     # Добавление выполненных миссий как успешных событий
     for m in missions:
+        if not isinstance(m, dict):
+            continue
         t_arr = _safe_float(
             m.get("t_arrival") if m.get("t_arrival") is not None else m.get("t_end", 0.0)
         )
@@ -682,6 +684,8 @@ def build_dashboard_view_model(scenario_id: str) -> dict:
 
     # Добавление штрафных эпизодов как предупреждений или информационных сообщений
     for idx, ep in enumerate(episodes):
+        if not isinstance(ep, dict):
+            continue
         ep_type = ep.get("type", "incident")
         cost = _safe_float(ep.get("cost"), 0.0)
         t_st = _safe_float(ep.get("t_start"), 0.0)
@@ -899,6 +903,8 @@ def build_episodes_view_model(scenario_id: str) -> dict:
     if len(episodes) < 4:
         # 1. Контрольные точки миссий: отправление, доставка или таймаут
         for m in (report.get("missions") or []) if report else []:
+            if not isinstance(m, dict):
+                continue
             m_id = str(m.get("id") or "m1")
             from_pt = POINT_LABELS.get(str(m.get("from") or ""), str(m.get("from") or ""))
             to_pt = POINT_LABELS.get(str(m.get("to") or ""), str(m.get("to") or ""))
@@ -1193,13 +1199,15 @@ def build_missions_view_model(scenario_id: str) -> dict:
     norm_id = normalize_scenario_id(scenario_id)
     report = get_scenario_report(norm_id)
     raw_missions = (report.get("missions") or []) if report else []
-    score_blocks = (report.get("score") or {}).get("blocks") or {}
-    score_max = (report.get("score") or {}).get("max") or {}
+    score_blocks = (((report.get("score") or {}) if report else {}).get("blocks") or {})
+    score_max = (((report.get("score") or {}) if report else {}).get("max") or {})
 
     missions = []
     completed = 0
 
     for m in raw_missions:
+        if not isinstance(m, dict):
+            continue
         m_id = str(m.get("id") or "m")
         from_pt = str(m.get("from") or "warehouse")
         to_pt = str(m.get("to") or "shop_a")

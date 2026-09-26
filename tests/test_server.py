@@ -1387,4 +1387,68 @@ def test_api_scenarios_null_score(http_server, monkeypatch):
             assert sc["score"] is None
 
 
+def test_build_missions_view_model_unrun_or_none_report(monkeypatch):
+    """build_missions_view_model handles unrun scenario and None report safely."""
+    # 1. Nonexistent/unrun scenario directly without monkeypatch
+    vm = build_missions_view_model("nonexistent_or_unrun")
+    assert vm["scenario"] == "nonexistent_or_unrun"
+    assert vm["missions"] == []
+    assert vm["summary"]["completed"] == 0
+    assert vm["summary"]["total"] == 0
+    assert vm["summary"]["deliveryScore"] == 40.0
+    assert vm["summary"]["maxDeliveryScore"] == 40.0
+    assert vm["summary"]["efficiencyScore"] == 14.0
+    assert vm["summary"]["maxEfficiencyScore"] == 15.0
+
+    # 2. Monkeypatch get_scenario_report to return None
+    monkeypatch.setattr(server, "get_scenario_report", lambda *args: None)
+    vm_none = build_missions_view_model("01_clear")
+    assert vm_none["scenario"] == "01_clear"
+    assert vm_none["missions"] == []
+    assert vm_none["summary"]["completed"] == 0
+    assert vm_none["summary"]["total"] == 0
+
+    # 3. Monkeypatch get_scenario_report with None score and None missions
+    monkeypatch.setattr(server, "get_scenario_report", lambda *args: {"score": None, "missions": None})
+    vm_empty = build_missions_view_model("01_clear")
+    assert vm_empty["missions"] == []
+    assert vm_empty["summary"]["completed"] == 0
+
+
+def test_build_dashboard_view_model_null_items_in_lists(monkeypatch):
+    """build_dashboard_view_model handles null/non-dict items in missions and episodes."""
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {
+            "missions": [None, {"id": "m1", "to": "shop_a", "delivered": True, "t_arrival": 50.0}],
+            "score": {
+                "total": 85.0,
+                "deliveries": 1,
+                "episodes": [None, {"type": "collision", "cost": -30.0, "t_start": 10.0}],
+            },
+        },
+    )
+    dash_vm = build_dashboard_view_model("01_clear")
+    assert "recentEvents" in dash_vm
+    event_ids = [e["id"] for e in dash_vm["recentEvents"]]
+    assert "e-m-m1" in event_ids
+    assert "e-ep-1" in event_ids
+
+    # Completely null items list test
+    monkeypatch.setattr(
+        server,
+        "get_scenario_report",
+        lambda *args: {
+            "missions": [None],
+            "score": {"total": 50.0, "episodes": [None]},
+        },
+    )
+    dash_vm_all_null = build_dashboard_view_model("01_clear")
+    assert "recentEvents" in dash_vm_all_null
+    # Only the default system startup event is present, no mission or episode events
+    non_sys_events = [e for e in dash_vm_all_null["recentEvents"] if e["id"] != "e-sys-start"]
+    assert len(non_sys_events) == 0
+
+
 
