@@ -7,6 +7,7 @@ import numpy as np
 
 from team_dreamteam_4_0.geom import box_segs, raycast
 from team_dreamteam_4_0.localize import (
+    EKFFilter,
     Localizer,
     ScanMatcher,
     match_scan_to_walls,
@@ -84,6 +85,57 @@ class TestLocalizer(unittest.TestCase):
         loc.predict(0.0, 0.0, 0.0, imu_heading=0.5, imu_yaw_rate=0.0, dt=0.1)
         # Should reject jump and integrate yaw_rate (0.0)
         self.assertAlmostEqual(loc.th, 0.0)
+
+    def test_heading_nan_imu_predict(self):
+        loc = Localizer((10.0, 20.0, 0.5))
+        # Step with NaN heading when uninitialized: fallback to expected_th and don't initialize bias with NaN
+        loc.predict(0.0, 0.0, 0.0, imu_heading=float("nan"), imu_yaw_rate=0.1, dt=0.1)
+        self.assertFalse(math.isnan(loc.th))
+        self.assertAlmostEqual(loc.th, 0.5 + 0.1 * 0.1)
+        self.assertFalse(loc.bias_initialized)
+
+        # Next step with valid heading initializes bias
+        loc.predict(0.0, 0.0, 0.0, imu_heading=0.6, imu_yaw_rate=0.0, dt=0.1)
+        self.assertTrue(loc.bias_initialized)
+        self.assertFalse(math.isnan(loc.heading_bias))
+
+        # Subsequent step with NaN heading: retains expected_th and preserves existing bias
+        prev_bias = loc.heading_bias
+        loc.predict(0.0, 0.0, 0.0, imu_heading=float("nan"), imu_yaw_rate=0.05, dt=0.2)
+        self.assertFalse(math.isnan(loc.th))
+        self.assertEqual(loc.heading_bias, prev_bias)
+
+    def test_ekf_predict_nan_heading(self):
+        # Direct call to EKFFilter.predict with NaN imu_heading
+        res = EKFFilter.predict(
+            x=0.0,
+            y=0.0,
+            th=0.3,
+            ox=0.0,
+            oy=0.0,
+            oth=0.0,
+            var_along=0.01,
+            var_cross=0.01,
+            var_th=0.001,
+            scale=1.0,
+            unconfirmed_dist=0.0,
+            scale_locked=False,
+            odom_dx=0.0,
+            odom_dy=0.0,
+            odom_dth=0.0,
+            imu_heading=float("nan"),
+            imu_yaw_rate=0.2,
+            dt=0.1,
+            heading_bias=0.0,
+            bias_initialized=False,
+        )
+        new_th = res[2]
+        cur_bias = res[10]
+        cur_init = res[11]
+        self.assertFalse(math.isnan(new_th))
+        self.assertAlmostEqual(new_th, 0.3 + 0.2 * 0.1)
+        self.assertFalse(cur_init)
+        self.assertFalse(math.isnan(cur_bias))
 
     def test_gnss_gating_and_filtering(self):
         loc = Localizer((10.0, 10.0, 0.0))

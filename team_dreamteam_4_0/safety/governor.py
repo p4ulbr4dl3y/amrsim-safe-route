@@ -269,8 +269,12 @@ class SafetyGovernor:
                     corridor_hit = (
                         np.isfinite(r) & (px > 0.0) & (px < reach) & (np.abs(py) < R_PLATFORM + 0.1)
                     )
-                    three_hit = corridor_hit & np.roll(corridor_hit, 1) & np.roll(corridor_hit, -1)
-                    if three_hit.any():
+                    if len(r) >= 3:
+                        three_hit = corridor_hit & np.roll(corridor_hit, 1) & np.roll(corridor_hit, -1)
+                        has_hit = three_hit.any()
+                    else:
+                        has_hit = corridor_hit.any()
+                    if has_hit:
                         stop_reason = stop_reason or "too_close"
                         v_lim = 0.0
                         notes["stop_corridor"] = "stop_corridor"

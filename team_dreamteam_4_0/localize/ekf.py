@@ -91,17 +91,19 @@ class EKFFilter:
 
         cur_bias = heading_bias
         cur_init = bias_initialized
-        if not cur_init:
+        if not cur_init and not math.isnan(imu_heading):
             cur_bias = wrap_angle(imu_heading - th)
             cur_init = True
 
         expected_th = wrap_angle(th + imu_yaw_rate * dt)
-        measured_th = wrap_angle(imu_heading - cur_bias)
-
-        if abs(wrap_angle(measured_th - expected_th)) > 0.05:
+        if math.isnan(imu_heading):
             new_th = expected_th
         else:
-            new_th = measured_th
+            measured_th = wrap_angle(imu_heading - cur_bias)
+            if abs(wrap_angle(measured_th - expected_th)) > 0.05:
+                new_th = expected_th
+            else:
+                new_th = measured_th
 
         new_unconfirmed = unconfirmed_dist + step_dist
         scale_err = 0.01 if scale_locked else 0.04

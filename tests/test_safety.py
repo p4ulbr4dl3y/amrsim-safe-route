@@ -1056,5 +1056,143 @@ class TestSafetyEdgeCases(unittest.TestCase):
         self.assertEqual(w_c, 0.0)
 
 
+class TestSafetyDefectRegressions(unittest.TestCase):
+    def test_predict_ttc_clearance_pedestrian_radius(self):
+        # Obstacle at x=3.0, y=0.0
+        # 1. Pedestrian track: subtract R_PLATFORM (0.9) + R_PEDESTRIAN (0.3) = 1.2
+        tr_ped = Track(track_id=1, ox=3.0, oy=0.0)
+        tr_ped.pts = np.array([[3.0, 0.0]])
+        tr_ped.class_label = "pedestrian"
+        tr_ped.dyn = True
+        cl_ped, _ = predict_ttc_clearance(tr_ped, v_platform=0.0, oth=0.0, horizon_s=2.0)
+        self.assertAlmostEqual(cl_ped, 3.0 - (R_PLATFORM + R_PEDESTRIAN))
+
+        # 2. Unknown track: subtract R_PLATFORM + R_PEDESTRIAN = 1.2
+        tr_unk = Track(track_id=2, ox=3.0, oy=0.0)
+        tr_unk.pts = np.array([[3.0, 0.0]])
+        tr_unk.class_label = "unknown"
+        tr_unk.dyn = None
+        cl_unk, _ = predict_ttc_clearance(tr_unk, v_platform=0.0, oth=0.0, horizon_s=2.0)
+        self.assertAlmostEqual(cl_unk, 3.0 - (R_PLATFORM + R_PEDESTRIAN))
+
+        # 3. Static object track: subtract only R_PLATFORM = 0.9
+        tr_static = Track(track_id=3, ox=3.0, oy=0.0)
+        tr_static.pts = np.array([[3.0, 0.0]])
+        tr_static.class_label = "static_object"
+        tr_static.dyn = False
+        cl_static, _ = predict_ttc_clearance(tr_static, v_platform=0.0, oth=0.0, horizon_s=2.0)
+        self.assertAlmostEqual(cl_static, 3.0 - R_PLATFORM)
+
+    def test_nan_points_in_calculate_clearance(self):
+        # Cloud with mixed NaN and finite points
+        pts_mixed = np.array([[np.nan, 1.0], [3.0, 0.0], [np.nan, np.nan]])
+        cl_ped = calculate_clearance(pts_mixed, is_pedestrian=True)
+        self.assertAlmostEqual(cl_ped, 3.0 - (R_PLATFORM + R_PEDESTRIAN))
+        cl_stat = calculate_clearance(pts_mixed, is_pedestrian=False)
+        self.assertAlmostEqual(cl_stat, 3.0 - R_PLATFORM)
+
+        # Cloud with all NaN points
+        pts_all_nan = np.array([[np.nan, 0.0], [1.0, np.nan], [np.nan, np.nan]])
+        self.assertTrue(math.isinf(calculate_clearance(pts_all_nan)))
+
+    def test_nan_points_in_predict_ttc_clearance(self):
+        # Track with mixed NaN and finite points
+        tr = Track(track_id=10, ox=3.0, oy=0.0)
+        tr.pts = np.array([[np.nan, 2.0], [3.0, 0.0], [np.nan, np.nan]])
+        tr.class_label = "pedestrian"
+        tr.dyn = True
+        cl, t = predict_ttc_clearance(tr, v_platform=0.0, oth=0.0, horizon_s=2.0)
+        self.assertFalse(math.isinf(cl))
+        self.assertAlmostEqual(cl, 3.0 - (R_PLATFORM + R_PEDESTRIAN))
+
+        # Track with all NaN points
+        tr_all_nan = Track(track_id=11, ox=3.0, oy=0.0)
+        tr_all_nan.pts = np.array([[np.nan, np.nan], [np.nan, 1.0]])
+        cl_nan, t_nan = predict_ttc_clearance(tr_all_nan, v_platform=0.0, oth=0.0, horizon_s=2.0)
+        self.assertTrue(math.isinf(cl_nan))
+        self.assertEqual(t_nan, 2.0)
+
+    def test_lidar_corridor_hit_beam_counts(self):
+        gov = SafetyGovernor(v_top=1.39, dt=0.1)
+
+        # 1-beam lidar inside corridor
+        v, _, _, note = gov.evaluate(
+            v_cand=1.0,
+            w_cand=0.0,
+            v_odom=0.5,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[],
+            ranges=np.array([1.0]),
+            rel_angles=np.array([0.0]),
+            zones=[],
+        )
+        self.assertEqual(v, 0.0)
+        self.assertIn("stop_corridor", note)
+
+        # 1-beam lidar outside corridor
+        v, _, _, note = gov.evaluate(
+            v_cand=1.0,
+            w_cand=0.0,
+            v_odom=0.5,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[],
+            ranges=np.array([10.0]),
+            rel_angles=np.array([0.0]),
+            zones=[],
+        )
+        self.assertNotIn("stop_corridor", note)
+
+        # 2-beam lidar with 1 beam inside corridor
+        v, _, _, note = gov.evaluate(
+            v_cand=1.0,
+            w_cand=0.0,
+            v_odom=0.5,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[],
+            ranges=np.array([10.0, 1.0]),
+            rel_angles=np.array([0.5, 0.0]),
+            zones=[],
+        )
+        self.assertEqual(v, 0.0)
+        self.assertIn("stop_corridor", note)
+
+        # 5-beam lidar with only 1 hit inside corridor (should NOT trigger stop_corridor)
+        v, _, _, note = gov.evaluate(
+            v_cand=1.0,
+            w_cand=0.0,
+            v_odom=0.5,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[],
+            ranges=np.array([10.0, 10.0, 1.0, 10.0, 10.0]),
+            rel_angles=np.array([-0.2, -0.1, 0.0, 0.1, 0.2]),
+            zones=[],
+        )
+        self.assertNotIn("stop_corridor", note)
+
+        # 5-beam lidar with 3 neighboring hits inside corridor (SHOULD trigger stop_corridor)
+        v, _, _, note = gov.evaluate(
+            v_cand=1.0,
+            w_cand=0.0,
+            v_odom=0.5,
+            w_odom=0.0,
+            pose=(0.0, 0.0, 0.0),
+            odom_pose=(0.0, 0.0, 0.0),
+            tracks=[],
+            ranges=np.array([10.0, 1.0, 1.0, 1.0, 10.0]),
+            rel_angles=np.array([-0.2, -0.1, 0.0, 0.1, 0.2]),
+            zones=[],
+        )
+        self.assertEqual(v, 0.0)
+        self.assertIn("stop_corridor", note)
+
+
 if __name__ == "__main__":
     unittest.main()
