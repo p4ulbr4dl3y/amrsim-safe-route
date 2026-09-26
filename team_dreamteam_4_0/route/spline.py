@@ -74,30 +74,3 @@ class QuinticSpline1D:
             + 12.0 * self.a4 * (t**2)
             + 20.0 * self.a5 * (t**3)
         )
-
-
-def smooth_yaw_rate_quintic(
-    w_curr: float,
-    w_target: float,
-    dt: float = 0.1,
-    horizon_s: float = 0.3,
-) -> float:
-    """Сглаживание угловой скорости с помощью квинтового сплайна.
-
-    Статус реализации и обоснование архитектуры:
-    - статус: реализовано и протестировано, но не подключено к боевому step() из-за преимуществ устойчивости Pure Pursuit при шаге 0.1 с;
-    - назначение: ограничение рывка и подавление осцилляций угловой скорости платформы;
-    - граничные условия: непрерывность первой и второй производных угловой скорости во времени.
-    """
-    if abs(w_target - w_curr) < 1e-4:
-        return float(w_target)
-    spline = QuinticSpline1D(
-        x0=w_curr,
-        v0=0.0,
-        a0=0.0,
-        x1=w_target,
-        v1=0.0,
-        a1=0.0,
-        duration=max(dt, horizon_s),
-    )
-    return spline.calc_point(dt)

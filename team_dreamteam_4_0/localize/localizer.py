@@ -327,6 +327,19 @@ class Localizer:
 
         if res.success:
             cur_x, cur_y, cur_th = res.x, res.y, res.th
+            step_jump = math.hypot(cur_x - self.x, cur_y - self.y)
+            if step_jump > 1.5:
+                # Аномальный скачок сопоставления скана (например, захват параллельной стены)
+                self.scan_inliers = 0
+                self._register_scan_health(is_fog)
+                self._scan_reject_ticks = getattr(self, "_scan_reject_ticks", 0) + 1
+                if self._scan_reject_ticks >= 5:
+                    self.is_lost = True
+                self._check_lost_status()
+                return False
+
+            self._scan_reject_ticks = 0
+
             prev_x, prev_y = self._prev_scan_xy
             prev_ox, prev_oy = self._prev_scan_odom
             self._prev_scan_xy = (cur_x, cur_y)
@@ -414,10 +427,12 @@ class Localizer:
         )
 
     def _register_scan_health(self, is_fog: bool) -> None:
-        if is_fog or self.scan_inliers >= 15 or self._gnss_fix_ticks <= 10:
+        inlier_req = 28 if self._gnss_fix_ticks > 10 else 15
+        if is_fog or self.scan_inliers >= inlier_req or self._gnss_fix_ticks <= 10:
             self._low_inlier_ticks = 0
         else:
             self._low_inlier_ticks += 1
+
 
     def _penalise_missing_near_walls(
         self,
@@ -721,8 +736,15 @@ class Localizer:
         # Рост неопределенности (поперечной или угловой) подтверждает потерю позы:
         # счетчик редких инлайнеров сам по себе ее не доказывает.
         uncertain = self.sigma_cross > 0.4 or self.sigma_th > math.radians(5.0)
-        blind = self._low_inlier_ticks >= 10 and (uncertain or self._usable_beams < 20)
+        unconfirmed_shadow = self._gnss_fix_ticks > 10 and getattr(self, "_unconfirmed_dist", 0.0) > 8.1
+        blind = self._low_inlier_ticks >= 11 and (
+            uncertain or self._usable_beams < 20 or unconfirmed_shadow
+        )
+
         entering = align or cross or blind
+
+
+
 
         if entering:
             self.is_lost = True

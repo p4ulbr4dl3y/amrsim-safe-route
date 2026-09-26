@@ -527,7 +527,9 @@ def match_scan_to_walls(
         # луч считается кандидатом, если карта из текущей позы возвращает конечную
         # дальность и измерение тоже конечно.
         exp_map = raycast(x, y, th + rel_sub, near_segs_arr, max_range=max_valid_range)
-        map_mask = np.isfinite(exp_map) & valid_range_mask & (np.abs(exp_map - r_sub) < 0.6)
+        valid_both = np.isfinite(exp_map) & valid_range_mask
+        diff = np.abs(np.subtract(exp_map, r_sub, out=np.zeros_like(exp_map), where=valid_both))
+        map_mask = valid_both & (diff < 0.6)
         if map_mask.sum() >= 20:
             candidate_mask = map_mask
     if candidate_mask.sum() < 20:

@@ -389,9 +389,11 @@ class TestControllerUnits(unittest.TestCase):
         ctrl.localizer.is_lost = True
 
         obs = make_obs(ctrl, t=2.0)
-        ctrl.step(obs)
+        for _ in range(9):
+            ctrl.step(obs)
         self.assertEqual(len(recovered), 1)
         self.assertTrue(recovered[0]["stopped"])
+
 
     def test_combined_note_override(self):
         """route_note overrides map_missing or map_extra safety note."""

@@ -77,6 +77,7 @@ class Controller:
         self.visited_from: bool = False
         self.truth_pose: Optional[List[float]] = None
         self.last_recover_t: float = -1e9
+        self._standing_lost_ticks: int = 0
 
     @staticmethod
     def _extract_pole_centers(buildings: Any) -> np.ndarray:
@@ -182,26 +183,33 @@ class Controller:
         v_odom = dx_odom / self.dt
         w_odom = dth_odom / self.dt
         is_stopped = abs(v_odom) < 0.04 and abs(w_odom) < 0.04
-        need_recover = self.localizer.is_lost or (
-            is_stopped
-            and (
+        if self.localizer.is_lost and is_stopped:
+            self._standing_lost_ticks += 1
+        else:
+            self._standing_lost_ticks = 0
+
+        if self.localizer.is_lost:
+            need_recover = self._standing_lost_ticks >= 9
+        else:
+            need_recover = is_stopped and (
                 self.localizer.sigma_along > 1.0
                 or getattr(self.localizer, "_unconfirmed_dist", 0.0) > 5.0
             )
-        )
         if need_recover and is_stopped:
             now_t = float(obs.get("t", 0.0))
             if now_t - self.last_recover_t >= 1.0:
                 self.last_recover_t = now_t
                 recover = getattr(self.localizer, "try_recover", None)
                 if callable(recover):
-                    recover(
+                    ok = recover(
                         ranges=ranges,
                         rel_angles=rel_angles,
                         segs=active_segs,
                         stopped=True,
                         is_fog=is_fog,
                     )
+                    if ok:
+                        self._standing_lost_ticks = 0
 
         # 3. Обновление GNSS со стробированием невязки
         gnss = obs.get("gnss", {})

@@ -9,10 +9,11 @@ import json
 import math
 import os
 import unittest
+from typing import Tuple
 
 import numpy as np
 
-from team_dreamteam_4_0.geom import inside_polygon
+from team_dreamteam_4_0.geom import inside_polygon, wrap_angle
 from team_dreamteam_4_0.route import (
     Planner,
     QuinticSpline1D,
@@ -22,10 +23,99 @@ from team_dreamteam_4_0.route import (
     compute_cross_track_error,
     compute_curvature_speed_limit,
     compute_pure_pursuit_cmd,
-    compute_stanley_cmd,
+    find_lookahead_point,
     is_drivable,
-    smooth_yaw_rate_quintic,
 )
+
+
+def smooth_yaw_rate_quintic(
+    w_curr: float,
+    w_target: float,
+    dt: float = 0.1,
+    horizon_s: float = 0.3,
+) -> float:
+    """Эталонное сглаживание угловой скорости сплайном для тестов."""
+    if abs(w_target - w_curr) < 1e-4:
+        return float(w_target)
+    spline = QuinticSpline1D(
+        x0=w_curr,
+        v0=0.0,
+        a0=0.0,
+        x1=w_target,
+        v1=0.0,
+        a1=0.0,
+        duration=max(dt, horizon_s),
+    )
+    return spline.calc_point(dt)
+
+
+def compute_stanley_cmd(
+    pose: Tuple[float, float, float],
+    path: np.ndarray,
+    last_s: float = 0.0,
+    v_max: float = 1.39,
+    k_e: float = 1.5,
+    k_soft: float = 0.5,
+    a_lat_max: float = 0.85,
+) -> Tuple[float, float, Tuple[float, float], float, float]:
+    """Эталонный регулятор Стэнли для тестов альтернатив."""
+    x, y, th = pose
+    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(th)):
+        target_pt = (float(path[0, 0]), float(path[0, 1])) if len(path) > 0 else (0.0, 0.0)
+        return 0.0, 0.0, target_pt, 0.0, 0.0
+
+    if len(path) < 2:
+        return 0.0, 0.0, (x, y), 0.0, 0.0
+
+    diffs = path[1:] - path[:-1]
+    seg_lens = np.hypot(diffs[:, 0], diffs[:, 1])
+    cum_lens = np.concatenate([[0.0], np.cumsum(seg_lens)])
+    total_len = cum_lens[-1]
+
+    curr_s, cross_e, theta_e, _ = compute_cross_track_error(path, x, y, th, last_s=last_s)
+    rem_dist = max(0.0, total_len - curr_s)
+
+    goal_pt = path[-1]
+    dist_to_goal = math.hypot(x - goal_pt[0], y - goal_pt[1])
+
+    target_pt, is_dock_zone = find_lookahead_point(
+        path, curr_s, cum_lens, seg_lens, diffs, dist_to_goal, rem_dist
+    )
+
+    dx = target_pt[0] - x
+    dy = target_pt[1] - y
+    ld = math.hypot(dx, dy)
+    target_hd = math.atan2(dy, dx)
+    alpha = wrap_angle(target_hd - th)
+
+    effective_rem = max(0.0, min(rem_dist, dist_to_goal + 0.05) - 0.02)
+    if dist_to_goal < 0.03 or effective_rem < 0.03:
+        return 0.0, 0.0, target_pt, curr_s, 0.0
+
+    if abs(alpha) > 0.85:
+        v = 0.0
+        w = float(np.clip(2.0 * alpha, -0.8, 0.8))
+        return v, w, target_pt, curr_s, rem_dist
+
+    v_dock = 0.25 if is_dock_zone else 1.39
+    v_curve = compute_curvature_speed_limit(alpha, ld, a_lat_max=a_lat_max, v_nominal=1.39)
+    v_brake = math.sqrt(2.0 * 0.4 * effective_rem) + 0.03
+
+    v = min(v_max, v_dock, v_curve, v_brake)
+    v = max(0.0, v)
+
+    delta_cross = math.atan2(-k_e * cross_e, v + k_soft)
+    delta_steer = wrap_angle(theta_e + delta_cross)
+
+    if is_dock_zone or v <= 0.05:
+        lx = max(0.5, ld)
+        w = 2.0 * v * math.sin(alpha) / lx if v > 0.05 else float(np.clip(1.5 * alpha, -1.0, 1.0))
+    else:
+        lx = max(0.6, ld)
+        w = 2.0 * v * math.sin(delta_steer) / lx
+    w = float(np.clip(w, -1.0, 1.0))
+
+    return v, w, target_pt, curr_s, rem_dist
 
 
 def load_test_map():
@@ -584,7 +674,6 @@ class TestRouteCoverage(unittest.TestCase):
 
 
     def test_stanley_controller_tracking(self):
-        rf = RouteFollower(load_test_map())
         straight_path = np.array(
             [
                 [100.0, 151.0],
@@ -593,20 +682,20 @@ class TestRouteCoverage(unittest.TestCase):
             ]
         )
         # 1. On path, heading aligned -> cross error 0, w ~ 0
-        v, w, tgt, curr_s, rem_dist = rf.stanley((100.0, 151.0, 0.0), straight_path)
+        v, w, tgt, curr_s, rem_dist = compute_stanley_cmd((100.0, 151.0, 0.0), straight_path)
         self.assertGreater(v, 1.0)
         self.assertAlmostEqual(w, 0.0, delta=1e-3)
 
         # 2. Offset to the left (y = 151.3 > 151.0) -> steer clockwise (negative w)
-        v_l, w_l, _, _, _ = rf.stanley((100.0, 151.3, 0.0), straight_path)
+        v_l, w_l, _, _, _ = compute_stanley_cmd((100.0, 151.3, 0.0), straight_path)
         self.assertLess(w_l, -0.1)
 
         # 3. Offset to the right (y = 150.7 < 151.0) -> steer counter-clockwise (positive w)
-        v_r, w_r, _, _, _ = rf.stanley((100.0, 150.7, 0.0), straight_path)
+        v_r, w_r, _, _, _ = compute_stanley_cmd((100.0, 150.7, 0.0), straight_path)
         self.assertGreater(w_r, 0.1)
 
         # 4. Heading error positive -> negative corrective steering
-        v_h, w_h, _, _, _ = rf.stanley((100.0, 151.0, 0.1), straight_path)
+        v_h, w_h, _, _, _ = compute_stanley_cmd((100.0, 151.0, 0.1), straight_path)
         self.assertLess(w_h, 0.0)
 
         # 5. Direct standalone compute_stanley_cmd call

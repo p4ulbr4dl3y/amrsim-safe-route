@@ -13,8 +13,6 @@ try:
 except (ImportError, ValueError):
     from geom import inside_polygon, wrap_angle
 
-from .spline import smooth_yaw_rate_quintic as _smooth_yaw_rate_quintic
-
 
 def get_path_progress(
     path: np.ndarray, x: float, y: float, last_s: float = 0.0
@@ -260,97 +258,3 @@ def compute_pure_pursuit_cmd(
     return v, w, target_pt, curr_s, rem_dist
 
 
-def compute_stanley_cmd(
-    pose: Tuple[float, float, float],
-    path: np.ndarray,
-    last_s: float = 0.0,
-    v_max: float = 1.39,
-    k_e: float = 1.5,
-    k_soft: float = 0.5,
-    a_lat_max: float = 0.85,
-) -> Tuple[float, float, Tuple[float, float], float, float]:
-    """Следование по траектории с помощью регулятора Стэнли.
-
-    Статус реализации и обоснование архитектуры:
-    - статус: реализовано и протестировано, но не подключено к боевому step() из-за преимуществ устойчивости Pure Pursuit при шаге 0.1 с;
-    - параметры зоны дока: дистанция до цели не более 0.6 м, ограничение скорости v <= 0.25 м/с, прицеливание непосредственно в целевую точку;
-    - закон управления: раздельный учет курсовой ошибки и нелинейной поправки на боковое смещение;
-    - дифференциальный привод: пересчет целевого угла курса в угловую скорость поворота платформы.
-
-    Возвращает кортеж из линейной скорости, угловой скорости, координат целевой точки, пройденного пути и оставшейся дистанции.
-    """
-    x, y, th = pose
-    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(th)):
-        target_pt = (float(path[0, 0]), float(path[0, 1])) if len(path) > 0 else (0.0, 0.0)
-        return 0.0, 0.0, target_pt, 0.0, 0.0
-
-    if len(path) < 2:
-        return 0.0, 0.0, (x, y), 0.0, 0.0
-
-    diffs = path[1:] - path[:-1]
-    seg_lens = np.hypot(diffs[:, 0], diffs[:, 1])
-    cum_lens = np.concatenate([[0.0], np.cumsum(seg_lens)])
-    total_len = cum_lens[-1]
-
-    curr_s, cross_e, theta_e, _ = compute_cross_track_error(path, x, y, th, last_s=last_s)
-    rem_dist = max(0.0, total_len - curr_s)
-
-    goal_pt = path[-1]
-    dist_to_goal = math.hypot(x - goal_pt[0], y - goal_pt[1])
-
-    target_pt, is_dock_zone = find_lookahead_point(
-        path, curr_s, cum_lens, seg_lens, diffs, dist_to_goal, rem_dist
-    )
-
-    dx = target_pt[0] - x
-    dy = target_pt[1] - y
-    ld = math.hypot(dx, dy)
-    target_hd = math.atan2(dy, dx)
-    alpha = wrap_angle(target_hd - th)
-
-    effective_rem = max(0.0, min(rem_dist, dist_to_goal + 0.05) - 0.02)
-    if dist_to_goal < 0.03 or effective_rem < 0.03:
-        return 0.0, 0.0, target_pt, curr_s, 0.0
-
-    if abs(alpha) > 0.85:
-        v = 0.0
-        w = float(np.clip(2.0 * alpha, -0.8, 0.8))
-        return v, w, target_pt, curr_s, rem_dist
-
-    v_dock = 0.25 if is_dock_zone else 1.39
-    v_curve = compute_curvature_speed_limit(alpha, ld, a_lat_max=a_lat_max, v_nominal=1.39)
-    v_brake = math.sqrt(2.0 * 0.4 * effective_rem) + 0.03
-
-    v = min(v_max, v_dock, v_curve, v_brake)
-    v = max(0.0, v)
-
-    # Закон регулятора Стэнли: курсовая ошибка плюс поправка на боковой снос
-    delta_cross = math.atan2(-k_e * cross_e, v + k_soft)
-    delta_steer = wrap_angle(theta_e + delta_cross)
-
-    if is_dock_zone or v <= 0.05:
-        lx = max(0.5, ld)
-        w = 2.0 * v * math.sin(alpha) / lx if v > 0.05 else float(np.clip(1.5 * alpha, -1.0, 1.0))
-    else:
-        # Для дифференциальной платформы угловая скорость w = 2*v*sin(delta_steer)/lookahead
-        lx = max(0.6, ld)
-        w = 2.0 * v * math.sin(delta_steer) / lx
-    w = float(np.clip(w, -1.0, 1.0))
-
-    return v, w, target_pt, curr_s, rem_dist
-
-
-def smooth_yaw_rate_quintic(
-    w_curr: float,
-    w_target: float,
-    dt: float = 0.1,
-    horizon_s: float = 0.3,
-) -> float:
-    """Сглаживание угловой скорости с помощью квинтового сплайна.
-
-    Статус реализации и обоснование архитектуры:
-    - статус: реализовано и протестировано, но не подключено к боевому step() из-за преимуществ устойчивости Pure Pursuit при шаге 0.1 с;
-    - назначение: ограничение рывка и подавление осцилляций угловой скорости платформы;
-    - граничные условия: непрерывность первой и второй производных угловой скорости во времени.
-    """
-    return _smooth_yaw_rate_quintic(w_curr, w_target, dt=dt, horizon_s=horizon_s)

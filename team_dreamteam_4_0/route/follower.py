@@ -36,7 +36,6 @@ from .pure_pursuit import (
     check_speed_zones,
     compute_curvature_speed_limit,
     compute_pure_pursuit_cmd,
-    compute_stanley_cmd,
     get_path_progress,
 )
 
@@ -527,26 +526,6 @@ class RouteFollower:
         """
         v, w, target_pt, curr_s, rem_dist = compute_pure_pursuit_cmd(
             pose, path, last_s=self.last_s, v_max=v_max, a_lat_max=self.a_lat_max
-        )
-        self.last_s = curr_s
-        return v, w, target_pt, curr_s, rem_dist
-
-    def stanley(
-        self,
-        pose: Tuple[float, float, float],
-        path: np.ndarray,
-        v_max: float = 1.39,
-        k_e: float = 1.5,
-        k_soft: float = 0.5,
-    ) -> Tuple[float, float, Tuple[float, float], float, float]:
-        """Следование по маршруту регулятором Стэнли.
-
-        Статус реализации и обоснование архитектуры:
-        - статус: реализовано и протестировано, но не подключено к боевому step() из-за преимуществ устойчивости Pure Pursuit при шаге 0.1 с;
-        - параметры зоны дока: дистанция до цели не более 0.6 м, ограничение скорости v <= 0.25 м/с, прицеливание непосредственно в целевую точку.
-        """
-        v, w, target_pt, curr_s, rem_dist = compute_stanley_cmd(
-            pose, path, last_s=self.last_s, v_max=v_max, k_e=k_e, k_soft=k_soft, a_lat_max=self.a_lat_max
         )
         self.last_s = curr_s
         return v, w, target_pt, curr_s, rem_dist

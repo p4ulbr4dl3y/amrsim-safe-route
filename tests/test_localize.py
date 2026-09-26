@@ -1280,7 +1280,41 @@ class TestLocalizeCoverage(unittest.TestCase):
         res_snap = loc_dock.dock_snap(r_dock, angles, (4.0, 0.0, -math.pi / 2), dock_segs)
         self.assertIsInstance(res_snap, bool)
 
+    def test_scan_jump_rejection_preserves_pose_and_signals_lost(self):
+        """Аномальный скачок сопоставления (> 1.5 м) отбрасывается, 5 сбоев подряд дают is_lost."""
+        from unittest.mock import MagicMock, patch
+
+        loc = Localizer((100.0, 50.0, 0.0), building_segs=corridor_segs())
+        ranges = np.full(360, 5.0)
+
+        mock_jump = MagicMock()
+        mock_jump.near_segs = corridor_segs()
+        mock_jump.inliers = 100
+        mock_jump.r_sub = ranges
+        mock_jump.rel_sub = ANGLES
+        mock_jump.success = True
+        mock_jump.x = 102.0
+        mock_jump.y = 50.0
+        mock_jump.th = 0.0
+        mock_jump.normals = np.zeros((10, 2))
+
+        # 1. Скачок 2.0 м (> 1.5 м) отбрасывается, поза сохраняется
+        with patch.object(loc._scan_matcher, "match", return_value=mock_jump):
+            ok = loc.update_scan(ranges, ANGLES, corridor_segs())
+            self.assertFalse(ok)
+            self.assertEqual(loc.pose, (100.0, 50.0, 0.0))
+            self.assertEqual(loc._scan_reject_ticks, 1)
+            self.assertFalse(loc.is_lost)
+
+        # 2. Серия из 5 скачков подряд переводит локализатор в статус is_lost
+        with patch.object(loc._scan_matcher, "match", return_value=mock_jump):
+            for _ in range(4):
+                loc.update_scan(ranges, ANGLES, corridor_segs())
+            self.assertEqual(loc._scan_reject_ticks, 5)
+            self.assertTrue(loc.is_lost)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

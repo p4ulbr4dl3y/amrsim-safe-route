@@ -122,6 +122,14 @@ def test_combat_path_rejects_wired_alternatives():
     with pytest.raises(ValueError, match="cbf_velocity_limit"):
         assert_cbf_not_wired("cbf_velocity_limit(d)\n")
 
+    # Пакет контроллера не должен содержать неиспользуемые функции-альтернативы
+    controller_pkg = ROOT / "team_dreamteam_4_0"
+    for py_file in controller_pkg.rglob("*.py"):
+        text = py_file.read_text(encoding="utf-8")
+        assert "def compute_stanley_cmd" not in text, f"Found compute_stanley_cmd in {py_file}"
+        assert "def smooth_yaw_rate_quintic" not in text, f"Found smooth_yaw_rate_quintic in {py_file}"
+        assert "def cbf_velocity_limit" not in text, f"Found cbf_velocity_limit in {py_file}"
+
 
 def _ticks(relative):
     rows = []
@@ -169,3 +177,20 @@ def test_pitch_matches_logged_moments_and_drops_old_claims():
     assert CURRENT in pitch
     for banned in ("98.88", "IMM", "60 сквозных", "Нагумо", "до 0.22"):
         assert banned not in pitch
+
+
+def test_s4b_lost_sequence_and_recovery():
+    """Сценарий s4b seed 1: сплошной участок lost со стоянкой v=0 и возобновление движения."""
+    ticks = _ticks("results/own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl")
+    info = lost_run(ticks)
+    assert info["count"] == 8
+    assert info["t0"] == 27.2
+    assert info["t1"] == 27.9
+    assert info["resume_t"] == 28.1
+
+
+    # Во время lost платформа строго неподвижна (v=0.0)
+    for tick in ticks:
+        if tick.get("st") == "lost":
+            assert float(tick.get("v", 0.0)) == 0.0
+

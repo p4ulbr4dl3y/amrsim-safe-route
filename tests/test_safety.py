@@ -15,10 +15,32 @@ from team_dreamteam_4_0.safety import (
     SLOW_PERSON_MIN_PTS,
     SafetyGovernor,
     calculate_clearance,
-    cbf_velocity_limit,
     determine_status,
     predict_ttc_clearance,
 )
+
+
+def cbf_velocity_limit(
+    d: float, v_obs: float = 0.0, is_pedestrian: bool = True, alpha: float = 0.5
+) -> float:
+    """Эталонная барьерная функция скорости для тестирования альтернатив."""
+    d_min = 0.5 if is_pedestrian else 0.3
+    h = d - d_min
+    if h <= 0.0:
+        return 0.0
+    v_cbf = max(0.0, float(v_obs + alpha * h))
+    if is_pedestrian:
+        if d <= 0.5:
+            v_smooth = 0.0
+        elif d <= 3.0:
+            u = (d - 0.5) / 2.5
+            u_clamped = min(1.0, max(0.0, u))
+            s_u = u_clamped * u_clamped * (3.0 - 2.0 * u_clamped)
+            v_smooth = 0.28 * s_u
+        else:
+            v_smooth = math.inf
+        return min(v_cbf, v_smooth)
+    return v_cbf
 
 
 class TestSafety(unittest.TestCase):
