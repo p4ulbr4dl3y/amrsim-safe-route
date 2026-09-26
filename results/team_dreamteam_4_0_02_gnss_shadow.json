@@ -73,10 +73,10 @@
  },
  "step_time_ms": {
   "n": 1766,
-  "mean": 1.39,
-  "max": 24.197
+  "mean": 1.485,
+  "max": 24.338
  },
- "wall_time_s": 3.184,
+ "wall_time_s": 3.404,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
