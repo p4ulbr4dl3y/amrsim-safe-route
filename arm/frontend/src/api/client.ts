@@ -40,7 +40,7 @@ const fallbackData = {
       },
       {
         id: '01e_clear_easy',
-        name: '01e_clear_easy.json (Ясная погода — Easy)',
+        name: '01e_clear_easy.json (Ясная погода - Easy)',
         description: 'Упрощенная навигация без динамических препятствий.',
         type: 'standard',
         file: 'amrsim-participants/scenarios/01e_clear_easy.json',
@@ -58,7 +58,7 @@ const fallbackData = {
       },
       {
         id: '02e_gnss_shadow_easy',
-        name: '02e_gnss_shadow_easy.json (Тень ГНСС — Easy)',
+        name: '02e_gnss_shadow_easy.json (Тень ГНСС - Easy)',
         description: 'Упрощенная тень спутникового сигнала.',
         type: 'standard',
         file: 'amrsim-participants/scenarios/02e_gnss_shadow_easy.json',

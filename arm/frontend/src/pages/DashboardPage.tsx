@@ -735,7 +735,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               />
             </svg>
             <span className="absolute text-[11px] font-bold text-slate-800 font-mono">
-              {totalScore !== null ? totalScore.toFixed(1) : '—'}
+              {totalScore !== null ? totalScore.toFixed(1) : '-'}
             </span>
           </div>
 
@@ -747,7 +747,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </span>
             </div>
             <div className="text-xl font-bold text-slate-900 font-mono mt-0.5">
-              {totalScore !== null ? totalScore.toFixed(2) : '—'}{' '}
+              {totalScore !== null ? totalScore.toFixed(2) : '-'}{' '}
               <span className="text-sm font-normal text-slate-400">/ {data?.totalMax || 100}</span>
             </div>
           </div>
@@ -810,7 +810,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <span className="text-sm font-normal text-slate-500">м</span>
                 </>
               ) : (
-                '—'
+                '-'
               )}
             </div>
           </div>
@@ -1015,7 +1015,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       <span className="text-xs font-normal text-slate-500">мс</span>
                     </>
                   ) : (
-                    '—'
+                    '-'
                   )}
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono">среднее время шага</div>
@@ -1030,7 +1030,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       <span className="text-xs font-normal text-slate-500">мс</span>
                     </>
                   ) : (
-                    '—'
+                    '-'
                   )}
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono">макс. задержка</div>

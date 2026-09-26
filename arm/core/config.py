@@ -82,15 +82,15 @@ SCENARIO_META: dict[str, dict[str, str]] = {
         "description": "Динамические пешеходы, упавший поддон, объезд препятствий и соблюдение дистанции.",
     },
     "01e_clear_easy": {
-        "title": "01e_clear_easy.json (Ясная погода — Easy)",
+        "title": "01e_clear_easy.json (Ясная погода - Easy)",
         "description": "Упрощенная навигация без динамических препятствий.",
     },
     "02e_gnss_shadow_easy": {
-        "title": "02e_gnss_shadow_easy.json (Тень ГНСС — Easy)",
+        "title": "02e_gnss_shadow_easy.json (Тень ГНСС - Easy)",
         "description": "Упрощенная тень спутникового сигнала.",
     },
     "02_gnss_shadow_easy": {
-        "title": "02e_gnss_shadow_easy.json (Тень ГНСС — Easy)",
+        "title": "02e_gnss_shadow_easy.json (Тень ГНСС - Easy)",
         "description": "Упрощенная тень спутникового сигнала.",
     },
     "s1_pallet_2m": {

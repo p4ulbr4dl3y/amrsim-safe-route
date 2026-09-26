@@ -13,7 +13,7 @@ export const ReplayTelemetry: React.FC<ReplayTelemetryProps> = ({
   activeMission,
   noteText,
 }) => {
-  const missionId = currentTick.m || activeMission?.id || '—';
+  const missionId = currentTick.m || activeMission?.id || '-';
   const missionTimeLeft = activeMission
     ? Math.max(0, activeMission.t_start + activeMission.deadline_s - currentTick.t)
     : null;
@@ -53,7 +53,7 @@ export const ReplayTelemetry: React.FC<ReplayTelemetryProps> = ({
           <div className="flex justify-between items-center">
             <span className="text-slate-500">hum</span>
             <span className="font-bold text-slate-800">
-              {currentTick.hum !== null ? `${currentTick.hum.toFixed(2)} м` : '—'}
+              {currentTick.hum !== null ? `${currentTick.hum.toFixed(2)} м` : '-'}
             </span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
@@ -76,7 +76,7 @@ export const ReplayTelemetry: React.FC<ReplayTelemetryProps> = ({
         <div className="pt-1 flex items-center justify-between text-xs font-mono">
           <span className="text-slate-500">obj</span>
           <span className="font-bold text-slate-800">
-            {currentTick.obj !== null ? `${currentTick.obj.toFixed(2)} м` : '—'}
+            {currentTick.obj !== null ? `${currentTick.obj.toFixed(2)} м` : '-'}
           </span>
         </div>
 

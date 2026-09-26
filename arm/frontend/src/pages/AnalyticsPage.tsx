@@ -655,7 +655,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
             <div className="flex items-center gap-2 text-xs font-mono text-slate-700 bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-200">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
               <span className="font-semibold text-slate-900">
-                sandbox_violations: [] — 0 нарушений (Чисто)
+                sandbox_violations: [] - 0 нарушений (чисто)
               </span>
             </div>
           ) : (

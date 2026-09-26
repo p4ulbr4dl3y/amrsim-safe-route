@@ -456,7 +456,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({
                         </td>
                         <td className="py-3 px-4 text-slate-600">{ep.category}</td>
                         <td className="py-3 px-4 font-mono text-slate-600">
-                          {ep.t_start.toFixed(1)} с – {ep.t_end.toFixed(1)} с
+                          {ep.t_start.toFixed(1)} с - {ep.t_end.toFixed(1)} с
                         </td>
                         <td className="py-3 px-4 font-mono text-slate-500">
                           ({ep.x.toFixed(1)}, {ep.y.toFixed(1)})
@@ -531,7 +531,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({
                 <div>
                   <div className="text-[11px] text-slate-400 font-sans">Временной интервал</div>
                   <div className="font-semibold text-slate-800 mt-0.5">
-                    {selectedEpisode.t_start.toFixed(1)} с – {selectedEpisode.t_end.toFixed(1)} с
+                    {selectedEpisode.t_start.toFixed(1)} с - {selectedEpisode.t_end.toFixed(1)} с
                   </div>
                 </div>
                 <div>
@@ -604,7 +604,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({
                       <span className="font-semibold text-slate-800">
                         {selectedEpisode.telemetrySnapshot.hum !== null
                           ? `${selectedEpisode.telemetrySnapshot.hum.toFixed(2)} м`
-                          : '—'}
+                          : '-'}
                       </span>
                     </div>
                     <div>
@@ -614,7 +614,7 @@ export const EpisodesPage: React.FC<EpisodesPageProps> = ({
                       <span className="font-semibold text-slate-800">
                         {selectedEpisode.telemetrySnapshot.obj !== null
                           ? `${selectedEpisode.telemetrySnapshot.obj.toFixed(2)} м`
-                          : '—'}
+                          : '-'}
                       </span>
                     </div>
                     <div>
