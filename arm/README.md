@@ -66,7 +66,7 @@ docker compose run --rm arm python -m amrsim run scenarios/01_clear.json --contr
 cd arm/frontend
 npm install
 npm run dev     # Режим локальной разработки
-npm test        # 89 автоматических тестов Vitest (100% passed)
+npm test        # 90 автоматических тестов Vitest (100% passed)
 npm run lint    # Проверка типов TypeScript (tsc --noEmit)
 npm run build   # Сборка SPA в arm/frontend/dist
 ```

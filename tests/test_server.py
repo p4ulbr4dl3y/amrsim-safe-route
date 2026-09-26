@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import threading
@@ -1622,6 +1623,35 @@ def test_arm_readme_and_openapi_status_contract(http_server):
         assert status_schema["enum"] == ["moving", "waiting", "arrived", "lost", "estop"]
         assert "holding" not in status_schema["enum"]
         assert "docked" not in status_schema["enum"]
+
+
+def test_saved_arm_api_response_matches_current_controller_sha():
+    """Сохраненный ответ POST /api/run и CSV экспорта соответствуют текущему controller.py."""
+    root_dir = Path(__file__).resolve().parent.parent
+    controller_bytes = (root_dir / "team_dreamteam_4_0" / "controller.py").read_bytes()
+    expected_sha = hashlib.sha256(controller_bytes).hexdigest()[:16]
+
+    api_resp_file = root_dir / "results" / "arm" / "arm_run_01_clear_seed7_api_response.json"
+    assert api_resp_file.exists(), f"Missing {api_resp_file}"
+    resp_data = json.loads(api_resp_file.read_text(encoding="utf-8"))
+
+    rep = resp_data.get("report") or {}
+    ctrl = rep.get("controller") or {}
+    actual_sha = ctrl.get("sha256")
+    assert actual_sha == expected_sha, (
+        f"Saved API response sha256 '{actual_sha}' != current controller sha256 '{expected_sha}'"
+    )
+    assert resp_data.get("exitCode") == 0
+    assert resp_data.get("score") == 100.0
+
+    # Проверка наличия и содержимого файлов CSV экспорта
+    for csv_name in ("arm_export_episodes_01_clear_seed7.csv", "arm_run_01_clear_seed7_telemetry.csv"):
+        csv_file = root_dir / "results" / "arm" / csv_name
+        assert csv_file.exists(), f"Missing {csv_file}"
+        content = csv_file.read_text(encoding="utf-8-sig")
+        assert "Episode ID" in content
+        assert "155.0" in content, "CSV should reflect fresh run with 155.0s arrival"
+
 
 
 

@@ -156,6 +156,9 @@ def test_combat_path_rejects_wired_alternatives():
         assert "def compute_stanley_cmd" not in text, f"Found compute_stanley_cmd in {py_file}"
         assert "def smooth_yaw_rate_quintic" not in text, f"Found smooth_yaw_rate_quintic in {py_file}"
         assert "def cbf_velocity_limit" not in text, f"Found cbf_velocity_limit in {py_file}"
+        assert "CBF_ALPHA" not in text, f"Found CBF_ALPHA in {py_file}"
+        assert "CBF_D_MIN_PED" not in text, f"Found CBF_D_MIN_PED in {py_file}"
+        assert "CBF_D_MIN_STATIC" not in text, f"Found CBF_D_MIN_STATIC in {py_file}"
         assert "QuinticSpline1D" not in text, f"Found QuinticSpline1D in {py_file}"
 
 
@@ -298,6 +301,14 @@ def test_readme_scenario_and_seed_claims():
     assert "s4b_shadow_lane_lost" in readme
     assert "seed 1" in readme
 
+    results_readme = (ROOT / "results" / "README.md").read_text(encoding="utf-8")
+    assert "350 тестов" in results_readme
+    assert "90 тестов Vitest" in results_readme
+
+    arm_readme = (ROOT / "arm" / "README.md").read_text(encoding="utf-8")
+    assert "90 автоматических тестов Vitest" in arm_readme
+
+
 
 def test_s5_fog_moment_stop_person():
     """Момент s5_fog_inattentive фиксирует остановку перед пешеходом в тумане на t=87.4."""
@@ -332,5 +343,13 @@ def test_gnss_filtering_no_direct_pose_overwrite_and_smooth_blend():
     approach = (ROOT / "APPROACH.md").read_text(encoding="utf-8")
     assert "0.15" in approach
     assert "прямого копирования в позу" in approach or "копирования сырого ГНСС" in approach
+
+
+def test_alternatives_has_no_unsubstantiated_claims():
+    """ALTERNATIVES.md не содержит неподтвержденных утверждений о субмиллиметрах, 14.6 с, 0.70 балла и ошибке < 0.01 м."""
+    alternatives = (ROOT / "results" / "ALTERNATIVES.md").read_text(encoding="utf-8")
+    for banned in ("< 0.01", "субмиллиметр", "14.6", "+0.70", "0.70"):
+        assert banned not in alternatives, f"Found unverified claim '{banned}' in ALTERNATIVES.md"
+
 
 

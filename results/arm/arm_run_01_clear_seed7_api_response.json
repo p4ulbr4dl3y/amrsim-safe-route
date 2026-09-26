@@ -1,6 +1,6 @@
 {
   "exitCode": 0,
-  "stdout": "scenario 01_clear seed 7 controller team_dreamteam_4_0/controller.py\n  3107 ticks, end missions_done, 4.9 s wall, step mean 1.237 ms max 22.296 ms\n  mission m1 warehouse->shop_a: delivered\n  mission m2 shop_a->warehouse: delivered\n  score 100.00  delivery 40.0 efficiency 15.0 safety 25.0 rules 10.0 pose 10.0 collisions 0.0\n",
+  "stdout": "scenario 01_clear seed 7 controller team_dreamteam_4_0/controller.py\n  3105 ticks, end missions_done, 5.0 s wall, step mean 1.255 ms max 26.359 ms\n  mission m1 warehouse->shop_a: delivered\n  mission m2 shop_a->warehouse: delivered\n  score 100.00  delivery 40.0 efficiency 15.0 safety 25.0 rules 10.0 pose 10.0 collisions 0.0\n",
   "stderr": "",
   "reportPath": "out/01_clear.json",
   "logPath": "out/01_clear.jsonl",
@@ -16,12 +16,12 @@
     "cheat": false,
     "controller": {
       "path": "team_dreamteam_4_0/controller.py",
-      "sha256": "b63ab91caa9194b0"
+      "sha256": "560f0b56f50034fd"
     },
     "counted": true,
     "end_reason": "missions_done",
     "error": null,
-    "ticks": 3107,
+    "ticks": 3105,
     "missions": [
       {
         "type": "mission",
@@ -29,9 +29,9 @@
         "from": "warehouse",
         "to": "shop_a",
         "t_start": 0.0,
-        "t_end": 155.6,
-        "t_arrival": 154.7,
-        "max_hold_dist": 0.0651,
+        "t_end": 155.9,
+        "t_arrival": 155.0,
+        "max_hold_dist": 0.0579,
         "deadline_s": 200.7,
         "reference_length_m": 174.317,
         "delivered": true,
@@ -42,10 +42,10 @@
         "id": "m2",
         "from": "shop_a",
         "to": "warehouse",
-        "t_start": 155.7,
-        "t_end": 310.6,
-        "t_arrival": 309.7,
-        "max_hold_dist": 0.0743,
+        "t_start": 156.0,
+        "t_end": 310.4,
+        "t_arrival": 309.5,
+        "max_hold_dist": 0.0683,
         "deadline_s": 200.6,
         "reference_length_m": 174.271,
         "delivered": true,
@@ -81,19 +81,19 @@
           "id": "m1",
           "delivered": true,
           "t_start": 0.0,
-          "t_arrival": 154.7,
-          "time_s": 154.7,
-          "ratio": 0.9869,
+          "t_arrival": 155.0,
+          "time_s": 155.0,
+          "ratio": 0.9888,
           "efficiency": 1.0,
           "reason": "delivered"
         },
         {
           "id": "m2",
           "delivered": true,
-          "t_start": 155.7,
-          "t_arrival": 309.7,
-          "time_s": 154.0,
-          "ratio": 0.9827,
+          "t_start": 156.0,
+          "t_arrival": 309.5,
+          "time_s": 153.5,
+          "ratio": 0.9795,
           "efficiency": 1.0,
           "reason": "delivered"
         }
@@ -102,11 +102,11 @@
       "top_episodes": []
     },
     "step_time_ms": {
-      "n": 3107,
-      "mean": 1.237,
-      "max": 22.296
+      "n": 3105,
+      "mean": 1.255,
+      "max": 26.359
     },
-    "wall_time_s": 4.934,
+    "wall_time_s": 4.997,
     "wall_limit_s": 600.0,
     "sandbox_violations": [],
     "controller_stderr_tail": "",
@@ -117,7 +117,7 @@
     "$ python -m amrsim run 01_clear.json --controller team_dreamteam_4_0/controller.py --seed 7",
     "[INFO] Initializing simulation for scenario 01_clear...",
     "scenario 01_clear seed 7 controller team_dreamteam_4_0/controller.py",
-    "  3107 ticks, end missions_done, 4.9 s wall, step mean 1.237 ms max 22.296 ms",
+    "  3105 ticks, end missions_done, 5.0 s wall, step mean 1.255 ms max 26.359 ms",
     "  mission m1 warehouse->shop_a: delivered",
     "  mission m2 shop_a->warehouse: delivered",
     "  score 100.00  delivery 40.0 efficiency 15.0 safety 25.0 rules 10.0 pose 10.0 collisions 0.0",

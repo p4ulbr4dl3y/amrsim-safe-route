@@ -94,14 +94,14 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 | **3. Обнаружение расхождения карты** | `s3_wall_removed.json` (seed 7) | $t=9.8$ с, `status=moving`, note `map_missing` | `own_scenarios/s3_wall_removed.json`, лог `logs/s3_wall_removed.jsonl` | [filtering.py](team_dreamteam_4_0/perceive/filtering.py) (детекция отсутствующих стен и контейнеров) |
 | **4. Запуск прогона из АРМ с показом** | `01_clear.json` (seed 7) | Вкладка Runner: `POST /api/run`, стриминг логов в терминал, `exitCode 0`, score 100.00 | `results/arm/arm_run_01_clear_seed7_report.json`, лог `arm_run_01_clear_seed7_ticks.jsonl`, ответ `arm_run_01_clear_seed7_api_response.json` | [RunnerPage.tsx](arm/frontend/src/pages/RunnerPage.tsx), [server.py](arm/server.py) (`POST /api/run`) |
 | **5. Экспорт журнала в CSV** | `01_clear.json` (seed 7) | Вкладка Episodes: `GET /api/export/csv`, все поля инцидентов | `results/arm/arm_export_episodes_01_clear_seed7.csv` (4 эпизода) | [server.py](arm/server.py) (`GET /api/export/csv`) |
-| **6. Собственные сценарии и автотесты** | 5 сценариев (`s1`..`s5`) + 338 тестов | Сценарии `scenarios/s1`..`s5`; 338 тестов `uv run pytest -v` (100% passed) | `results/own_scenarios/`, `tests/` | `tests/test_route.py`, `test_safety.py`, `test_localize.py`, `test_perceive.py` |
+| **6. Собственные сценарии и автотесты** | 5 сценариев (`s1`..`s5`) + 350 тестов | Сценарии `scenarios/s1`..`s5`; 350 тестов `uv run pytest -v` (100% passed) | `results/own_scenarios/`, `tests/` | `tests/test_route.py`, `test_safety.py`, `test_localize.py`, `test_perceive.py` |
 
 ## Тесты
 
-`tests/` (338 тестов, `uv run pytest`): восемь обязательных поведенческих сценариев
+`tests/` (350 тестов, `uv run pytest`): восемь обязательных поведенческих сценариев
 plan/05:108-115 покрыты поимённо, плюс тесты на тиры σ, подтверждение треков, снежные
 фантомы, классы объектов, A*, зоны, тормозной профиль и контракт эпизодов ARM.
-Контроллер тесты не импортирует. Фронтенд АРМ: 89 тестов Vitest и чистый `tsc --noEmit`.
+Контроллер тесты не импортирует. Фронтенд АРМ: 90 тестов Vitest и чистый `tsc --noEmit`.
 
 ## Честно о границах
 
