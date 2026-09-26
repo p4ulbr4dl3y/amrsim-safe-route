@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiClient } from '../api/client';
 import { MapCanvas, MapLayersConfig } from '../components/MapCanvas';
-import { TickData, MapData, ScenarioItem } from '../types';
+import { TickData, MapData, ScenarioItem, ReplayMissionData } from '../types';
 import { 
   Play, Pause, SkipBack, SkipForward, ChevronLeft, ChevronRight, 
   ChevronDown, User, Layers, RefreshCw
@@ -37,6 +37,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({
   const [ticks, setTicks] = useState<TickData[]>([]);
   const [mapData, setMapData] = useState<MapData | undefined>(undefined);
   const [episodes, setEpisodes] = useState<any[]>([]);
+  const [missions, setMissions] = useState<ReplayMissionData[]>([]);
   const [totalTicks, setTotalTicks] = useState(0);
   const [currentTickIndex, setCurrentTickIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -137,6 +138,7 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({
       setTicks(vm.ticks);
       setMapData(vm.mapData);
       setEpisodes(vm.episodes);
+      setMissions(vm.missions || []);
       setTotalTicks(vm.totalTicks);
 
       // If queryParams has t, find matching tick
@@ -596,11 +598,27 @@ export const ReplayPage: React.FC<ReplayPageProps> = ({
               ТЕКУЩЕЕ ЗАДАНИЕ
             </span>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 font-mono text-xs">
-              <div className="font-bold text-slate-900 text-sm">{currentTick.m || 'm1'}</div>
-              <div className="text-slate-600 text-[11px] mt-1">
-                Склад → Цех А <span className="text-slate-400">·</span>{' '}
-                {Math.max(0, 200.7 - currentTick.t).toFixed(1)} с осталось
-              </div>
+              {(() => {
+                const activeMission =
+                  missions.find((m) => m.id === currentTick.m) ||
+                  (missions.length > 0 ? missions[0] : null);
+                const missionTimeLeft = activeMission
+                  ? Math.max(0, activeMission.t_start + activeMission.deadline_s - currentTick.t)
+                  : Math.max(0, 200.7 - currentTick.t);
+                const fromLabel = activeMission ? activeMission.fromLabel : 'Склад';
+                const toLabel = activeMission ? activeMission.toLabel : 'Цех А';
+                const missionId = currentTick.m || activeMission?.id || 'm1';
+
+                return (
+                  <>
+                    <div className="font-bold text-slate-900 text-sm">{missionId}</div>
+                    <div className="text-slate-600 text-[11px] mt-1">
+                      {fromLabel} → {toLabel} <span className="text-slate-400">·</span>{' '}
+                      {missionTimeLeft.toFixed(1)} с осталось
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>

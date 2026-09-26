@@ -193,4 +193,48 @@ describe('Replay Engine Math & Scrubbing', () => {
     expect(res.wrapped).toBe(true);
     expect(engine.currentIndex).toBe(1);
   });
+
+  it('correctly calculates dynamic mission labels and deadline countdown', () => {
+    const missions = [
+      {
+        id: 'm1',
+        from: 'start',
+        to: 'dock_a',
+        fromLabel: 'Старт',
+        toLabel: 'Док А',
+        deadline_s: 60.0,
+        t_start: 0.0,
+      },
+      {
+        id: 'm2',
+        from: 'dock_a',
+        to: 'dock_b',
+        fromLabel: 'Док А',
+        toLabel: 'Док B',
+        deadline_s: 45.0,
+        t_start: 20.0,
+      },
+    ];
+
+    // For m1 at t = 15.5
+    const tickM1 = { t: 15.5, m: 'm1' };
+    const missionM1 = missions.find((m) => m.id === tickM1.m);
+    expect(missionM1).toBeDefined();
+    expect(missionM1?.fromLabel).toBe('Старт');
+    expect(missionM1?.toLabel).toBe('Док А');
+    const remM1 = Math.max(0, missionM1!.t_start + missionM1!.deadline_s - tickM1.t);
+    expect(remM1).toBeCloseTo(44.5, 1);
+
+    // For m2 at t = 30.0 (non-01 scenario, custom deadline)
+    const tickM2 = { t: 30.0, m: 'm2' };
+    const missionM2 = missions.find((m) => m.id === tickM2.m);
+    expect(missionM2).toBeDefined();
+    expect(missionM2?.fromLabel).toBe('Док А');
+    expect(missionM2?.toLabel).toBe('Док B');
+    const remM2 = Math.max(0, missionM2!.t_start + missionM2!.deadline_s - tickM2.t);
+    expect(remM2).toBeCloseTo(35.0, 1);
+    // Verified: does not equal hardcoded 200.7 - t
+    expect(remM2).not.toBeCloseTo(200.7 - tickM2.t, 1);
+  });
 });
+
