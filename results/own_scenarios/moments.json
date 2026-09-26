@@ -1,21 +1,21 @@
 {
   "controller_path": "team_dreamteam_4_0/controller.py",
-  "controller_sha256": "b63ab91caa9194b0",
+  "controller_sha256": "560f0b56f50034fd",
   "scenarios": [
     {
       "scenario": "s1_pallet_2m",
       "seed": 7,
-      "total": 99.97,
+      "total": 99.52,
       "report": "results/own_scenarios/s1_pallet_2m.json",
       "log": "results/own_scenarios/logs/s1_pallet_2m.jsonl",
       "moments": [
         {
           "key": "offset",
           "found": true,
-          "t": 111.9,
+          "t": 115.3,
           "status": "moving",
-          "note": "offset dy=-0.4",
-          "v": 0.22
+          "note": "offset dy=-0.2",
+          "v": 1.1
         }
       ]
     },
@@ -63,9 +63,9 @@
         {
           "key": "arrival_charger",
           "found": true,
-          "t": 43.0,
+          "t": 42.0,
           "status": "arrived",
-          "note": "последний такт лога: dock",
+          "note": "dock",
           "v": 0.0
         }
       ]
@@ -83,7 +83,7 @@
           "found": true,
           "t": 25.9,
           "status": "moving",
-          "note": "такт непосредственно перед потерей: map_extra",
+          "note": "map_extra",
           "v": 1.39
         },
         {
@@ -107,7 +107,7 @@
           "found": true,
           "t": 28.0,
           "status": "waiting",
-          "note": "первый такт после выхода из st=lost (map_extra)",
+          "note": "map_extra",
           "v": 0.0
         }
       ]
@@ -133,7 +133,7 @@
     {
       "scenario": "s5_fog_inattentive",
       "seed": 7,
-      "total": 99.44,
+      "total": 99.43,
       "report": "results/own_scenarios/s5_fog_inattentive.json",
       "log": "results/own_scenarios/logs/s5_fog_inattentive.jsonl",
       "moments": [
@@ -148,10 +148,10 @@
         {
           "key": "stop_person",
           "found": true,
-          "t": 87.0,
+          "t": 86.6,
           "status": "moving",
-          "note": "stop_person d=0.7 fog_clear zone v=0.95",
-          "v": 0.78
+          "note": "stop_person d=0.8 fog_clear zone v=0.95",
+          "v": 0.9
         }
       ]
     }

@@ -10,7 +10,7 @@
  "cheat": false,
  "controller": {
   "path": "teams/team_dreamteam_4_0/controller.py",
-  "sha256": "2f4a721eafcfb6ed"
+  "sha256": "560f0b56f50034fd"
  },
  "counted": true,
  "end_reason": "missions_done",
@@ -23,9 +23,9 @@
    "from": "shop_a",
    "to": "warehouse",
    "t_start": 0.0,
-   "t_end": 168.6,
-   "t_arrival": 167.7,
-   "max_hold_dist": 0.0596,
+   "t_end": 168.9,
+   "t_arrival": 168.0,
+   "max_hold_dist": 0.0408,
    "deadline_s": 200.6,
    "reference_length_m": 174.271,
    "delivered": true,
@@ -36,10 +36,10 @@
    "id": "m2",
    "from": "warehouse",
    "to": "shop_a",
-   "t_start": 168.7,
+   "t_start": 169.0,
    "t_end": 343.3,
    "t_arrival": 342.4,
-   "max_hold_dist": 0.0609,
+   "max_hold_dist": 0.0665,
    "deadline_s": 200.7,
    "reference_length_m": 174.317,
    "delivered": true,
@@ -75,20 +75,20 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 167.7,
-    "time_s": 167.7,
-    "ratio": 1.0701,
-    "efficiency": 0.9299286743061095,
+    "t_arrival": 168.0,
+    "time_s": 168.0,
+    "ratio": 1.072,
+    "efficiency": 0.9280144143317017,
     "reason": "delivered"
    },
    {
     "id": "m2",
     "delivered": true,
-    "t_start": 168.7,
+    "t_start": 169.0,
     "t_arrival": 342.4,
-    "time_s": 173.7,
-    "ratio": 1.1081,
-    "efficiency": 0.8919359557587616,
+    "time_s": 173.4,
+    "ratio": 1.1062,
+    "efficiency": 0.8938497105847396,
     "reason": "delivered"
    }
   ],
@@ -97,10 +97,10 @@
  },
  "step_time_ms": {
   "n": 3434,
-  "mean": 1.171,
-  "max": 26.323
+  "mean": 1.22,
+  "max": 25.625
  },
- "wall_time_s": 5.458,
+ "wall_time_s": 5.542,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",

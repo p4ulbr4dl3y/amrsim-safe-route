@@ -1,6 +1,6 @@
 # Моменты собственных сценариев (переснято финальным контроллером)
 
-Все прогоны выполнены контроллером `team_dreamteam_4_0/controller.py`, sha256 `b63ab91caa9194b0` (16 hex-символов, как в отчетах). Данные ниже извлечены из фактических логов JSONL (строки `type=tick`) и отчетов, значения не корректировались.
+Все прогоны выполнены контроллером `team_dreamteam_4_0/controller.py`, sha256 `560f0b56f50034fd` (16 hex-символов, как в отчетах). Данные ниже извлечены из фактических логов JSONL (строки `type=tick`) и отчетов, значения не корректировались.
 
 Проверка отчетов: во всех семи отчетах `counted=true`, `score.fatal=false`, `score.blocks.collisions=0.0`, `sandbox_violations=[]`, `controller.path="team_dreamteam_4_0/controller.py"`.
 
@@ -8,13 +8,13 @@
 
 | Сценарий | Seed | Total | Момент | t, с | Статус | Note | Файл лога |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| s1_pallet_2m | 7 | 99.97 | offset | 111.9 | moving | offset dy=-0.4 | results/own_scenarios/logs/s1_pallet_2m.jsonl |
+| s1_pallet_2m | 7 | 99.52 | offset | 115.3 | moving | offset dy=-0.2 | results/own_scenarios/logs/s1_pallet_2m.jsonl |
 | s2_container_block | 7 | 100.0 | replan | 147.0 | moving | replan | results/own_scenarios/logs/s2_container_block.jsonl |
 | s3_wall_removed | 7 | 100.0 | map_missing | 9.8 | moving | map_missing | results/own_scenarios/logs/s3_wall_removed.jsonl |
-| s4_shadow_start_charger | 7 | 100.0 | arrival_charger | 43.0 | arrived | dock | results/own_scenarios/logs/s4_shadow_start_charger.jsonl |
+| s4_shadow_start_charger | 7 | 100.0 | arrival_charger | 42.0 | arrived | dock | results/own_scenarios/logs/s4_shadow_start_charger.jsonl |
 | s4b_shadow_lane_lost | 7 | 100.0 | lane_lost_status | - | - | не найдено: на seed 7 потеря ориентации не возникала | results/own_scenarios/logs/s4b_shadow_lane_lost.jsonl |
-| s5_fog_inattentive | 7 | 99.44 | fog_clear | 40.0 | moving | fog_clear zone v=0.95 | results/own_scenarios/logs/s5_fog_inattentive.jsonl |
-| s5_fog_inattentive | 7 | 99.44 | stop_person | 87.0 | moving | stop_person d=0.7 fog_clear zone v=0.95 | results/own_scenarios/logs/s5_fog_inattentive.jsonl |
+| s5_fog_inattentive | 7 | 99.43 | fog_clear | 40.0 | moving | fog_clear zone v=0.95 | results/own_scenarios/logs/s5_fog_inattentive.jsonl |
+| s5_fog_inattentive | 7 | 99.43 | stop_person | 86.6 | moving | stop_person d=0.8 fog_clear zone v=0.95 | results/own_scenarios/logs/s5_fog_inattentive.jsonl |
 | s4b_shadow_lane_lost | 1 | 100.0 | pre_loss | 25.9 | moving | map_extra | results/own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl |
 | s4b_shadow_lane_lost | 1 | 100.0 | lane_lost_nt | 26.0 | moving | lost s_lat=0.0 map_extra | results/own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl |
 | s4b_shadow_lane_lost | 1 | 100.0 | lane_lost_status | 27.2 | lost | lost s_lat=0.0 map_extra | results/own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl |
@@ -30,7 +30,7 @@
 
 ## s5, seed 7: туман и пешеход
 
-Сценарий содержит событие `fog_bank` с интервалом t1=40.0 - t2=130.0. Первый такт с `fog_clear` в note - t=40.0, статус moving, note `fog_clear zone v=0.95`, скорость 0.95 м/с: контроллер переходит в зону пониженной скорости одновременно с включением тумана и не останавливается. Первый такт с `stop_person` - t=87.0, статус moving, note `stop_person d=0.7 fog_clear zone v=0.95`, скорость 0.78 м/с: дистанция до пешехода 0.7 м, торможение начато без столкновения (collisions=0.0) и без фатального исхода. Итог прогона - обе миссии доставлены, total 99.44, потеря баллов только по эффективности (14.4 из 15.0).
+Сценарий содержит событие `fog_bank` с интервалом t1=40.0 - t2=130.0. Первый такт с `fog_clear` в note - t=40.0, статус moving, note `fog_clear zone v=0.95`, скорость 0.95 м/с: контроллер переходит в зону пониженной скорости одновременно с включением тумана и не останавливается. Первый такт с `stop_person` - t=86.6, статус moving, note `stop_person d=0.8 fog_clear zone v=0.95`, скорость 0.9 м/с: дистанция до пешехода 0.8 м, торможение начато без столкновения (collisions=0.0) и без фатального исхода. Итог прогона - обе миссии доставлены, total 99.43, потеря баллов только по эффективности (14.43 из 15.0).
 
 ## Артефакты
 

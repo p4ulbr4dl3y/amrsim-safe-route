@@ -9,8 +9,8 @@
  "salted": false,
  "cheat": false,
  "controller": {
-  "path": "/Users/yegor/doc-1790342627/team_dreamteam_4_0/controller.py",
-  "sha256": "16663a8ab8213232"
+  "path": "team_dreamteam_4_0/controller.py",
+  "sha256": "560f0b56f50034fd"
  },
  "counted": true,
  "end_reason": "missions_done",
@@ -73,10 +73,10 @@
  },
  "step_time_ms": {
   "n": 1766,
-  "mean": 1.392,
-  "max": 23.947
+  "mean": 1.353,
+  "max": 23.635
  },
- "wall_time_s": 3.199,
+ "wall_time_s": 3.114,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",

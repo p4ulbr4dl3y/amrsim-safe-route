@@ -2,20 +2,20 @@
  "schema": "amr-1.0",
  "amrsim": "0.2.0",
  "package_hash": "b28d6bad9e24a456",
- "scenario": "01_clear",
- "scenario_sha": "9fb0469bbf482000",
+ "scenario": "s5_fog_inattentive",
+ "scenario_sha": "db1e7885a3dbdebd",
  "hidden": false,
- "seed": 21,
+ "seed": 7,
  "salted": false,
  "cheat": false,
  "controller": {
-  "path": "teams/team_dreamteam_4_0/controller.py",
+  "path": "team_dreamteam_4_0/controller.py",
   "sha256": "560f0b56f50034fd"
  },
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 3107,
+ "ticks": 3273,
  "missions": [
   {
    "type": "mission",
@@ -23,9 +23,9 @@
    "from": "warehouse",
    "to": "shop_a",
    "t_start": 0.0,
-   "t_end": 155.7,
-   "t_arrival": 154.8,
-   "max_hold_dist": 0.0452,
+   "t_end": 167.1,
+   "t_arrival": 166.2,
+   "max_hold_dist": 0.0623,
    "deadline_s": 200.7,
    "reference_length_m": 174.317,
    "delivered": true,
@@ -36,10 +36,10 @@
    "id": "m2",
    "from": "shop_a",
    "to": "warehouse",
-   "t_start": 155.8,
-   "t_end": 310.6,
-   "t_arrival": 309.7,
-   "max_hold_dist": 0.0592,
+   "t_start": 167.2,
+   "t_end": 327.2,
+   "t_arrival": 326.3,
+   "max_hold_dist": 0.0872,
    "deadline_s": 200.6,
    "reference_length_m": 174.271,
    "delivered": true,
@@ -47,8 +47,8 @@
   }
  ],
  "score": {
-  "total": 100.0,
-  "raw_sum": 100.0,
+  "total": 99.43,
+  "raw_sum": 99.434,
   "fatal": false,
   "fatal_t": null,
   "counted": true,
@@ -56,7 +56,7 @@
   "not_counted_blocks": [],
   "blocks": {
    "delivery": 40.0,
-   "efficiency": 15.0,
+   "efficiency": 14.434,
    "safety": 25.0,
    "rules": 10.0,
    "pose": 10.0,
@@ -75,20 +75,20 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 154.8,
-    "time_s": 154.8,
-    "ratio": 0.9875,
-    "efficiency": 1.0,
+    "t_arrival": 166.2,
+    "time_s": 166.2,
+    "ratio": 1.0602,
+    "efficiency": 0.9397798264082105,
     "reason": "delivered"
    },
    {
     "id": "m2",
     "delivered": true,
-    "t_start": 155.8,
-    "t_arrival": 309.7,
-    "time_s": 153.9,
-    "ratio": 0.982,
-    "efficiency": 1.0,
+    "t_start": 167.2,
+    "t_arrival": 326.3,
+    "time_s": 159.1,
+    "ratio": 1.0152,
+    "efficiency": 0.9848041269057959,
     "reason": "delivered"
    }
   ],
@@ -96,13 +96,13 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 3107,
-  "mean": 1.398,
-  "max": 26.233
+  "n": 3273,
+  "mean": 1.113,
+  "max": 22.571
  },
- "wall_time_s": 5.581,
+ "wall_time_s": 4.703,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
- "log": "results/table_runs/logs/team_dreamteam_4_0__01_clear__s21.jsonl"
+ "log": null
 }

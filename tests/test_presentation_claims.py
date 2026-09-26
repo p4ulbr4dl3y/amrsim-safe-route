@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -26,8 +27,8 @@ from presentation_claims import (  # noqa: E402
     parse_distance,
 )
 
-CURRENT = "b63ab91caa9194b0"
-PACKET = "2f4a721eafcfb6ed"
+CURRENT = hashlib.sha256((ROOT / "team_dreamteam_4_0" / "controller.py").read_bytes()).hexdigest()[:16]
+PACKET = "2f4a721eafcfb6ed"  # исторический хеш первого пакета, упоминаемый в PITCH и README
 
 
 def test_spoken_text_rejects_report_sha():
@@ -104,6 +105,32 @@ def test_moment_must_match_tick_note():
     assert parse_distance(tick["nt"]) == 0.7
     with pytest.raises(ValueError, match="фрагмента"):
         assert_moment_on_tick(moment, tick, "dock")
+
+
+def test_moments_json_matches_actual_logs():
+    """Каждый найденный момент в moments.json обязан совпадать со строкой фактического лога."""
+    moments_data = json.loads(
+        (ROOT / "results" / "own_scenarios" / "moments.json").read_text(encoding="utf-8")
+    )
+    assert moments_data["controller_sha256"] == CURRENT
+    for scen_entry in moments_data["scenarios"]:
+        log_path = ROOT / scen_entry["log"]
+        ticks = _ticks(str(log_path.relative_to(ROOT)))
+        for m in scen_entry["moments"]:
+            if not m.get("found"):
+                continue
+            tick = nearest_tick(ticks, m["t"])
+            assert_moment_on_tick(m, tick, None)
+            if "offset" in m["key"]:
+                assert "offset" in (tick.get("note") or tick.get("nt") or "")
+            elif "replan" in m["key"]:
+                assert "replan" in (tick.get("note") or tick.get("nt") or "")
+            elif "map_missing" in m["key"]:
+                assert "map_missing" in (tick.get("note") or tick.get("nt") or "")
+            elif "arrival" in m["key"]:
+                assert "dock" in (tick.get("note") or tick.get("nt") or "")
+            elif "lane_lost_status" in m["key"]:
+                assert tick.get("st") == "lost"
 
 
 def test_efficiency_gap_is_only_that_block():

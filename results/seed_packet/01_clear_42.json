@@ -10,7 +10,7 @@
  "cheat": false,
  "controller": {
   "path": "teams/team_dreamteam_4_0/controller.py",
-  "sha256": "2f4a721eafcfb6ed"
+  "sha256": "560f0b56f50034fd"
  },
  "counted": true,
  "end_reason": "missions_done",
@@ -23,9 +23,9 @@
    "from": "warehouse",
    "to": "shop_a",
    "t_start": 0.0,
-   "t_end": 155.6,
-   "t_arrival": 154.7,
-   "max_hold_dist": 0.0412,
+   "t_end": 155.8,
+   "t_arrival": 154.9,
+   "max_hold_dist": 0.0586,
    "deadline_s": 200.7,
    "reference_length_m": 174.317,
    "delivered": true,
@@ -36,10 +36,10 @@
    "id": "m2",
    "from": "shop_a",
    "to": "warehouse",
-   "t_start": 155.7,
+   "t_start": 155.9,
    "t_end": 310.6,
    "t_arrival": 309.7,
-   "max_hold_dist": 0.0747,
+   "max_hold_dist": 0.0544,
    "deadline_s": 200.6,
    "reference_length_m": 174.271,
    "delivered": true,
@@ -75,19 +75,19 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 154.7,
-    "time_s": 154.7,
-    "ratio": 0.9869,
+    "t_arrival": 154.9,
+    "time_s": 154.9,
+    "ratio": 0.9881,
     "efficiency": 1.0,
     "reason": "delivered"
    },
    {
     "id": "m2",
     "delivered": true,
-    "t_start": 155.7,
+    "t_start": 155.9,
     "t_arrival": 309.7,
-    "time_s": 154.0,
-    "ratio": 0.9827,
+    "time_s": 153.8,
+    "ratio": 0.9814,
     "efficiency": 1.0,
     "reason": "delivered"
    }
@@ -97,10 +97,10 @@
  },
  "step_time_ms": {
   "n": 3107,
-  "mean": 1.401,
-  "max": 31.9
+  "mean": 1.452,
+  "max": 25.834
  },
- "wall_time_s": 5.624,
+ "wall_time_s": 5.759,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",
