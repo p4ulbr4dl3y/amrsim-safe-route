@@ -26,7 +26,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from amrsim.planner import Grid, dock_route, path_length
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PARTICIPANTS_PATH = REPO_ROOT / "amrsim-participants"
+if PARTICIPANTS_PATH.is_dir() and str(PARTICIPANTS_PATH) not in sys.path:
+    sys.path.insert(0, str(PARTICIPANTS_PATH))
+
+from amrsim.planner import Grid, dock_route, path_length  # noqa: E402
 
 
 def load_base_scenario(path: str = "scenarios/01_clear.json") -> Dict[str, Any]:
