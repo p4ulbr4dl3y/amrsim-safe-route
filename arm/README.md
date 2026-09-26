@@ -57,7 +57,7 @@ docker compose run --rm arm python -m amrsim run scenarios/01_clear.json --contr
 Схема выходных данных такта управления `amr-1.0`:
 - `v`: линейная скорость платформы, м/с (диапазон 0.0 - 1.5);
 - `w`: угловая скорость платформы, рад/с (диапазон -1.0 - 1.0);
-- `status`: статус платформы (`moving`, `holding`, `docked`, `lost`, `estop`);
+- `status`: статус платформы (`moving`, `waiting`, `arrived`, `lost`, `estop`);
 - `pose_est`: оценка глобальной позы платформы `[x, y, yaw]`;
 - `note`: строка заметок телеметрии и состояний подсистем безопасности.
 

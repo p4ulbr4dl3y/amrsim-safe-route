@@ -251,7 +251,7 @@ OPENAPI_SPEC: dict[str, Any] = {
                     },
                     "status": {
                         "type": "string",
-                        "enum": ["moving", "holding", "docked", "lost", "estop"],
+                        "enum": ["moving", "waiting", "arrived", "lost", "estop"],
                         "description": "Статус платформы по регламенту соревнований",
                     },
                     "pose_est": {

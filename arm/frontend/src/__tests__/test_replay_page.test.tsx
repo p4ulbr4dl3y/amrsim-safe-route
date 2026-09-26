@@ -294,4 +294,12 @@ describe('ReplayPage Component', () => {
     expect(screen.queryByText(/Цех А/)).toBeNull();
     expect(screen.queryByText(/200\.7/)).toBeNull();
   });
+
+  it('strictly adheres to amr-1.0 status contract and rejects holding or docked', () => {
+    const validStatuses: TickData['st'][] = ['moving', 'waiting', 'arrived', 'lost', 'estop'];
+    const invalidStatuses = ['holding', 'docked'];
+    for (const st of invalidStatuses) {
+      expect(validStatuses).not.toContain(st);
+    }
+  });
 });

@@ -1601,5 +1601,23 @@ def test_openapi_and_docs_endpoints(http_server):
         assert "/api/openapi.json" in html
 
 
+def test_arm_readme_and_openapi_status_contract(http_server):
+    """Проверить строгое соответствие статусов схеме amr-1.0 в arm/README.md и OpenAPI."""
+    readme_path = Path(__file__).resolve().parent.parent / "arm" / "README.md"
+    readme_text = readme_path.read_text(encoding="utf-8")
+    assert "holding" not in readme_text
+    assert "docked" not in readme_text
+    for st in ("moving", "waiting", "arrived", "lost", "estop"):
+        assert st in readme_text
+
+    openapi_url = f"{http_server}/api/openapi.json"
+    with urlopen(openapi_url) as resp:
+        spec = json.loads(resp.read().decode("utf-8"))
+        status_schema = spec["components"]["schemas"]["ControlStepOutput"]["properties"]["status"]
+        assert status_schema["enum"] == ["moving", "waiting", "arrived", "lost", "estop"]
+        assert "holding" not in status_schema["enum"]
+        assert "docked" not in status_schema["enum"]
+
+
 
 
