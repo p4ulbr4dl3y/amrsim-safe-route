@@ -14,7 +14,6 @@ export const Header: React.FC<HeaderProps> = ({ currentRoute, onNavigate }) => {
     { route: 'missions', label: 'Миссии' },
     { route: 'analytics', label: 'Аналитика' },
     { route: 'runner', label: 'Запуск' },
-    { route: 'constructor', label: 'Конструктор' },
   ];
 
   return (

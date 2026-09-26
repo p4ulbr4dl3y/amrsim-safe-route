@@ -13,7 +13,6 @@ import { EpisodesPage } from './pages/EpisodesPage';
 import { MissionsPage } from './pages/MissionsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { RunnerPage } from './pages/RunnerPage';
-import { ConstructorPage } from './pages/ConstructorPage';
 
 export const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<RouteName>('dashboard');
@@ -71,7 +70,7 @@ export const App: React.FC = () => {
 
       const [path, queryString] = hash.split('?');
       const route = path as RouteName;
-      const validRoutes: RouteName[] = ['dashboard', 'replay', 'episodes', 'missions', 'analytics', 'runner', 'constructor'];
+      const validRoutes: RouteName[] = ['dashboard', 'replay', 'episodes', 'missions', 'analytics', 'runner'];
 
       if (validRoutes.includes(route)) {
         setCurrentRoute(route);
@@ -174,13 +173,6 @@ export const App: React.FC = () => {
           <RunnerPage
             onNavigate={handleNavigate}
             queryParams={queryParams}
-            activeScenario={activeScenario}
-            onScenarioChange={handleScenarioChange}
-          />
-        )}
-        {currentRoute === 'constructor' && (
-          <ConstructorPage
-            onNavigate={handleNavigate}
             activeScenario={activeScenario}
             onScenarioChange={handleScenarioChange}
           />

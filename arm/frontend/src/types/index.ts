@@ -1,4 +1,4 @@
-export type RouteName = 'dashboard' | 'replay' | 'episodes' | 'missions' | 'analytics' | 'runner' | 'constructor';
+export type RouteName = 'dashboard' | 'replay' | 'episodes' | 'missions' | 'analytics' | 'runner';
 
 export interface TickData {
   t: number;
