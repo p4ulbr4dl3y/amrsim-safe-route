@@ -73,7 +73,7 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 | `s3_wall_removed` | 100.00 | 10 | 25.0 | 1/1 | t=9.8, note `map_missing` (расхождение карты, О4) |
 | `s4_shadow_start_charger` | 100.00 | 10 | 25.0 | 1/1 | t=42.0, статус `arrived`, note `dock` |
 | `s4b_shadow_lane_lost` | 100.00 | 10 | 25.0 | 1/1 | на seed 7 потеря не возникает; контроль - seed 1 |
-| `s5_fog_inattentive` | 99.43 | 10 | 25.0 | 2/2 | t=40.0 `fog_clear`; t=86.6 `stop_person d=0.8` (О2) |
+| `s5_fog_inattentive` | 99.43 | 10 | 25.0 | 2/2 | t=40.0 `fog_clear`; t=87.4, статус `waiting`, `v=0.0`, note `stop_person` (О2) |
 
 Прогон `s4b_shadow_lane_lost` на seed 1: total 100.0, доставка 1/1, collisions 0, fatal нет.
 Потеря ориентации: note `lost s_lat=0.0 map_extra` с t=26.0, статус `lost` с t=27.2 (v = 0),

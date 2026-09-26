@@ -230,7 +230,10 @@ def test_pitch_matches_logged_moments_and_drops_old_claims():
     assert "s4b_shadow_lane_lost_seed1" in pitch
     assert PACKET in pitch
     assert CURRENT in pitch
-    for banned in ("98.88", "IMM", "60 сквозных", "Нагумо", "до 0.22"):
+    assert "99.22-100" in pitch
+    assert "Слайд 9" in pitch
+    assert "скрытых прогонов" in pitch
+    for banned in ("98.88", "IMM", "60 сквозных", "Нагумо", "до 0.22", "99.43-100"):
         assert banned not in pitch
 
 
@@ -355,6 +358,11 @@ def test_s5_fog_moment_stop_person():
     assert stop_moment["v"] == 0.0
     assert "stop_person" in stop_moment["note"]
 
+    readme_text = (ROOT / "results" / "README.md").read_text(encoding="utf-8")
+    assert "t=87.4" in readme_text
+    assert "t=86.6" not in readme_text
+    assert "stop_person" in readme_text
+
 
 def test_gnss_filtering_no_direct_pose_overwrite_and_smooth_blend():
     """Боевой GNSSFilter не переписывает координаты напрямую, а использует сглаживание k <= 0.15."""
@@ -398,11 +406,24 @@ def test_alternatives_has_no_unsubstantiated_claims():
 
 def test_approach_scheme_does_not_link_stop_gap_to_estop():
     """Схема и текст в APPROACH.md не связывают зазор 0.8 м со статусом estop и не упоминают 100 Гц."""
-    approach = (ROOT / "APPROACH.md").read_text(encoding="utf-8")
+    root_approach = ROOT / "APPROACH.md"
+    team_approach = ROOT / "team_dreamteam_4_0" / "APPROACH.md"
+
+    root_bytes = root_approach.read_bytes()
+    team_bytes = team_approach.read_bytes()
+    assert root_bytes == team_bytes, "APPROACH.md и team_dreamteam_4_0/APPROACH.md не идентичны"
+
+    lines = [line for line in root_approach.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert 15 <= len(lines) <= 25, f"Число непустых строк в APPROACH.md ({len(lines)}) вне диапазона 15-25"
+
+    approach = root_approach.read_text(encoding="utf-8")
     assert 'ESTOP{"дистанция < 0.8 м?"}' not in approach
     assert "100 Гц" not in approach
     assert "1.2 м" in approach
     assert "штатный останов" in approach
+    assert "0.15" in approach
+    assert "6.0 м" in approach
+    assert "0.6 м" in approach
 
 
 def test_spoken_own_span_matches_minimum_own_reports():
