@@ -438,6 +438,35 @@ class TestLocalizer(unittest.TestCase):
             loc.update_scan(ranges, ANGLES, segs, is_fog=False)
         self.assertTrue(loc.is_lost)
 
+    def test_open_corridor_keeps_driving_instead_of_lost(self):
+        """Пустой коридор, стены дальше 19 м - статус не lost, скорость сохраняется.
+
+        Дефект P0: счетчик `_low_inlier_ticks` сам по себе загонял контроллер в
+        `lost` в открытом коридоре. Лидар возвращает конечные дальности (стены на
+        19.5-30 м), но инлайнеров нет (все лучи дальше рабочего диапазона 19 м),
+        поэтому прежнее правило `blind = _low_inlier_ticks >= 10` останавливало
+        платформу с верной позой. Вход в `lost` по счетчику разрешен только при
+        одновременном росте неопределенности или полной слепоте.
+        """
+        # Прямоугольный "зал" 39 x 39 м: ближайшие стены на 19.5 м от центра,
+        # за пределами дальности лидара 19 м -> скан без инлайнеров, но с лучами.
+        hall = np.array(
+            [[80.5, 30.5], [119.5, 30.5], [119.5, 69.5], [80.5, 69.5]]
+        )
+        segs = box_segs(hall)
+        ranges = raycast(100.0, 50.0, ANGLES, segs, max_range=20.0)
+        ranges = np.where(np.isfinite(ranges), ranges, np.nan)
+
+        loc = Localizer((100.0, 50.0, 0.0), building_segs=segs)
+        for _ in range(20):
+            loc.update_scan(ranges, ANGLES, segs, is_fog=False)
+
+        self.assertGreater(loc._usable_beams, 0)
+        self.assertEqual(loc.scan_inliers, 0)
+        self.assertGreaterEqual(loc._low_inlier_ticks, 10)
+        self.assertFalse(loc.is_lost, "открытый коридор не является потерей позы")
+        self.assertEqual(loc.lost_speed_limit, 1.39, "скорость не должна падать в 0")
+
     # ------------------------------------------------------------------ plan/02:63
 
     def test_longitudinal_landmark_moves_along_wall_only(self):
@@ -1000,6 +1029,46 @@ class TestLocalizeCoverage(unittest.TestCase):
         self.assertAlmostEqual(ry, 2.5, delta=0.005)
         self.assertAlmostEqual(rth, 0.0, delta=0.005)
 
+    def test_pose_jump_rejected_without_confirmation(self):
+        """Скачок позы больше 1 м за такт запрещен; гипотеза без подтверждения отклоняется.
+
+        Плоское плато грубой сетки в открытом коридоре: две параллельные стены
+        (расстояние 18 м, в горизонте лидара), но продольных ориентиров нет, поэтому
+        число инлайнеров одинаково вдоль оси X. Прежний резервный возврат гипотезы
+        грубой сетки уводил оценку на 5.0 м (дефект 03 s42, 01 s55), хотя поза была
+        верна. Теперь гипотеза грубой сетки без подтверждения через
+        `match_scan_to_walls` не возвращается, а ложный скачок отклоняется.
+        """
+        segs = np.array([[80.0, 32.0, 500.0, 32.0], [80.0, 68.0, 500.0, 68.0]])
+        ranges = raycast(100.0, 50.0, ANGLES, segs, max_range=20.0)
+        ranges = np.where(np.isfinite(ranges), ranges, np.nan)
+
+        # Ложная гипотеза грубой сетки на 5 м в стороне от верной позы не принимается.
+        self.assertIsNone(recover_grid_search(103.0, 50.0, 0.0, ranges, ANGLES, segs))
+
+        # На уровне Localizer оценка не сдвигается больше 1 м за один такт.
+        loc = Localizer((103.0, 50.0, 0.0))
+        loc.is_lost = True
+        loc._unconfirmed_dist = 150.0
+        before = loc.pose
+        ok = loc.recover_grid_search(ranges, ANGLES, segs)
+        if ok:
+            self.assertLessEqual(
+                math.hypot(loc.x - before[0], loc.y - before[1]),
+                1.0,
+                "восстановление не должно сдвигать позу больше 1 м за такт",
+            )
+        else:
+            self.assertEqual(loc.pose, before, "отклоненная гипотеза не меняет позу")
+
+        # Подтвержденное большое смещение по-прежнему восстанавливается (не регресс).
+        poly = np.array([[0.0, 0.0], [25.0, 0.0], [25.0, 15.0], [10.0, 15.0], [10.0, 7.0], [0.0, 7.0]])
+        room_segs = box_segs(poly)
+        room_ranges = raycast(5.0, 3.5, ANGLES + 0.05, room_segs)
+        res = recover_grid_search(9.0, 6.0, -0.05, room_ranges, ANGLES, room_segs)
+        self.assertIsNotNone(res)
+        self.assertAlmostEqual(res[0], 5.0, delta=0.01)
+        self.assertAlmostEqual(res[1], 3.5, delta=0.01)
 
     def test_import_fallback(self):
         import sys

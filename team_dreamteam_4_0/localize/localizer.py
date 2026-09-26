@@ -78,6 +78,9 @@ class Localizer:
         self.scan_inliers = 0
         self.lost_speed_limit = 1.39
         self._low_inlier_ticks = 0
+        # Число конечных лучей в последнем скане: при их полном отсутствии
+        # платформа действительно слепа и вход в lost оправдан.
+        self._usable_beams = 0
 
         # Детектор тумана
         self._fog_hold = 0
@@ -282,6 +285,9 @@ class Localizer:
     ) -> bool:
         """Сопоставление сканов с отрезками карты."""
         self.fog_active = bool(is_fog)
+
+        r_all_upd = np.asarray(ranges, dtype=float)
+        self._usable_beams = int(np.count_nonzero(np.isfinite(r_all_upd) & (r_all_upd > 0.1)))
 
         res = self._scan_matcher.match(
             self.x,
@@ -681,10 +687,20 @@ class Localizer:
         return False
 
     def _check_lost_status(self) -> None:
-        """Оценить статус потери позы и экспортируемое ограничение скорости."""
+        """Оценить статус потери позы и экспортируемое ограничение скорости.
+
+        Счетчик редких инлайнеров сам по себе не доказывает потерю позы: в открытом
+        коридоре стены дальше 19 м, скан возвращает конечные дальности, но не набирает
+        инлайнеров, хотя поза верна. Поэтому вход в lost по `_low_inlier_ticks` разрешен
+        только при одновременном росте поперечной или угловой неопределенности либо при
+        полном отсутствии конечных лучей (платформа действительно слепа).
+        """
         align = self.sigma_along > 5.0 and self._along_bound_m() > 5.0
         cross = self.sigma_cross > 0.8 or self.sigma_th > math.radians(10.0)
-        blind = self._low_inlier_ticks >= 10
+        # Рост неопределенности (поперечной или угловой) подтверждает потерю позы:
+        # счетчик редких инлайнеров сам по себе ее не доказывает.
+        uncertain = self.sigma_cross > 0.4 or self.sigma_th > math.radians(5.0)
+        blind = self._low_inlier_ticks >= 10 and (uncertain or self._usable_beams < 20)
         entering = align or cross or blind
 
         if entering:

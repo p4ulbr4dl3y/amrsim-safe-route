@@ -604,6 +604,16 @@ class RouteFollower:
         else:
             self.note = None
 
+        # Концевая точка маршрута всегда совпадает с целью миссии: боковой обход и
+        # локальное перепланирование не должны смещать док, иначе прибытие объявляется
+        # при истинном расстоянии до дока 0.29-0.48 м (дефект преждевременного arrived).
+        if len(self.active_path) > 0 and len(self.reference_path) > 0:
+            last = self.active_path[-1]
+            ref_last = self.reference_path[-1]
+            if np.hypot(last[0] - ref_last[0], last[1] - ref_last[1]) > 1e-9:
+                self.active_path = self.active_path.copy()
+                self.active_path[-1] = ref_last
+
         v_zone_limit = self.check_speed_zones(x, y, th)
         v, w, target_pt, _, rem_dist = self.pure_pursuit(pose, self.active_path, v_max=v_zone_limit)
 

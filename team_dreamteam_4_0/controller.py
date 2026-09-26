@@ -315,13 +315,19 @@ class Controller:
 
         # Проверка порога прибытия в конечный док
         if mission is not None and len(self.route.active_path) >= 2:
-            terminal_pt = self.route.active_path[-1]
-            dist_to_dock = math.hypot(pose[0] - terminal_pt[0], pose[1] - terminal_pt[1])
+            # Оценка расстояния берется до цели миссии, а не до концевой точки маршрута:
+            # боковой обход может сместить конец active_path, и тогда прибытие объявлялось
+            # бы при истинном расстоянии до дока 0.29-0.48 м. Порог прибытия - 0.2 м.
+            dock_pt = mission.get("goal")
+            if dock_pt is None or len(dock_pt) < 2:
+                dock_pt = self.route.active_path[-1]
+            dist_to_dock = math.hypot(pose[0] - dock_pt[0], pose[1] - dock_pt[1])
             is_route_arrived = bool(
                 route_cmd.get("arrived", False) or route_cmd.get("status") == "arrived"
             )
             if (
                 (dist_to_dock <= 0.10 or is_route_arrived)
+                and dist_to_dock <= 0.20
                 and abs(v_odom) < 0.04
                 and self.visited_from
             ):

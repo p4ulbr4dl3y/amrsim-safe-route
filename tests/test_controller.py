@@ -419,6 +419,48 @@ class TestControllerUnits(unittest.TestCase):
         self.assertEqual(res["status"], "estop")
         self.assertEqual(res["v"], 0.0)
 
+    def test_arrived_rejected_while_dock_distance_over_0_2m(self):
+        """'arrived' не выставляется, пока оценка расстояния до дока больше 0.2 м.
+
+        Дефект P1: контроллер закрывал миссию как доставленную при истинном
+        расстоянии до дока 0.29-0.48 м (04_busy_yard s10/s23, m2 off_target),
+        потому что дистанция прибытия считалась до концевой точки маршрута, а не
+        до цели миссии. Порог прибытия - 0.2 м.
+        """
+        ctrl = Controller(SYNTH_MAP, SYNTH_CONFIG, [5.0, 2.0, 0.0])
+        # Маршрут сообщает о прибытии, но цель миссии (док) все еще в 0.35 м.
+        ctrl.route.step = lambda **kwargs: {
+            "v": 0.0,
+            "w": 0.0,
+            "remaining_dist": 0.0,
+            "arrived": True,
+            "status": "arrived",
+            "note": "",
+        }
+        # Концевая точка маршрута совпадает с текущей позой, поэтому старая проверка
+        # (расстояние до конца active_path) объявила бы прибытие; цель миссии в 0.35 м.
+        ctrl.route.active_path = np.array([[5.0, 2.0], [5.05, 2.0]])
+        mission = dict(SYNTH_MISSION)
+        mission["from"] = [5.0, 2.0]  # совпадает со стартом -> visited_from
+        mission["goal"] = [5.35, 2.0, 0.0]  # расстояние до дока 0.35 м
+        obs = make_obs(ctrl)
+        obs["mission"] = mission
+
+        res = ctrl.step(obs)
+        self.assertTrue(ctrl.visited_from)
+        self.assertFalse(ctrl.arrived, "док в 0.35 м не считается достигнутым")
+        self.assertNotEqual(res["status"], "arrived")
+
+        # После сближения до 0.15 м прибытие разрешено.
+        mission_close = dict(mission)
+        mission_close["goal"] = [5.15, 2.0, 0.0]
+        ctrl.route.active_path = np.array([[5.0, 2.0], [5.15, 2.0]])
+        obs2 = make_obs(ctrl, t=0.1)
+        obs2["mission"] = mission_close
+        res2 = ctrl.step(obs2)
+        self.assertTrue(ctrl.arrived)
+        self.assertEqual(res2["status"], "arrived")
+
 
 if __name__ == "__main__":
     unittest.main()
