@@ -563,7 +563,7 @@ class RouteFollower:
 
         Условие срабатывания:
         - проникновение в опорную трубку: dist_center - r < tube_radius (1.25 м);
-        - ИЛИ недостаточный зазор: gap = dist_center - 0.9 - r < 1.1 м.
+        - или недостаточный зазор: gap = dist_center - 0.9 - r < 1.1 м.
         Возвращает (ox, oy, r, s_obs) для ближайшего препятствия впереди текущего прогресса.
         """
         parsed = self._parse_obstacles(obstacles)

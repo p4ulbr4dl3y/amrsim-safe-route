@@ -320,7 +320,7 @@ class Perception:
         active_segs = map_segs
         if self.removed_segment_ids:
             mask = np.ones(len(map_segs), dtype=bool)
-            for sid in self.removed_segment_ids:
+            for sid in sorted(self.removed_segment_ids):
                 if 0 <= sid < len(map_segs):
                     mask[sid] = False
             active_segs = map_segs[mask]
@@ -474,9 +474,8 @@ class Perception:
         # 6. Ассоциация детекций с существующими треками в чистом базисе одометрии
         assoc_thresh = 1.5 if is_fog else 1.0
         used_tracks: Set[int] = set()
-        matched_cluster_indices: Set[int] = set()
 
-        for c_idx, c_dict in enumerate(detected_clusters):
+        for c_dict in detected_clusters:
             c_ox, c_oy = c_dict["ox"], c_dict["oy"]
             best_idx = None
             best_dist = assoc_thresh
@@ -492,7 +491,6 @@ class Perception:
             if best_idx is not None:
                 tr = self.tracks[best_idx]
                 used_tracks.add(best_idx)
-                matched_cluster_indices.add(c_idx)
 
                 # Обновление оценки скорости в базисе одометрии
                 dx = c_ox - tr.ox
@@ -542,7 +540,6 @@ class Perception:
 
                 self.tracks.append(tr)
                 used_tracks.add(len(self.tracks) - 1)
-                matched_cluster_indices.add(c_idx)
 
         # 7. Несопоставленные треки: экстраполяция движения для динамических треков
         slow_platform = abs(v_odom) < STATIC_OBJECT_V_GATE
@@ -691,7 +688,7 @@ class Perception:
                         if np.isfinite(r_s[0]) and abs(r_s[0] - exp_ranges[idx]) < 0.25:
                             tick_votes[s_idx] = tick_votes.get(s_idx, 0) + 1
 
-                for s_idx, count in tick_votes.items():
+                for s_idx, count in sorted(tick_votes.items()):
                     # Не менее 5 одновременных пересекающих лучей для фиксации события
                     if count >= 5:
                         self._missing_wall_votes[s_idx] = self._missing_wall_votes.get(s_idx, 0) + 1

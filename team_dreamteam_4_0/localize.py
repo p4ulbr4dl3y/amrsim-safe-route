@@ -266,7 +266,7 @@ class Localizer:
             self.var_along = max(self.var_along, bound**2)
 
         # Поперечная дисперсия: растет с неопределенностью курса и дрейфом (0.3 град / sqrt(мин)).
-        # 0.3 град = 0.0052 рад -> ~0.0052 / sqrt(60) ≈ 0.00067 рад/sqrt(с) -> ~4.5e-7 рад^2/с.
+        # 0.3 град = 0.0052 рад -> ~0.0052 / sqrt(60) ~ 0.00067 рад/sqrt(с) -> ~4.5e-7 рад^2/с.
         yaw_drift_var = (0.00067**2) * dt
         self.var_th += yaw_drift_var
         d_var_cross = (
@@ -390,7 +390,7 @@ class Localizer:
         cand_ranges = r_sub[candidate_mask]
         cand_rel = rel_sub[candidate_mask]
 
-        # Поправки состояния по методу Гаусса - Ньютона
+        # Поправки состояния по методу Гаусса-Ньютона
         cur_x = self.x
         cur_y = self.y
         cur_th = self.th
