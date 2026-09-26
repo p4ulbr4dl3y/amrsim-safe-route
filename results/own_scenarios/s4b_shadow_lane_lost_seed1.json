@@ -10,12 +10,12 @@
  "cheat": false,
  "controller": {
   "path": "team_dreamteam_4_0/controller.py",
-  "sha256": "f2bac143b94ac8d6"
+  "sha256": "b63ab91caa9194b0"
  },
  "counted": true,
  "end_reason": "missions_done",
  "error": null,
- "ticks": 429,
+ "ticks": 390,
  "missions": [
   {
    "type": "mission",
@@ -23,9 +23,9 @@
    "from": "yard_s",
    "to": "charger",
    "t_start": 0.0,
-   "t_end": 42.8,
-   "t_arrival": 41.9,
-   "max_hold_dist": 0.0753,
+   "t_end": 38.9,
+   "t_arrival": 38.0,
+   "max_hold_dist": 0.0436,
    "deadline_s": 200.0,
    "reference_length_m": 44.5,
    "delivered": true,
@@ -33,8 +33,8 @@
   }
  ],
  "score": {
-  "total": 99.3,
-  "raw_sum": 99.295,
+  "total": 100.0,
+  "raw_sum": 100.0,
   "fatal": false,
   "fatal_t": null,
   "counted": true,
@@ -42,7 +42,7 @@
   "not_counted_blocks": [],
   "blocks": {
    "delivery": 40.0,
-   "efficiency": 14.295,
+   "efficiency": 15.0,
    "safety": 25.0,
    "rules": 10.0,
    "pose": 10.0,
@@ -61,10 +61,10 @@
     "id": "m1",
     "delivered": true,
     "t_start": 0.0,
-    "t_arrival": 41.9,
-    "time_s": 41.9,
-    "ratio": 1.047,
-    "efficiency": 0.952970786516854,
+    "t_arrival": 38.0,
+    "time_s": 38.0,
+    "ratio": 0.9496,
+    "efficiency": 1.0,
     "reason": "delivered"
    }
   ],
@@ -72,11 +72,11 @@
   "top_episodes": []
  },
  "step_time_ms": {
-  "n": 429,
-  "mean": 2.922,
-  "max": 80.855
+  "n": 390,
+  "mean": 2.948,
+  "max": 77.245
  },
- "wall_time_s": 1.665,
+ "wall_time_s": 1.488,
  "wall_limit_s": 600.0,
  "sandbox_violations": [],
  "controller_stderr_tail": "",

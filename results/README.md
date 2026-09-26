@@ -1,8 +1,8 @@
 # Результаты и приёмка (сдача)
 
-Все отчёты в этой папке пересняты на финальном дереве финальным контроллером
-`team_dreamteam_4_0/controller.py`, sha256 `2f4a721eafcfb6ed` (первые 16 hex-символов,
-как их пишет amrsim). Команда прогона одного сценария:
+Все отчёты в этой папке сняты на финальном дереве. Свои сценарии `own_scenarios/*` пересняты текущим контроллером
+`team_dreamteam_4_0/controller.py`, sha256 `b63ab91caa9194b0`; официальный пакет `seed_packet/*` снят более ранней ревизией контроллера
+(`2f4a721eafcfb6ed`). Первые 16 hex-символов sha256, как их пишет amrsim. Команда прогона одного сценария:
 
 ```bash
 PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
@@ -69,14 +69,14 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 
 | Сценарий | total | pose | safety | missions | момент для сдачи |
 | --- | --- | --- | --- | --- | --- |
-| `s1_pallet_2m` | 98.84 | 10 | 25.0 | 2/2 | t=111.9, note `offset dy=-0.4` (объезд, О4) |
-| `s2_container_block` | 100.00 | 10 | 25.0 | 1/1 | t=148.2, note `replan` (перепланирование, О4) |
+| `s1_pallet_2m` | 99.97 | 10 | 25.0 | 2/2 | t=111.9, note `offset dy=-0.4` (объезд, О4) |
+| `s2_container_block` | 100.00 | 10 | 25.0 | 1/1 | t=147.0, note `replan` (перепланирование, О4) |
 | `s3_wall_removed` | 100.00 | 10 | 25.0 | 1/1 | t=9.8, note `map_missing` (расхождение карты, О4) |
-| `s4_shadow_start_charger` | 100.00 | 10 | 25.0 | 1/1 | t=48.8, статус `arrived`, note `dock` |
+| `s4_shadow_start_charger` | 100.00 | 10 | 25.0 | 1/1 | t=43.0, статус `arrived`, note `dock` |
 | `s4b_shadow_lane_lost` | 100.00 | 10 | 25.0 | 1/1 | на seed 7 потеря не возникает; контроль - seed 1 |
-| `s5_fog_inattentive` | 99.27 | 10 | 25.0 | 2/2 | t=40.0 `fog_clear`; t=87.0 `stop_person d=0.7` (О2) |
+| `s5_fog_inattentive` | 99.44 | 10 | 25.0 | 2/2 | t=40.0 `fog_clear`; t=87.0 `stop_person d=0.7` (О2) |
 
-Прогон `s4b_shadow_lane_lost` на seed 1: total 99.3, доставка 1/1, collisions 0, fatal нет.
+Прогон `s4b_shadow_lane_lost` на seed 1: total 100.0, доставка 1/1, collisions 0, fatal нет.
 Потеря ориентации: note `lost s_lat=0.0 map_extra` с t=26.0, статус `lost` с t=27.2 (v = 0),
 восстановление с t=28.0. Лог лежит в `own_scenarios/logs/s4b_shadow_lane_lost_seed1.jsonl`.
 
@@ -90,9 +90,9 @@ PYTHONPATH=amrsim-participants uv run python -m amrsim run <scenario> \
 
 | Дополнительная возможность О4 | Сценарий проверки | Момент / эпизод в логе | Файл отчета и лога | Реализация в кодовой базе |
 | :--- | :--- | :--- | :--- | :--- |
-| **1. Объезд оставленного предмета** | `s1_pallet_2m.json` (seed 7) | $t=111.9$ с, `status=moving`, note `offset dy=-0.4` | `own_scenarios/s1_pallet_2m.json`, лог `logs/s1_pallet_2m.jsonl` | [follower.py](file:///Users/yegor/doc-1790342627/team_dreamteam_4_0/route/follower.py) (метод `_find_lateral_shift`) |
-| **2. Перепланирование маршрута** | `s2_container_block.json` (seed 7) | $t=148.2$ с, `status=moving`, note `replan` | `own_scenarios/s2_container_block.json`, лог `logs/s2_container_block.jsonl` | [astar.py](file:///Users/yegor/doc-1790342627/team_dreamteam_4_0/route/astar.py) (`astar_search` в объезд заблокированного проезда) |
-| **3. Обнаружение расхождения карты** | `s3_wall_removed.json` (seed 7) | $t=9.8$ с, `status=moving`, note `map_missing` | `own_scenarios/s3_wall_removed.json`, лог `logs/s3_wall_removed.jsonl` | [perception.py](file:///Users/yegor/doc-1790342627/team_dreamteam_4_0/perceive/perception.py) (детекция отсутствующих стен и контейнеров) |
+| **1. Объезд оставленного предмета** | `s1_pallet_2m.json` (seed 7) | $t=111.9$ с, `status=moving`, note `offset dy=-0.4` | `own_scenarios/s1_pallet_2m.json`, лог `logs/s1_pallet_2m.jsonl` | [follower.py](team_dreamteam_4_0/route/follower.py) (метод `apply_lateral_offset`) |
+| **2. Перепланирование маршрута** | `s2_container_block.json` (seed 7) | $t=147.0$ с, `status=moving`, note `replan` | `own_scenarios/s2_container_block.json`, лог `logs/s2_container_block.jsonl` | [follower.py](team_dreamteam_4_0/route/follower.py) (`replan_astar`, локальный A* в объезд заблокированного проезда) |
+| **3. Обнаружение расхождения карты** | `s3_wall_removed.json` (seed 7) | $t=9.8$ с, `status=moving`, note `map_missing` | `own_scenarios/s3_wall_removed.json`, лог `logs/s3_wall_removed.jsonl` | [filtering.py](team_dreamteam_4_0/perceive/filtering.py) (детекция отсутствующих стен и контейнеров) |
 | **4. Запуск прогона из АРМ с показом** | `04_busy_yard` / все сценарии | Вкладка Runner: запуск в реальном времени, стриминг логов в терминал | [RunnerPage.tsx](file:///Users/yegor/doc-1790342627/arm/frontend/src/pages/RunnerPage.tsx) | [server.py](file:///Users/yegor/doc-1790342627/arm/server.py) (`POST /api/run-simulation`) |
 | **5. Экспорт журнала в CSV** | Все сценарии | Вкладка Episodes: кнопка «Экспорт в CSV» со всеми полями инцидентов | Скачиваемый файл `amr_episodes_<id>.csv` | [server.py](file:///Users/yegor/doc-1790342627/arm/server.py) (`GET /api/export-csv`) |
 | **6. Собственные сценарии и автотесты** | 5 сценариев (`s1`..`s5`) + 256 тестов | Сценарии `scenarios/s1`..`s5`; 256 тестов `uv run pytest -v` (100% passed) | `results/own_scenarios/`, `tests/` | `tests/test_route.py`, `test_safety.py`, `test_localize.py`, `test_perceive.py` |
