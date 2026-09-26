@@ -149,13 +149,14 @@ def format_table(
         "Coll.",
         "Total",
     ]
-    if baseline_summary:
+    has_baseline = bool(baseline_summary and "scenarios" in baseline_summary)
+    if has_baseline:
         headers.append("BaseΔ")
     headers.append("Step (avg/max ms)")
 
     table_data = []
     total_score_sum = 0.0
-    base_score_sum = 0.0
+    total_delta_sum = 0.0
     has_baseline_comparison = False
 
     for r in rows:
@@ -179,12 +180,12 @@ def format_table(
         ]
         total_score_sum += r["total"]
 
-        if baseline_summary and "scenarios" in baseline_summary:
+        if has_baseline:
             base_scen = baseline_summary["scenarios"].get(scen)
             if base_scen:
                 base_tot = float(base_scen.get("total", 0.0))
-                base_score_sum += base_tot
                 delta = r["total"] - base_tot
+                total_delta_sum += delta
                 delta_str = f"{delta:+.2f}" if abs(delta) >= 0.01 else " 0.00"
                 row.append(delta_str)
                 has_baseline_comparison = True
@@ -206,20 +207,26 @@ def format_table(
         "-",
         f"{total_score_sum:.2f}",
     ]
-    if baseline_summary:
+    if has_baseline:
         if has_baseline_comparison:
-            tot_delta = total_score_sum - base_score_sum
-            summary_row.append(f"{tot_delta:+.2f}")
+            summary_row.append(f"{total_delta_sum:+.2f}")
         else:
             summary_row.append("-")
     summary_row.append("-")
 
     # Column widths
     all_rows = [headers] + table_data + [summary_row]
-    col_widths = [max(len(str(item)) for item in col) for col in zip(*all_rows)]
+    max_cols = max((len(r) for r in all_rows), default=0)
+    col_widths = [
+        max(len(str(r[i])) for r in all_rows if i < len(r))
+        for i in range(max_cols)
+    ]
 
     def make_line(items: List[str]) -> str:
-        return " | ".join(f"{str(it):<{col_widths[i]}}" for i, it in enumerate(items))
+        return " | ".join(
+            f"{str(it):<{col_widths[i] if i < len(col_widths) else 0}}"
+            for i, it in enumerate(items)
+        )
 
     sep = "-+-".join("-" * w for w in col_widths)
 

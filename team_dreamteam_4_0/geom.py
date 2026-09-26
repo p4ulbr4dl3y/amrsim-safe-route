@@ -326,6 +326,8 @@ def inside_polygon(x, y=None, poly=None) -> Union[bool, np.ndarray]:
         poly_arr = np.asarray(y, dtype=float)
         is_single = pts.ndim == 1
         pts_arr = np.atleast_2d(pts)
+        if pts_arr.size == 0 or pts_arr.shape[1] == 0:
+            return False if is_single else np.zeros(0, dtype=bool)
         px = pts_arr[:, 0]
         py = pts_arr[:, 1]
     else:
@@ -336,7 +338,7 @@ def inside_polygon(x, y=None, poly=None) -> Union[bool, np.ndarray]:
 
     if len(poly_arr) < 3 or len(px) == 0:
         res = np.zeros(len(px), dtype=bool)
-        return bool(res[0]) if is_single else res
+        return bool(res[0]) if (is_single and len(res) > 0) else (False if is_single else res)
 
     x_q = px[:, None]
     y_q = py[:, None]
@@ -387,6 +389,13 @@ def box_segs(poly) -> np.ndarray:
                 valid = [s for s in segs_list if len(s) > 0]
                 return np.vstack(valid) if valid else np.empty((0, 4), dtype=float)
 
+    if isinstance(poly, np.ndarray) and poly.ndim == 3:
+        if poly.shape[0] == 0 or poly.shape[2] != 2:
+            return np.empty((0, 4), dtype=float)
+        segs_list = [box_segs(item) for item in poly]
+        valid = [s for s in segs_list if len(s) > 0]
+        return np.vstack(valid) if valid else np.empty((0, 4), dtype=float)
+
     p = np.asarray(poly, dtype=float)
     if p.ndim != 2 or p.shape[0] < 2 or p.shape[1] != 2:
         return np.empty((0, 4), dtype=float)
@@ -398,7 +407,7 @@ def box_segs(poly) -> np.ndarray:
 def polygon_area(poly) -> float:
     """Знаковая площадь 2D полигона (положительна против часовой стрелки)."""
     p = np.asarray(poly, dtype=float)
-    if len(p) < 3:
+    if p.ndim != 2 or p.shape[1] != 2 or p.shape[0] < 3:
         return 0.0
     x, y = p[:, 0], p[:, 1]
     return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
