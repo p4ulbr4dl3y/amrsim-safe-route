@@ -281,34 +281,24 @@ export const apiClient = {
    * Fetch ready-to-render Dashboard View Model.
    */
   async fetchDashboard(scenarioId = '04_busy_yard'): Promise<DashboardViewModel> {
+    try {
+      const res = await fetch(`${API_BASE}/ui/dashboard?scenario=${encodeURIComponent(scenarioId)}`);
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && serverVm.scenario) {
+          return serverVm;
+        }
+      }
+    } catch (err) {
+      console.warn(`[API] Failed to fetch dashboard for ${scenarioId} from server:`, err);
+    }
+
     const uploaded = getUploadedScenario();
     if (uploaded && uploaded.id === scenarioId && uploaded.dashboardViewModel) {
-      if (uploaded.fileType === 'log' || uploaded.fileType === 'report') {
-        return uploaded.dashboardViewModel;
-      }
-      // If uploaded as 'scenario', check server first to see if a real simulation was executed
-      try {
-        const res = await fetch(`${API_BASE}/ui/dashboard?scenario=${encodeURIComponent(scenarioId)}`);
-        if (res.ok) {
-          const serverVm = await res.json();
-          if (serverVm && serverVm.scenario) {
-            return serverVm;
-          }
-        }
-      } catch (err) {
-        // Fall back to uploaded
-      }
       return uploaded.dashboardViewModel;
     }
 
-    try {
-      const res = await fetch(`${API_BASE}/ui/dashboard?scenario=${encodeURIComponent(scenarioId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      console.warn(`[API] Failed to fetch dashboard for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getDashboard(scenarioId);
-    }
+    return fallbackData.getDashboard(scenarioId);
   },
 
   /**
@@ -316,41 +306,51 @@ export const apiClient = {
    */
   async fetchReplay(scenarioId = '04_busy_yard', seed = 7): Promise<ReplayViewModel> {
     const uploaded = getUploadedScenario();
-    if (uploaded && uploaded.id === scenarioId && uploaded.replayViewModel) {
-      // Use uploaded replayViewModel directly only if a real multi-tick log was uploaded
-      if (uploaded.fileType === 'log' && uploaded.replayViewModel.ticks && uploaded.replayViewModel.ticks.length > 1) {
-        return uploaded.replayViewModel;
-      }
-
-      // If uploaded as 'scenario', query the server first to check for simulation out/*.jsonl
-      try {
-        const res = await fetch(`${API_BASE}/ui/replay?scenario=${encodeURIComponent(scenarioId)}&seed=${seed}`);
-        if (res.ok) {
-          const serverVm = await res.json();
-          if (serverVm && serverVm.ticks && serverVm.ticks.length > 0) {
-            return serverVm;
-          }
-        }
-      } catch (err) {
-        // Fall back to uploaded stub
-      }
+    if (
+      uploaded &&
+      uploaded.id === scenarioId &&
+      uploaded.fileType === 'log' &&
+      uploaded.replayViewModel?.ticks &&
+      uploaded.replayViewModel.ticks.length > 1
+    ) {
       return uploaded.replayViewModel;
     }
 
     try {
       const res = await fetch(`${API_BASE}/ui/replay?scenario=${encodeURIComponent(scenarioId)}&seed=${seed}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && (serverVm.scenario || serverVm.ticks)) {
+          return serverVm;
+        }
+      }
     } catch (err) {
-      console.warn(`[API] Failed to fetch replay for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getReplay(scenarioId, seed);
+      console.warn(`[API] Failed to fetch replay for ${scenarioId} from server:`, err);
     }
+
+    if (uploaded && uploaded.id === scenarioId && uploaded.replayViewModel) {
+      return uploaded.replayViewModel;
+    }
+
+    return fallbackData.getReplay(scenarioId, seed);
   },
 
   /**
    * Fetch Episodes & Safety incidents list with telemetry snapshots.
    */
   async fetchEpisodes(scenarioId = '04_busy_yard'): Promise<EpisodesViewModel> {
+    try {
+      const res = await fetch(`${API_BASE}/ui/episodes?scenario=${encodeURIComponent(scenarioId)}`);
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && Array.isArray(serverVm.episodes)) {
+          return serverVm;
+        }
+      }
+    } catch (err) {
+      console.warn(`[API] Failed to fetch episodes for ${scenarioId} from server:`, err);
+    }
+
     const uploaded = getUploadedScenario();
     if (uploaded && uploaded.id === scenarioId) {
       const eps = uploaded.reportJson?.episodes || uploaded.replayViewModel?.episodes || [];
@@ -366,39 +366,49 @@ export const apiClient = {
       };
     }
 
-    try {
-      const res = await fetch(`${API_BASE}/ui/episodes?scenario=${encodeURIComponent(scenarioId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      console.warn(`[API] Failed to fetch episodes for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getEpisodes(scenarioId);
-    }
+    return fallbackData.getEpisodes(scenarioId);
   },
 
   /**
    * Fetch Missions (m1, m2) performance, hold duration, tolerance and margins.
    */
   async fetchMissions(scenarioId = '04_busy_yard'): Promise<MissionsViewModel> {
+    try {
+      const res = await fetch(`${API_BASE}/ui/missions?scenario=${encodeURIComponent(scenarioId)}`);
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && Array.isArray(serverVm.missions)) {
+          return serverVm;
+        }
+      }
+    } catch (err) {
+      console.warn(`[API] Failed to fetch missions for ${scenarioId} from server:`, err);
+    }
+
     const uploaded = getUploadedScenario();
     if (uploaded && uploaded.id === scenarioId && uploaded.missionsViewModel) {
       return uploaded.missionsViewModel;
     }
 
-    try {
-      const res = await fetch(`${API_BASE}/ui/missions?scenario=${encodeURIComponent(scenarioId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      console.warn(`[API] Failed to fetch missions for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getMissions(scenarioId);
-    }
+    return fallbackData.getMissions(scenarioId);
   },
 
   /**
    * Fetch complete Analytics: 6 score blocks, radar chart, compute budget & sandbox.
    */
   async fetchAnalytics(scenarioId = '04_busy_yard'): Promise<AnalyticsViewModel> {
+    try {
+      const res = await fetch(`${API_BASE}/ui/analytics?scenario=${encodeURIComponent(scenarioId)}`);
+      if (res.ok) {
+        const serverVm = await res.json();
+        if (serverVm && serverVm.blocks) {
+          return serverVm;
+        }
+      }
+    } catch (err) {
+      console.warn(`[API] Failed to fetch analytics for ${scenarioId} from server:`, err);
+    }
+
     const uploaded = getUploadedScenario();
     if (uploaded && uploaded.id === scenarioId && uploaded.reportJson) {
       const rep = uploaded.reportJson;
@@ -420,14 +430,7 @@ export const apiClient = {
       };
     }
 
-    try {
-      const res = await fetch(`${API_BASE}/ui/analytics?scenario=${encodeURIComponent(scenarioId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      console.warn(`[API] Failed to fetch analytics for ${scenarioId}, using fallback:`, err);
-      return fallbackData.getAnalytics(scenarioId);
-    }
+    return fallbackData.getAnalytics(scenarioId);
   },
 
   /**

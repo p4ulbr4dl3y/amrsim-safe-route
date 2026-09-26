@@ -5,6 +5,8 @@ import { Play, Terminal as TerminalIcon, ExternalLink, ChevronDown, RefreshCw, B
 import {
   getSelectedScenario,
   setSelectedScenario,
+  hasUploadedScenario,
+  clearUploadedScenario,
   AMR_SCENARIO_CHANGE_EVENT,
 } from '../utils/scenarioStorage';
 
@@ -158,6 +160,11 @@ export const RunnerPage: React.FC<RunnerPageProps> = ({
       }
 
       setOutputLogs(logs);
+
+      if (res.exitCode === 0 && hasUploadedScenario()) {
+        clearUploadedScenario();
+        setSelectedScenario(scenario);
+      }
     } catch (err: any) {
       clearInterval(progressTimer);
       setProgress(100);

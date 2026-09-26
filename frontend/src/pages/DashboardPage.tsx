@@ -100,7 +100,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           setLoading(false);
         }
       } else {
-        setSelectedScenario('04_busy_yard');
+        setSelectedScenario(getSelectedScenario());
       }
       apiClient.fetchScenarios().then((list) => {
         if (mounted) setScenarios(list);
@@ -892,42 +892,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="lg:col-span-4 flex flex-col gap-5">
           {/* Card: Быстрый запуск */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-4">
-            <h2 className="text-sm font-semibold text-slate-800">Выбор сценария</h2>
-            <div>
-              <label className="text-xs text-slate-500 font-medium block mb-1.5">
-                Сценарий тестирования
-              </label>
-              <div className="relative">
-                <select
-                  value={selectedScenario}
-                  onChange={(e) => setSelectedScenario(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-2.5 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
-                >
-                  {scenarios.length > 0 ? (
-                    scenarios.map((sc) => (
-                      <option key={sc.id} value={sc.id}>
-                        {sc.name} {sc.score !== null ? `(${sc.score.toFixed(1)} pts)` : ''}
-                      </option>
-                    ))
-                  ) : (
-                    <>
-                      <option value="01_clear">01_clear.json (Ясная погода)</option>
-                      <option value="01e_clear_easy">01e_clear_easy.json (Ясная погода — Easy)</option>
-                      <option value="02_gnss_shadow">02_gnss_shadow.json (Тень ГНСС)</option>
-                      <option value="02e_gnss_shadow_easy">02e_gnss_shadow_easy.json (Тень ГНСС — Easy)</option>
-                      <option value="03_fog_snow">03_fog_snow.json (Туман и снег)</option>
-                      <option value="04_busy_yard">04_busy_yard.json (Оживленный двор)</option>
-                      <option value="s1_pallet_2m">backend/s1_pallet_2m.json (Поддон в 2м от оси)</option>
-                      <option value="s2_container_block">backend/s2_container_block.json (Блокировка контейнером)</option>
-                      <option value="s3_wall_removed">backend/s3_wall_removed.json (Убранная стена)</option>
-                      <option value="s4_shadow_start_charger">backend/s4_shadow_start_charger.json (Старт в тени до зарядки)</option>
-                      <option value="s5_fog_inattentive">backend/s5_fog_inattentive.json (Туман и пешеход)</option>
-                    </>
-                  )}
-                </select>
-                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />
-              </div>
-            </div>
+            <h2 className="text-sm font-semibold text-slate-800">Быстрый запуск</h2>
 
             {/* Launch simulation button */}
             <button
